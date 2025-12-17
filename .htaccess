@@ -1,0 +1,11 @@
+# Force UTF-8 encoding for all files
+AddDefaultCharset UTF-8
+AddCharset UTF-8 .php .html .css .js
+
+# Set default language
+DefaultLanguage ar
+
+# PHP settings
+php_value default_charset "UTF-8"
+php_value mbstring.internal_encoding "UTF-8"
+php_value mbstring.http_output "UTF-8"
