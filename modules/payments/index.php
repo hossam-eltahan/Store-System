@@ -130,7 +130,7 @@ include '../../includes/navbar.php';
                             <td><?php echo date('Y/m/d', strtotime($payment['payment_date'])); ?></td>
                             <td><?php echo $payment['payment_method']; ?></td>
                             <td>
-                                <a href="<?php echo $printPage; ?>?id=<?php echo $payment['id']; ?>" class="btn btn-primary btn-sm" target="_blank" title="طباعة">🖨️</a>
+                                <a href="<?php echo $printPage; ?>?id=<?php echo $payment['id']; ?>" class="btn btn-primary btn-sm" title="طباعة">🖨️</a>
                             </td>
                         </tr>
                         <?php endforeach; ?>

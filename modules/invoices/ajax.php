@@ -211,12 +211,29 @@ function getInvoiceItems() {
     $invoiceId = $_GET['invoice_id'] ?? 0;
     
     $items = getRows(
-        "SELECT * FROM invoice_items WHERE invoice_id = ?",
+        "SELECT 
+            ii.*,
+            (
+                SELECT COALESCE(SUM(ri.quantity), 0) 
+                FROM return_items ri 
+                JOIN returns r ON ri.return_id = r.id 
+                WHERE r.original_invoice_id = ii.invoice_id 
+                AND ri.product_id = ii.product_id
+            ) as returned_quantity
+         FROM invoice_items ii 
+         WHERE ii.invoice_id = ?",
         [$invoiceId]
     );
     
+    $availableItems = [];
+    foreach ($items as $item) {
+        $available = $item['quantity'] - $item['returned_quantity'];
+        $item['available_quantity'] = max(0, $available);
+        $availableItems[] = $item;
+    }
+    
     echo json_encode([
         'success' => true,
-        'items' => $items
+        'items' => $availableItems
     ]);
 }

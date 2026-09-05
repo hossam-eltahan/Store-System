@@ -1,21 +1,38 @@
 <?php
 /**
- * Purchase Invoice - Buy from Suppliers
+ * Sales Invoice - Simplified Fast Version
  * نظام إدارة محل أجهزة منزلية
  */
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
 
-$pageTitle = 'فاتورة شراء جديدة';
+$pageTitle = 'تعديل فاتورة شراء';
+
+$invoiceId = $_GET['id'] ?? 0;
+$oldInvoice = getRow("SELECT * FROM invoices WHERE id = ? AND type = 'purchase'", [$invoiceId]);
+
+if (!$oldInvoice) {
+    setError('الفاتورة غير موجودة');
+    redirect('list.php');
+}
+
+// Check if installment plan exists and has payments
+$plan = getRow("SELECT * FROM installment_plans WHERE invoice_id = ?", [$invoiceId]);
+if ($plan) {
+    $paidCountRow = getRow("SELECT COUNT(*) as count FROM installment_payments WHERE plan_id = ? AND status IN ('paid', 'partial')", [$plan['id']]);
+    if ($paidCountRow['count'] > 0) {
+        setError('لا يمكن تعديل الفاتورة لأنه تم سداد أقساط منها بالفعل.');
+        redirect('list.php');
+    }
+}
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         beginTransaction();
         
-        // Generate invoice number
-        $invoiceNumber = generateInvoiceNumber('purchase');
+        $invoiceNumber = $oldInvoice['invoice_number'];
         
         // Get form data
         $supplierId = !empty($_POST['supplier_id']) ? $_POST['supplier_id'] : null;
@@ -28,7 +45,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $handledBy = sanitize($_POST['handled_by'] ?? 'المدير');
         $notes = sanitize($_POST['notes'] ?? '');
         
-        // Get supplier's old balance BEFORE this invoice
+        // === REVERSE OLD INVOICE ===
+        // 1. Reverse inventory
+        $oldItems = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
+        foreach ($oldItems as $item) {
+            execute("UPDATE products SET stock_quantity = GREATEST(0, stock_quantity - ?) WHERE id = ?", [$item['quantity'], $item['product_id']]);
+        }
+        
+        // 2. Reverse supplier balance
+        if ($oldInvoice['supplier_id']) {
+            execute("UPDATE suppliers SET balance = balance - ? WHERE id = ?", [$oldInvoice['remaining_amount'], $oldInvoice['supplier_id']]);
+        }
+        
+        // 3. Delete old items
+        execute("DELETE FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
+        
+        // 4. Delete old plan if exists
+        if ($plan) {
+            execute("DELETE FROM installment_payments WHERE plan_id = ?", [$plan['id']]);
+            execute("DELETE FROM installment_plans WHERE id = ?", [$plan['id']]);
+        }
+        // ===========================
+
+        // Get supplier's old balance BEFORE this invoice (after reversing old invoice)
         $supplierOldBalance = 0;
         if ($supplierId) {
             $supplierData = getRow("SELECT balance FROM suppliers WHERE id = ?", [$supplierId]);
@@ -47,7 +86,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Validate overpayment
         if ($paidAmount > $finalAmount) {
-            // Overpaying - check if we owe supplier (positive balance)
             $weOweSupplier = $supplierOldBalance > 0 ? $supplierOldBalance : 0;
             $maxPayment = $finalAmount + $weOweSupplier;
             
@@ -55,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($weOweSupplier > 0) {
                     throw new Exception("المبلغ المدفوع ({$paidAmount}) يتجاوز قيمة الفاتورة ({$finalAmount}) + المستحق للمورد ({$weOweSupplier})");
                 } else {
-                    throw new Exception("المبلغ المدفوع ({$paidAmount}) لا يمكن أن يتجاوز قيمة الفاتورة ({$finalAmount}) لأنه لا يوجد حساب قديم مستحق للمورد");
+                    throw new Exception("المبلغ المدفوع ({$paidAmount}) لا يمكن أن يتجاوز قيمة الفاتورة ({$finalAmount}) لأنه لا يوجد حساب مستحق قديم للمورد");
                 }
             }
         }
@@ -69,35 +107,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $paymentStatus = 'unpaid';
         }
         
-        // Insert invoice with old_balance
-        $invoiceId = insert(
-            "INSERT INTO invoices (invoice_number, type, supplier_id, customer_name, customer_phone, date, total_amount, discount, paid_amount, remaining_amount, old_balance, payment_method, payment_status, handled_by, notes) 
-            VALUES (?, 'purchase', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [$invoiceNumber, $supplierId, $supplierName, $supplierPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $supplierOldBalance, $paymentMethod, $paymentStatus, $handledBy, $notes]
+        // Update invoice
+        execute(
+            "UPDATE invoices SET supplier_id = ?, customer_name = ?, customer_phone = ?, date = ?, total_amount = ?, discount = ?, paid_amount = ?, remaining_amount = ?, old_balance = ?, payment_method = ?, payment_status = ?, handled_by = ?, notes = ? WHERE id = ?",
+            [$supplierId, $supplierName, $supplierPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $supplierOldBalance, $paymentMethod, $paymentStatus, $handledBy, $notes, $invoiceId]
         );
         
-        // Insert items and INCREASE stock
+        // Insert items and update stock
         foreach ($items as $item) {
             insert(
                 "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, unit, quantity, unit_price, total) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price']]
+                [$invoiceId, $item['id'], $item['code'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price']]
             );
             
-            // INCREASE stock (opposite of sale)
+            // Update stock (add to stock for purchase)
             execute(
                 "UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?",
-                [$item['quantity'], $item['product_id']]
+                [$item['quantity'], $item['id']]
             );
         }
         
         // Auto-add supplier if not registered and has phone number
         if (!$supplierId && $supplierPhone && $supplierName) {
-            $existingSupplier = getRow("SELECT id, name FROM suppliers WHERE phone = ?", [$supplierPhone]);
+            $existingsupplier = getRow("SELECT id, name FROM suppliers WHERE phone = ?", [$supplierPhone]);
             
-            if ($existingSupplier) {
-                // Phone belongs to existing supplier - throw error
-                throw new Exception("رقم التليفون ({$supplierPhone}) مسجل بالفعل للمورد: " . $existingSupplier['name'] . ". اختر المورد من القائمة أو استخدم رقم مختلف.");
+            if ($existingsupplier) {
+                throw new Exception("رقم التليفون ({$supplierPhone}) مسجل بالفعل للمورد: " . $existingsupplier['name'] . ". اختر المورد من القائمة أو استخدم رقم مختلف.");
             } else {
                 $supplierId = insert(
                     "INSERT INTO suppliers (name, phone, balance) VALUES (?, ?, 0)",
@@ -110,11 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         // Update supplier balance:
-        // - Positive balance means we owe the supplier
-        // - remainingAmount > 0 means we still owe from this invoice
-        // - remainingAmount < 0 means we overpaid (can apply to old debt)
         if ($supplierId) {
-            // Always update balance with the remaining amount
             execute(
                 "UPDATE suppliers SET balance = balance + ? WHERE id = ?",
                 [$remainingAmount, $supplierId]
@@ -122,19 +154,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         commit();
-        logActivity('إنشاء فاتورة شراء', "تم إنشاء فاتورة شراء رقم {$invoiceNumber}", $handledBy);
+        logActivity('تعديل فاتورة', "تم تعديل فاتورة شراء رقم {$invoiceNumber}", $handledBy);
         
         if (isset($_POST['save_only'])) {
-            setSuccess('تم حفظ الفاتورة بنجاح');
-            header("Location: purchase.php");
+            setSuccess('تم تعديل الفاتورة بنجاح');
+            header("Location: list.php");
             exit;
         }
 
         // Redirect to print with remaining info for installment prompt
-        $redirectUrl = "print_purchase.php?id=$invoiceId";
+        $redirectUrl = "print.php?id=$invoiceId";
         
-        // Calculate total remaining including old debt we owe supplier
-        $oldDebt = $supplierOldBalance > 0 ? $supplierOldBalance : 0;
+        // Calculate total remaining including old debt
+        $oldDebt = $supplierOldBalance < 0 ? abs($supplierOldBalance) : 0;
         $totalRemaining = $remainingAmount + $oldDebt;
         
         if ($totalRemaining > 0 && $supplierId) {
@@ -149,7 +181,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Get suppliers and products with balance
+// Get suppliers and products for autocomplete with balance
 $suppliers = getRows("SELECT id, name, phone, balance FROM suppliers ORDER BY name");
 $products = getRows("SELECT id, code, name, unit, price, stock_quantity FROM products ORDER BY name");
 
@@ -183,7 +215,7 @@ include '../../includes/navbar.php';
 }
 
 .invoice-number {
-    background: linear-gradient(135deg, #10b981, #059669);
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
     color: white;
     padding: 6px 12px;
     border-radius: 6px;
@@ -209,7 +241,7 @@ include '../../includes/navbar.php';
 }
 
 .supplier-section {
-    background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+    background: linear-gradient(135deg, #eff6ff, #dbeafe);
 }
 
 .autocomplete-wrapper {
@@ -237,7 +269,7 @@ include '../../includes/navbar.php';
 }
 
 .autocomplete-item:hover, .autocomplete-item.active {
-    background: #ecfdf5;
+    background: #dbeafe;
 }
 
 .items-table {
@@ -246,7 +278,7 @@ include '../../includes/navbar.php';
 }
 
 .items-table th {
-    background: #059669;
+    background: #3b82f6;
     color: white;
     padding: 6px 4px;
     text-align: center;
@@ -298,7 +330,7 @@ include '../../includes/navbar.php';
 }
 
 .total-box.danger {
-    background: linear-gradient(135deg, #f59e0b, #d97706);
+    background: linear-gradient(135deg, #ef4444, #dc2626);
     color: white;
 }
 
@@ -333,7 +365,7 @@ include '../../includes/navbar.php';
 }
 
 .btn-submit {
-    background: linear-gradient(135deg, #10b981, #059669);
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
     color: white;
     padding: 8px 20px;
     font-size: 0.9em;
@@ -346,16 +378,21 @@ include '../../includes/navbar.php';
 }
 
 .btn-submit:hover {
-    background: linear-gradient(135deg, #059669, #047857);
-}
-
-.container {
-    padding: 0px !important;
+    background: linear-gradient(135deg, #2563eb, #1e40af);
 }
 
 #productSearch {
     padding: 8px 12px !important;
     font-size: 0.9em !important;
+}
+
+@media print {
+    .no-print { display: none !important; }
+    .invoice-container { box-shadow: none; }
+}
+
+.container {
+    padding: 0px !important;
 }
 </style>
 
@@ -364,41 +401,41 @@ include '../../includes/navbar.php';
         <form method="POST" id="invoiceForm">
             <!-- Invoice Header -->
             <div class="invoice-header">
-                <div class="invoice-title">📦 فاتورة شراء</div>
+                <div class="invoice-title">🧾 تعديل فاتورة شراء</div>
                 <div>
-                    <div class="invoice-number"><?php echo generateInvoiceNumber('purchase'); ?></div>
-                    <input type="date" name="date" value="<?php echo date('Y-m-d'); ?>" style="margin-top: 4px; padding: 4px 6px; border-radius: 4px; border: 1px solid #d1d5db; font-size: 0.85em;">
+                    <div class="invoice-number"><?php echo $oldInvoice['invoice_number']; ?></div>
+                    <input type="date" name="date" value="<?php echo $oldInvoice['date']; ?>" style="margin-top: 4px; padding: 4px 6px; border-radius: 4px; border: 1px solid #d1d5db; font-size: 0.85em;">
                 </div>
             </div>
             
-            <!-- Supplier Section -->
+            <!-- supplier Section -->
             <div class="supplier-section">
-                <div class="section-title">🚚 بيانات المورد</div>
+                <div class="section-title">👤 بيانات المورد</div>
                 <div class="form-row-inline">
                     <div class="form-group">
                         <label class="form-label">اسم المورد</label>
                         <div class="autocomplete-wrapper">
                             <input type="text" id="supplierName" name="supplier_name" class="form-control" 
-                                   placeholder="اكتب اسم المورد..." autocomplete="off" required>
-                            <input type="hidden" id="supplierId" name="supplier_id">
+                                   placeholder="اكتب اسم المورد..." autocomplete="off" required value="<?php echo htmlspecialchars($oldInvoice['customer_name'] ?? ''); ?>">
+                            <input type="hidden" id="supplierId" name="supplier_id" value="<?php echo $oldInvoice['supplier_id']; ?>">
                             <div id="supplierResults" class="autocomplete-results"></div>
                         </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">التليفون</label>
                         <input type="text" id="supplierPhone" name="supplier_phone" class="form-control" 
-                               placeholder="01xxxxxxxxx">
+                               placeholder="01xxxxxxxxx" required value="<?php echo htmlspecialchars($oldInvoice['customer_phone'] ?? ''); ?>">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">المستلم</label>
-                        <input type="text" name="handled_by" class="form-control" value="المدير" required>
+                        <label class="form-label">البائع</label>
+                        <input type="text" name="handled_by" class="form-control" value="<?php echo htmlspecialchars($oldInvoice['handled_by'] ?? 'المدير'); ?>" required>
                     </div>
                 </div>
                 
                 <!-- Old Balance Display -->
-                <div id="supplierBalanceSection" style="display: none; margin-top: 15px; padding: 15px; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px;">
+                <div id="supplierBalanceSection" style="display: none; margin-top: 15px; padding: 15px; background: #fee2e2; border: 2px solid #dc2626; border-radius: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-weight: bold;">⚠️ حساب قديم للمورد:</span>
+                        <span style="font-weight: bold;">⚠️ حساب قديم على المورد:</span>
                         <span id="oldBalanceDisplay" style="font-size: 1.3em; font-weight: bold; color: #dc2626;">0.00 جنيه</span>
                         <input type="hidden" id="oldBalance" value="0">
                     </div>
@@ -407,18 +444,13 @@ include '../../includes/navbar.php';
             
             <!-- Products Section -->
             <div class="products-section">
-                <div class="section-title">📦 الأصناف المشتراة</div>
-                <div class="form-group" style="margin-bottom: 8px;">
-                    <div style="display: flex; gap: 8px;">
-                        <div class="autocomplete-wrapper" style="flex: 1;">
-                            <input type="text" id="productSearch" class="form-control" 
-                                   placeholder="🔍 ابحث عن صنف..." autocomplete="off">
-                            <div id="productResults" class="autocomplete-results"></div>
-                        </div>
-                        <button type="button" onclick="openNewProductModal()" class="btn" 
-                                style="background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; padding: 8px 15px; font-size: 0.85em; border: none; border-radius: 6px; cursor: pointer;">
-                            ➕ صنف جديد
-                        </button>
+                <div class="section-title">📦 الأصناف</div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <div class="autocomplete-wrapper">
+                        <input type="text" id="productSearch" class="form-control" 
+                               placeholder="🔍 ابحث عن صنف بالاسم أو الكود..." autocomplete="off"
+                               style="font-size: 1.1em; padding: 15px;">
+                        <div id="productResults" class="autocomplete-results"></div>
                     </div>
                 </div>
                 
@@ -430,7 +462,7 @@ include '../../includes/navbar.php';
                             <th>الصنف</th>
                             <th style="width: 60px;">الوحدة</th>
                             <th style="width: 80px;">الكمية</th>
-                            <th style="width: 100px;">سعر الشراء</th>
+                            <th style="width: 100px;">السعر</th>
                             <th style="width: 100px;">الإجمالي</th>
                             <th style="width: 50px;"></th>
                         </tr>
@@ -454,9 +486,9 @@ include '../../includes/navbar.php';
                     </div>
                     <div class="total-box">
                         <div class="total-label">الخصم</div>
-                        <input type="number" step="0.01" name="discount" id="discount" 
-                               style="width: 100%; text-align: center; font-size: 1.2em; padding: 8px; border: 1px solid #d1d5db; border-radius: 5px;"
-                               value="0" oninput="calculateTotals()">
+                        <input type="number" step="0.01" id="discount" name="discount" 
+                               style="width: 100%; text-align: center; font-size: 0.9em; padding: 5px; border: 1px solid #d1d5db; border-radius: 4px;"
+                               value="<?php echo $oldInvoice['discount']; ?>" oninput="calculateTotals()">
                     </div>
                     <div class="total-box highlight">
                         <div class="total-label">الصافي</div>
@@ -468,26 +500,27 @@ include '../../includes/navbar.php';
                 <div style="margin-top: 20px;">
                     <div class="totals-grid">
                         <div class="total-box">
-                            <div class="total-label">المدفوع للمورد</div>
+                            <div class="total-label">المدفوع</div>
                             <input type="number" step="0.01" name="paid_amount" id="paidAmount" 
-                                   style="width: 100%; text-align: center; font-size: 1.2em; padding: 8px; border: 1px solid #d1d5db; border-radius: 5px;"
-                                   value="0" oninput="calculateTotals()">
+                                   style="width: 100%; text-align: center; font-size: 0.9em; padding: 5px; border: 1px solid #d1d5db; border-radius: 4px;"
+                                   value="<?php echo $oldInvoice['paid_amount']; ?>" oninput="calculateTotals()">
                         </div>
                         <div class="total-box" id="oldBalanceBox" style="display: none;">
                             <div class="total-label">حساب قديم</div>
                             <div class="total-value" id="oldBalanceTotalDisplay" style="color: #dc2626;">0.00</div>
                         </div>
                         <div class="total-box danger" id="remainingBox">
-                            <div class="total-label">إجمالي الباقي للمورد</div>
+                            <div class="total-label">الباقي</div>
                             <div class="total-value" id="remainingDisplay">0.00</div>
                         </div>
                         <div class="total-box">
                             <div class="total-label">طريقة الدفع</div>
-                            <select name="payment_method" class="form-control" style="font-size: 1em; padding: 8px;">
-                                <option value="كاش">كاش</option>
-                                <option value="تحويل بنكي">تحويل بنكي</option>
-                                <option value="شيك">شيك</option>
-                                <option value="آجل">آجل</option>
+                            <select name="payment_method" class="form-control" style="font-size: 0.85em; padding: 5px;">
+                                <option value="كاش" <?php echo $oldInvoice['payment_method'] === 'كاش' ? 'selected' : ''; ?>>كاش</option>
+                                <option value="انستاباي" <?php echo $oldInvoice['payment_method'] === 'انستاباي' ? 'selected' : ''; ?>>انستاباي</option>
+                                <option value="فودافون كاش" <?php echo $oldInvoice['payment_method'] === 'فودافون كاش' ? 'selected' : ''; ?>>فودافون كاش</option>
+                                <option value="فيزا" <?php echo $oldInvoice['payment_method'] === 'فيزا' ? 'selected' : ''; ?>>فيزا</option>
+                                <option value="أقساط" <?php echo $oldInvoice['payment_method'] === 'أقساط' ? 'selected' : ''; ?>>أقساط</option>
                             </select>
                         </div>
                     </div>
@@ -496,7 +529,7 @@ include '../../includes/navbar.php';
             
             <!-- Notes -->
             <div class="form-group" style="margin-bottom: 8px;">
-                <input type="text" name="notes" class="form-control" placeholder="ملاحظات..." style="font-size: 0.85em; padding: 6px;">
+                <input type="text" name="notes" class="form-control" placeholder="ملاحظات..." style="font-size: 0.85em; padding: 6px;" value="<?php echo htmlspecialchars($oldInvoice['notes']); ?>">
             </div>
             
             <input type="hidden" name="items" id="itemsData">
@@ -504,10 +537,10 @@ include '../../includes/navbar.php';
             <!-- Submit -->
             <div class="d-flex gap-2">
                 <button type="submit" name="save_and_print" class="btn-submit" style="flex: 1;">
-                    🖨️ حفظ وطباعة
+                    🖨️ تعديل وطباعة
                 </button>
                 <button type="submit" name="save_only" class="btn btn-success btn-lg" style="flex: 1;">
-                    💾 حفظ فقط
+                    💾 تعديل فقط
                 </button>
                 <a href="list.php" class="btn btn-secondary btn-lg" style="flex: 1; text-align: center;">❌ إلغاء</a>
             </div>
@@ -515,59 +548,50 @@ include '../../includes/navbar.php';
     </div>
 </div>
 
-<!-- New Product Modal -->
-<div id="newProductModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;">
-    <div style="background: white; border-radius: 15px; padding: 30px; width: 90%; max-width: 500px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #e5e7eb; padding-bottom: 15px;">
-            <h3 style="margin: 0; color: #1f2937;">➕ إضافة صنف جديد</h3>
-            <button onclick="closeNewProductModal()" style="background: #dc2626; color: white; border: none; border-radius: 50%; width: 35px; height: 35px; cursor: pointer; font-size: 18px;">✕</button>
-        </div>
-        <form id="newProductForm">
-            <div class="form-group" style="margin-bottom: 15px;">
-                <label class="form-label" style="font-weight: bold;">اسم الصنف *</label>
-                <input type="text" id="newProductName" class="form-control" required placeholder="مثال: تلفزيون سامسونج 55 بوصة">
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                <div class="form-group">
-                    <label class="form-label" style="font-weight: bold;">الكود</label>
-                    <input type="text" id="newProductCode" class="form-control" placeholder="يُنشأ تلقائياً" readonly style="background: #f3f4f6;">
-                </div>
-                <div class="form-group">
-                    <label class="form-label" style="font-weight: bold;">الوحدة *</label>
-                    <input type="text" id="newProductUnit" class="form-control" value="قطعة" required>
-                </div>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-                <div class="form-group">
-                    <label class="form-label" style="font-weight: bold;">سعر البيع</label>
-                    <input type="number" id="newProductPrice" class="form-control" step="0.01" value="0" placeholder="0.00">
-                </div>
-                <div class="form-group">
-                    <label class="form-label" style="font-weight: bold;">الحد الأدنى للمخزون</label>
-                    <input type="number" id="newProductMinStock" class="form-control" value="5">
-                </div>
-            </div>
-            <div style="display: flex; gap: 10px;">
-                <button type="submit" style="flex: 1; background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 12px; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer;">
-                    💾 حفظ وإضافة للفاتورة
-                </button>
-                <button type="button" onclick="closeNewProductModal()" style="background: #6b7280; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer;">
-                    إلغاء
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
-
 <script>
-// Supplier and Product data
+// supplier and Product data
 const suppliers = <?php echo json_encode($suppliers); ?>;
 const products = <?php echo json_encode($products); ?>;
 
 let items = [];
 let itemCounter = 1;
 
-// Supplier Autocomplete
+<?php
+$oldItemsForJs = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
+$jsItems = [];
+foreach ($oldItemsForJs as $item) {
+    $jsItems[] = [
+        'id' => $item['product_id'],
+        'code' => $item['product_code'],
+        'name' => $item['product_name'],
+        'unit' => $item['unit'],
+        'price' => floatval($item['unit_price']),
+        'quantity' => floatval($item['quantity']),
+        'stock_quantity' => 999999
+    ];
+}
+?>
+// Initialize with old items
+const initialItems = <?php echo json_encode($jsItems); ?>;
+initialItems.forEach(item => {
+    items.push({
+        id: itemCounter++,
+        product_id: item.id,
+        code: item.code,
+        name: item.name,
+        unit: item.unit,
+        price: item.price,
+        quantity: item.quantity,
+        max_qty: item.stock_quantity // bypass max qty limit for old items
+    });
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    renderItems();
+    calculateTotals();
+});
+
+// supplier Autocomplete
 const supplierNameInput = document.getElementById('supplierName');
 const supplierResults = document.getElementById('supplierResults');
 const supplierIdInput = document.getElementById('supplierId');
@@ -580,20 +604,20 @@ supplierNameInput.addEventListener('input', function() {
         return;
     }
     
-    const matches = suppliers.filter(s => 
-        s.name.toLowerCase().includes(query) || (s.phone && s.phone.includes(query))
+    const matches = suppliers.filter(c => 
+        c.name.toLowerCase().includes(query) || c.phone.includes(query)
     ).slice(0, 10);
     
     if (matches.length > 0) {
-        supplierResults.innerHTML = matches.map(s => `
-            <div class="autocomplete-item" onclick="selectSupplier(${s.id}, '${s.name}', '${s.phone || ''}', ${s.balance || 0})">
-                <strong>${s.name}</strong> ${s.phone ? '- ' + s.phone : ''}
-                ${s.balance > 0 ? '<br><small style="color: #dc2626;">حساب قديم: ' + s.balance + ' جنيه</small>' : ''}
+        supplierResults.innerHTML = matches.map(c => `
+            <div class="autocomplete-item" onclick="selectsupplier(${c.id}, '${c.name}', '${c.phone}', ${c.balance || 0})">
+                <strong>${c.name}</strong> - ${c.phone}
+                ${c.balance < 0 ? '<br><small style="color: #dc2626;">عليه: ' + Math.abs(c.balance) + ' جنيه</small>' : ''}
             </div>
         `).join('');
         supplierResults.style.display = 'block';
     } else {
-        supplierResults.innerHTML = '<div class="autocomplete-item" style="color: #6b7280;">مورد جديد</div>';
+        supplierResults.innerHTML = '<div class="autocomplete-item" style="color: #6b7280;">عميل جديد - سيتم إضافته تلقائياً</div>';
         supplierResults.style.display = 'block';
         supplierIdInput.value = '';
     }
@@ -601,23 +625,24 @@ supplierNameInput.addEventListener('input', function() {
 
 let supplierOldBalance = 0;
 
-function selectSupplier(id, name, phone, balance) {
+function selectsupplier(id, name, phone, balance) {
     supplierNameInput.value = name;
     supplierPhoneInput.value = phone;
     supplierIdInput.value = id;
     supplierResults.style.display = 'none';
     
-    // Show old balance if exists
+    // Show old balance if supplier owes money (negative balance means debt)
     supplierOldBalance = parseFloat(balance) || 0;
     const balanceSection = document.getElementById('supplierBalanceSection');
     const oldBalanceBox = document.getElementById('oldBalanceBox');
     
-    if (supplierOldBalance > 0) {
-        document.getElementById('oldBalanceDisplay').textContent = supplierOldBalance.toFixed(2) + ' جنيه';
-        document.getElementById('oldBalance').value = supplierOldBalance;
+    if (supplierOldBalance < 0) {
+        const debt = Math.abs(supplierOldBalance);
+        document.getElementById('oldBalanceDisplay').textContent = debt.toFixed(2) + ' جنيه';
+        document.getElementById('oldBalance').value = debt;
         balanceSection.style.display = 'block';
         oldBalanceBox.style.display = 'block';
-        document.getElementById('oldBalanceTotalDisplay').textContent = supplierOldBalance.toFixed(2);
+        document.getElementById('oldBalanceTotalDisplay').textContent = debt.toFixed(2);
     } else {
         balanceSection.style.display = 'none';
         oldBalanceBox.style.display = 'none';
@@ -642,9 +667,11 @@ productSearch.addEventListener('input', function() {
     
     if (matches.length > 0) {
         productResults.innerHTML = matches.map(p => `
-            <div class="autocomplete-item" onclick='addProduct(${JSON.stringify(p)})'>
-                <strong>${p.name}</strong> (${p.code})<br>
-                <small style="color: #6b7280;">المخزون الحالي: ${p.stock_quantity}</small>
+            <div class="autocomplete-item" onclick='addProduct(${JSON.stringify(p)})' style="${p.stock_quantity <= 0 ? 'background: #fef2f2;' : ''}">
+                <strong>${p.name}</strong> (${p.code})
+                ${p.stock_quantity <= 0 ? '<span style="color: #dc2626; font-weight: bold; margin-right: 8px;">⚠️ نفذ</span>' : ''}
+                <br>
+                <small style="color: #6b7280;">السعر: ${p.price} جنيه - المخزون: ${p.stock_quantity <= 0 ? '<span style="color: #dc2626;">0</span>' : p.stock_quantity}</small>
             </div>
         `).join('');
         productResults.style.display = 'block';
@@ -672,7 +699,8 @@ function addProduct(product) {
         name: product.name,
         unit: product.unit,
         quantity: 1,
-        price: 0 // Purchase price starts at 0 - user enters it
+        price: parseFloat(product.price),
+        stock: parseInt(product.stock_quantity)
     });
     
     renderItems();
@@ -694,7 +722,7 @@ function renderItems() {
         <tr>
             <td>${index + 1}</td>
             <td style="font-size: 0.9em;">${item.code}</td>
-            <td style="text-align: right;"><strong>${item.name}</strong></td>
+            <td style="text-align: center;"><strong>${item.name}</strong></td>
             <td>${item.unit}</td>
             <td>
                 <input type="number" min="1" value="${item.quantity}" 
@@ -702,7 +730,7 @@ function renderItems() {
             </td>
             <td>
                 <input type="number" step="0.01" value="${item.price}" 
-                       onchange="updatePrice(${item.id}, this.value)" placeholder="سعر الشراء">
+                       onchange="updatePrice(${item.id}, this.value)">
             </td>
             <td style="font-weight: bold;">${(item.quantity * item.price).toFixed(2)}</td>
             <td>
@@ -740,16 +768,16 @@ function calculateTotals() {
     const discount = parseFloat(document.getElementById('discount').value) || 0;
     const total = subtotal - discount;
     const paid = parseFloat(document.getElementById('paidAmount').value) || 0;
-    const weOweSupplier = supplierOldBalance > 0 ? supplierOldBalance : 0;
-    const maxPayment = total + weOweSupplier;
+    const oldDebt = supplierOldBalance < 0 ? Math.abs(supplierOldBalance) : 0;
+    const maxPayment = total + oldDebt;
     const remaining = total - paid;
-    const totalWithOldBalance = remaining + weOweSupplier;
+    const totalWithOldDebt = remaining + oldDebt;
     
     document.getElementById('subtotal').value = subtotal;
     document.getElementById('subtotalDisplay').textContent = subtotal.toFixed(2);
     document.getElementById('total').value = total;
     document.getElementById('totalDisplay').textContent = total.toFixed(2);
-    document.getElementById('remainingDisplay').textContent = totalWithOldBalance.toFixed(2);
+    document.getElementById('remainingDisplay').textContent = totalWithOldDebt.toFixed(2);
     
     // Overpayment validation
     const paidInput = document.getElementById('paidAmount');
@@ -768,10 +796,10 @@ function calculateTotals() {
         // Overpaying more than allowed
         paidInput.style.borderColor = '#dc2626';
         paidInput.style.background = '#fee2e2';
-        if (weOweSupplier > 0) {
-            warningEl.innerHTML = `⚠️ الحد الأقصى: ${maxPayment.toFixed(2)} (الفاتورة ${total.toFixed(2)} + المستحق للمورد ${weOweSupplier.toFixed(2)})`;
+        if (oldDebt > 0) {
+            warningEl.innerHTML = `⚠️ الحد الأقصى: ${maxPayment.toFixed(2)} (الفاتورة ${total.toFixed(2)} + الحساب القديم ${oldDebt.toFixed(2)})`;
         } else {
-            warningEl.innerHTML = `⚠️ الحد الأقصى: ${total.toFixed(2)} (لا يوجد حساب قديم مستحق للمورد)`;
+            warningEl.innerHTML = `⚠️ الحد الأقصى: ${total.toFixed(2)} (لا يوجد حساب قديم)`;
         }
         warningEl.style.display = 'block';
         remainingBox.className = 'total-box danger';
@@ -782,7 +810,7 @@ function calculateTotals() {
         warningEl.style.display = 'none';
         
         // Update remaining box color
-        if (totalWithOldBalance <= 0) {
+        if (totalWithOldDebt <= 0) {
             remainingBox.className = 'total-box highlight';
             document.getElementById('remainingDisplay').textContent = '0.00 ✓';
         } else {
@@ -790,14 +818,6 @@ function calculateTotals() {
         }
     }
 }
-
-// Hide dropdowns on click outside
-document.addEventListener('click', function(e) {
-    if (!e.target.closest('.autocomplete-wrapper')) {
-        supplierResults.style.display = 'none';
-        productResults.style.display = 'none';
-    }
-});
 
 // Form submit validation
 document.getElementById('invoiceForm').addEventListener('submit', function(e) {
@@ -810,15 +830,15 @@ document.getElementById('invoiceForm').addEventListener('submit', function(e) {
     
     const total = parseFloat(document.getElementById('total').value) || 0;
     const paid = parseFloat(document.getElementById('paidAmount').value) || 0;
-    const weOweSupplier = supplierOldBalance > 0 ? supplierOldBalance : 0;
-    const maxPayment = total + weOweSupplier;
+    const oldDebt = supplierOldBalance < 0 ? Math.abs(supplierOldBalance) : 0;
+    const maxPayment = total + oldDebt;
     
     if (paid > maxPayment && total > 0) {
         e.preventDefault();
-        if (weOweSupplier > 0) {
-            alert(`المبلغ المدفوع (${paid}) يتجاوز الحد الأقصى (${maxPayment.toFixed(2)})\n\nالفاتورة: ${total.toFixed(2)}\nالمستحق للمورد: ${weOweSupplier.toFixed(2)}`);
+        if (oldDebt > 0) {
+            alert(`المبلغ المدفوع (${paid}) يتجاوز الحد الأقصى (${maxPayment.toFixed(2)})\n\nالفاتورة: ${total.toFixed(2)}\nالحساب القديم: ${oldDebt.toFixed(2)}`);
         } else {
-            alert(`المبلغ المدفوع (${paid}) لا يمكن أن يتجاوز قيمة الفاتورة (${total.toFixed(2)})\n\nلا يوجد حساب قديم مستحق للمورد`);
+            alert(`المبلغ المدفوع (${paid}) لا يمكن أن يتجاوز قيمة الفاتورة (${total.toFixed(2)})\n\nلا يوجد حساب قديم على العميل`);
         }
         return;
     }
@@ -830,69 +850,7 @@ document.getElementById('invoiceForm').addEventListener('submit', function(e) {
 document.addEventListener('DOMContentLoaded', function() {
     productSearch.focus();
 });
-
-// New Product Modal Functions
-function openNewProductModal() {
-    document.getElementById('newProductModal').style.display = 'flex';
-    document.getElementById('newProductName').focus();
-    // Generate code via AJAX
-    fetch('ajax.php?action=generate_code&type=product')
-        .then(r => r.json())
-        .then(data => {
-            if (data.code) {
-                document.getElementById('newProductCode').value = data.code;
-            }
-        });
-}
-
-function closeNewProductModal() {
-    document.getElementById('newProductModal').style.display = 'none';
-    document.getElementById('newProductForm').reset();
-}
-
-// Save new product via AJAX
-document.getElementById('newProductForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const productData = {
-        action: 'add_product',
-        name: document.getElementById('newProductName').value,
-        code: document.getElementById('newProductCode').value,
-        unit: document.getElementById('newProductUnit').value,
-        price: document.getElementById('newProductPrice').value || 0,
-        min_stock: document.getElementById('newProductMinStock').value || 5
-    };
-    
-    fetch('ajax.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams(productData)
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            // Add to invoice
-            const newProduct = {
-                id: data.product_id,
-                code: productData.code,
-                name: productData.name,
-                unit: productData.unit,
-                price: 0,
-                stock_quantity: 0
-            };
-            addProduct(newProduct);
-            
-            // Add to products array for future searches
-            products.push(newProduct);
-            
-            closeNewProductModal();
-            alert('✅ تم إضافة الصنف بنجاح وإضافته للفاتورة');
-        } else {
-            alert('❌ خطأ: ' + (data.error || 'حدث خطأ'));
-        }
-    })
-    .catch(() => alert('❌ حدث خطأ في الاتصال'));
-});
 </script>
 
 <?php include '../../includes/footer.php'; ?>
+

@@ -137,6 +137,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         commit();
         
+        if (isset($_POST['save_only'])) {
+            setSuccess('تم تسجيل الدفعة بنجاح');
+            header("Location: pay_customer.php");
+            exit;
+        }
+
         header("Location: print_customer.php?id=$paymentId");
         exit;
         
@@ -355,9 +361,14 @@ textarea.form-control {
                         <span> جنيه</span>
                     </div>
                     
-                    <button type="submit" class="btn btn-success btn-lg" style="width: 100%; margin-top: 10px;">
-                        💾 تسجيل الدفعة وطباعة الإيصال
-                    </button>
+                    <div class="d-flex gap-2" style="margin-top: 10px;">
+                        <button type="submit" name="save_and_print" class="btn btn-success btn-lg" style="flex: 1;">
+                            🖨️ حفظ وطباعة
+                        </button>
+                        <button type="submit" name="save_only" class="btn btn-primary btn-lg" style="flex: 1;">
+                            💾 حفظ فقط
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>

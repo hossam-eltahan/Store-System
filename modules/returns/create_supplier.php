@@ -42,14 +42,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Validate quantities against original invoice items
         foreach ($items as $item) {
             $originalItem = getRow(
-                "SELECT quantity FROM invoice_items WHERE invoice_id = ? AND product_id = ?",
+                "SELECT 
+                    ii.quantity,
+                    (
+                        SELECT COALESCE(SUM(ri.quantity), 0) 
+                        FROM return_items ri 
+                        JOIN returns r ON ri.return_id = r.id 
+                        WHERE r.original_invoice_id = ii.invoice_id 
+                        AND ri.product_id = ii.product_id
+                    ) as returned_quantity
+                 FROM invoice_items ii 
+                 WHERE ii.invoice_id = ? AND ii.product_id = ?",
                 [$invoiceId, $item['product_id']]
             );
             if (!$originalItem) {
                 throw new Exception('صنف غير موجود في الفاتورة الأصلية: ' . $item['name']);
             }
-            if ($item['quantity'] > $originalItem['quantity']) {
-                throw new Exception('الكمية المرتجعة (' . $item['quantity'] . ') أكبر من الكمية المشتراة (' . $originalItem['quantity'] . ') للصنف: ' . $item['name']);
+            
+            $availableQuantity = $originalItem['quantity'] - $originalItem['returned_quantity'];
+            
+            if ($item['quantity'] > $availableQuantity) {
+                throw new Exception('الكمية المرتجعة (' . $item['quantity'] . ') أكبر من الكمية المتاحة للإرجاع (' . $availableQuantity . ') للصنف: ' . $item['name']);
             }
             if ($item['quantity'] <= 0) {
                 throw new Exception('الكمية يجب أن تكون أكبر من صفر للصنف: ' . $item['name']);
@@ -191,6 +204,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         commit();
         
+        if (isset($_POST['save_only'])) {
+            setSuccess('تم حفظ المرتجع بنجاح');
+            header("Location: index.php");
+            exit;
+        }
+
         header("Location: print_supplier.php?id=$returnId");
         exit;
         
@@ -507,7 +526,10 @@ textarea.form-control {
                     
                     <input type="hidden" name="return_items" id="returnItemsData">
                     
-                    <button type="submit" class="btn btn-success btn-lg" style="width: 100%;">💾 حفظ المرتجع للمورد</button>
+                <div class="d-flex gap-2" style="width: 100%;">
+                    <button type="submit" name="save_and_print" class="btn btn-success btn-lg" style="flex: 1;">🖨️ حفظ وطباعة الإيصال</button>
+                    <button type="submit" name="save_only" class="btn btn-primary btn-lg" style="flex: 1;">💾 حفظ فقط</button>
+                </div>
                 </div>
             </form>
         </div>
@@ -625,27 +647,37 @@ function loadInvoiceItems(invoiceId) {
 
 function renderItems(items) {
     const container = document.getElementById('itemsList');
-    container.innerHTML = items.map((item, index) => `
-        <div class="return-item-row">
-            <input type="checkbox" id="item_${index}" onchange="updateSelection()">
-            <div style="flex: 1;">
+    container.innerHTML = items.map((item, index) => {
+        const isZero = item.available_quantity <= 0;
+        const opacity = isZero ? '0.5' : '1';
+        const disabledAttr = isZero ? 'disabled' : '';
+        const checkboxHtml = isZero ? 
+            `<input type="checkbox" disabled>` : 
+            `<input type="checkbox" id="item_${index}" onchange="updateSelection()">`;
+        const qtyValue = isZero ? 0 : 1;
+        const qtyMin = isZero ? 0 : 1;
+        
+        return `
+        <div class="return-item-row" style="opacity: ${opacity};">
+            ${checkboxHtml}
+            <div style="flex: 1; font-size: 1.1em; line-height: 1.6;">
                 <strong>${item.product_name}</strong> (${item.product_code})<br>
-                <small>الوحدة: ${item.unit} | سعر الشراء: ${item.unit_price} | الكمية: ${item.quantity}</small>
+                <span style="color: #4b5563;">الوحدة: ${item.unit} | السعر الأصلي: ${item.unit_price} | إجمالي الفاتورة: ${item.quantity} | </span><span style="color: #dc2626; font-weight: bold; background: #fee2e2; padding: 2px 6px; border-radius: 4px;">المتاح للإرجاع: ${item.available_quantity}</span>
             </div>
             <div style="display: flex; gap: 10px; align-items: center;">
                 <div>
                     <label>الكمية:</label>
-                    <input type="number" id="qty_${index}" min="1" max="${item.quantity}" value="${item.quantity}" 
-                           onchange="updateSelection()" data-item='${JSON.stringify(item)}' style="width: 70px;">
+                    <input type="number" id="qty_${index}" min="${qtyMin}" max="${item.available_quantity}" value="${qtyValue}" 
+                           onchange="updateSelection()" data-item='${JSON.stringify(item)}' style="width: 70px;" ${disabledAttr}>
                 </div>
                 <div>
                     <label>السعر:</label>
                     <input type="number" id="price_${index}" step="0.01" value="${item.unit_price}" 
-                           onchange="updateSelection()" style="width: 90px;">
+                           onchange="updateSelection()" style="width: 90px;" ${disabledAttr}>
                 </div>
             </div>
         </div>
-    `).join('');
+    `}).join('');
 }
 
 function updateSelection() {
@@ -683,24 +715,41 @@ function updateSelection() {
 
 function updateRefundBreakdown() {
     const breakdown = document.getElementById('refundBreakdown');
-    const selectedMethod = document.querySelector('input[name="refund_method"]:checked')?.value || 'cash';
+    let selectedMethod = document.querySelector('input[name="refund_method"]:checked')?.value || 'cash';
     const total = parseFloat(document.getElementById('totalReturn').textContent) || 0;
-    const weOwe = supplierBalance;
+    const debt = Math.abs(supplierBalance);
+    
+    const deductedRadio = document.getElementById('deductedRadio');
+    const deductedOption = document.getElementById('deductedOption');
+    const mixedRadio = document.getElementById('mixedRadio');
     
     if (total <= 0) {
         breakdown.style.display = 'none';
         return;
     }
     
+    // Auto-correct selection if trying to fully deduct when total > debt
+    if (supplierBalance > 0 && total > debt) {
+        deductedRadio.disabled = true;
+        deductedOption.style.opacity = '0.5';
+        if (selectedMethod === 'deducted') {
+            mixedRadio.checked = true;
+            selectedMethod = 'mixed';
+        }
+    } else if (supplierBalance > 0) {
+        deductedRadio.disabled = false;
+        deductedOption.style.opacity = '1';
+    }
+    
     if (selectedMethod === 'cash') {
         breakdown.innerHTML = `<strong>💵 نسترد كاش من المورد:</strong> ${total.toFixed(2)} جنيه`;
         breakdown.style.display = 'block';
     } else if (selectedMethod === 'mixed' && supplierBalance > 0) {
-        const deducted = Math.min(total, weOwe);
+        const deducted = Math.min(total, debt);
         const cash = total - deducted;
         breakdown.innerHTML = `
-            <strong>📝 خصم من حسابنا:</strong> ${deducted.toFixed(2)} جنيه<br>
-            <strong>💵 نسترد كاش:</strong> ${cash.toFixed(2)} جنيه
+            <strong>📝 خصم من الحساب (الذي لنا):</strong> ${deducted.toFixed(2)} جنيه<br>
+            <strong>💵 نسترد باقي المبلغ كاش:</strong> ${cash.toFixed(2)} جنيه
         `;
         breakdown.style.display = 'block';
     } else if (selectedMethod === 'deducted' && supplierBalance > 0) {

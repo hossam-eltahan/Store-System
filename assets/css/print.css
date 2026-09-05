@@ -11,8 +11,21 @@
     }
 
     .invoice-print,
-    .invoice-print * {
-        visibility: visible;
+    .report-print,
+    .reports-container,
+    .invoice-print *,
+    .report-print *,
+    .reports-container * {
+        visibility: visible !important;
+    }
+
+    .invoice-print,
+    .report-print,
+    .reports-container {
+        position: absolute;
+        right: 0;
+        top: 0;
+        width: 100%;
     }
 
     .invoice-print {

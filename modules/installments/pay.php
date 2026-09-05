@@ -86,18 +86,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "UPDATE customers SET balance = balance + ? WHERE id = ?",
                 [$paymentAmount, $plan['entity_id']]
             );
+            $entityTable = 'customers';
         } else {
             execute(
                 "UPDATE suppliers SET balance = balance - ? WHERE id = ?",
                 [$paymentAmount, $plan['entity_id']]
             );
+            $entityTable = 'suppliers';
         }
+        
+        // Insert into payments table so it appears in the receipts tab
+        $stmt = $pdo->query("SELECT payment_number FROM payments ORDER BY id DESC LIMIT 1");
+        $lastPayment = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($lastPayment) {
+            $num = intval(substr($lastPayment['payment_number'], 4)) + 1;
+        } else {
+            $num = 1;
+        }
+        $paymentNumber = 'PAY-' . str_pad($num, 5, '0', STR_PAD_LEFT);
+        
+        $entityId = $plan['entity_id'];
+        $entityName = $plan['entity_name'];
+        $entity = getRow("SELECT balance FROM $entityTable WHERE id = ?", [$entityId]);
+        $newBalance = floatval($entity['balance']);
+        $oldBalance = $plan['type'] === 'customer' ? $newBalance - $paymentAmount : $newBalance + $paymentAmount;
+        
+        execute(
+            "INSERT INTO payments (payment_number, type, entity_id, entity_name, amount, old_balance, new_balance, payment_date, payment_method, reference, notes, handled_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?)",
+            [$paymentNumber, $plan['type'], $entityId, $entityName, $paymentAmount, $oldBalance, $newBalance, $paymentMethod, 'قسط-'.$planId, $notes, $handledBy]
+        );
         
         $typeText = $plan['type'] === 'customer' ? 'العميل' : 'المورد';
         logActivity('دفع قسط', "تم دفع {$paymentAmount} من أقساط {$typeText} {$plan['entity_name']}", $handledBy);
         
         commit();
         
+        if (isset($_POST['save_only'])) {
+            setSuccess('تم تسجيل الدفعة بنجاح');
+            header("Location: view.php?id=$planId");
+            exit;
+        }
+
         // Redirect to print
         header("Location: print_payment.php?plan_id=$planId&amount=$paymentAmount&installments=" . implode(',', $paidInstallments));
         exit;
@@ -259,9 +289,14 @@ textarea.form-control {
                     <textarea name="notes" class="form-control" rows="2"></textarea>
                 </div>
                 
-                <button type="submit" class="btn btn-success btn-lg" style="width: 100%;">
-                    💾 دفع وطباعة الإيصال
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="submit" name="save_and_print" class="btn btn-success btn-lg" style="flex: 1;">
+                        🖨️ دفع وطباعة الإيصال
+                    </button>
+                    <button type="submit" name="save_only" class="btn btn-primary btn-lg" style="flex: 1;">
+                        💾 دفع فقط
+                    </button>
+                </div>
             </form>
         </div>
     </div>

@@ -117,7 +117,7 @@ $pageTitle = 'فاتورة شراء ' . $invoice['invoice_number'];
 <body>
     <div class="no-print">
         <button class="btn btn-print" onclick="window.print()">🖨️ طباعة</button>
-        <button class="btn btn-close" onclick="window.close()">✕ إغلاق</button>
+        <button class="btn btn-close" onclick="closePage()">✕ إغلاق</button>
         <a href="purchase.php" class="btn btn-new">✚ فاتورة جديدة</a>
     </div>
     
@@ -243,4 +243,12 @@ window.addEventListener('beforeprint', function() {
 });
 </script>
 </body>
+<script>
+function closePage() {
+    window.close();
+    setTimeout(function() {
+        window.location.href = 'list.php';
+    }, 150);
+}
+</script>
 </html>

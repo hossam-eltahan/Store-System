@@ -8,6 +8,7 @@ require_once '../../config/database.php';
 require_once '../../config/settings.php';
 
 $pageTitle = 'قائمة الفواتير';
+$settings = getAllSettings();
 
 // Filters from GET
 $search = trim($_GET['search'] ?? '');
@@ -280,9 +281,16 @@ include '../../includes/navbar.php';
                                 <?php 
                                 $printPage = $invoice['type'] === 'purchase' ? 'print_purchase.php' : 'print.php';
                                 $returnPage = $invoice['type'] === 'purchase' ? '../returns/create_supplier.php' : '../returns/create.php';
+                                $editPage = $invoice['type'] === 'purchase' ? 'edit_purchase.php' : 'edit_sale.php';
                                 ?>
-                                <a href="<?php echo $printPage; ?>?id=<?php echo $invoice['id']; ?>" class="btn btn-primary" target="_blank" title="طباعة">🖨️</a>
+                                <a href="<?php echo $printPage; ?>?id=<?php echo $invoice['id']; ?>" class="btn btn-primary" title="طباعة">🖨️</a>
                                 <a href="<?php echo $returnPage; ?>?invoice_id=<?php echo $invoice['id']; ?>" class="btn btn-warning" title="مرتجع">↩️</a>
+                                <?php if (($settings['allow_edit_invoices'] ?? '0') === '1'): ?>
+                                <a href="<?php echo $editPage; ?>?id=<?php echo $invoice['id']; ?>" class="btn btn-info" title="تعديل">✏️</a>
+                                <?php endif; ?>
+                                <?php if (($settings['allow_delete_invoices'] ?? '0') === '1'): ?>
+                                <a href="delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger" title="مسح" onclick="return confirm('هل أنت متأكد من مسح هذه الفاتورة تماماً واسترجاع الأرصدة؟ لا يمكن التراجع عن هذه الخطوة!');">🗑️</a>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>

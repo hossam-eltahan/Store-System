@@ -7,15 +7,32 @@
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
 
-$pageTitle = 'فاتورة بيع جديدة';
+$pageTitle = 'تعديل فاتورة بيع';
+
+$invoiceId = $_GET['id'] ?? 0;
+$oldInvoice = getRow("SELECT * FROM invoices WHERE id = ? AND type = 'sale'", [$invoiceId]);
+
+if (!$oldInvoice) {
+    setError('الفاتورة غير موجودة');
+    redirect('list.php');
+}
+
+// Check if installment plan exists and has payments
+$plan = getRow("SELECT * FROM installment_plans WHERE invoice_id = ?", [$invoiceId]);
+if ($plan) {
+    $paidCountRow = getRow("SELECT COUNT(*) as count FROM installment_payments WHERE plan_id = ? AND status IN ('paid', 'partial')", [$plan['id']]);
+    if ($paidCountRow['count'] > 0) {
+        setError('لا يمكن تعديل الفاتورة لأنه تم سداد أقساط منها بالفعل.');
+        redirect('list.php');
+    }
+}
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         beginTransaction();
         
-        // Generate invoice number
-        $invoiceNumber = generateInvoiceNumber('sale');
+        $invoiceNumber = $oldInvoice['invoice_number'];
         
         // Get form data
         $customerId = !empty($_POST['customer_id']) ? $_POST['customer_id'] : null;
@@ -28,7 +45,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $handledBy = sanitize($_POST['handled_by'] ?? 'المدير');
         $notes = sanitize($_POST['notes'] ?? '');
         
-        // Get customer's old balance BEFORE this invoice
+        // === REVERSE OLD INVOICE ===
+        // 1. Reverse inventory
+        $oldItems = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
+        foreach ($oldItems as $item) {
+            execute("UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", [$item['quantity'], $item['product_id']]);
+        }
+        
+        // 2. Reverse customer balance
+        if ($oldInvoice['customer_id']) {
+            execute("UPDATE customers SET balance = balance + ? WHERE id = ?", [$oldInvoice['remaining_amount'], $oldInvoice['customer_id']]);
+        }
+        
+        // 3. Delete old items
+        execute("DELETE FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
+        
+        // 4. Delete old plan if exists
+        if ($plan) {
+            execute("DELETE FROM installment_payments WHERE plan_id = ?", [$plan['id']]);
+            execute("DELETE FROM installment_plans WHERE id = ?", [$plan['id']]);
+        }
+        // ===========================
+
+        // Get customer's old balance BEFORE this invoice (after reversing old invoice)
         $customerOldBalance = 0;
         if ($customerId) {
             $customerData = getRow("SELECT balance FROM customers WHERE id = ?", [$customerId]);
@@ -47,7 +86,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Validate overpayment
         if ($paidAmount > $finalAmount) {
-            // Overpaying - check if customer has old debt
             $oldDebt = $customerOldBalance < 0 ? abs($customerOldBalance) : 0;
             $maxPayment = $finalAmount + $oldDebt;
             
@@ -69,11 +107,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $paymentStatus = 'unpaid';
         }
         
-        // Insert invoice with old_balance
-        $invoiceId = insert(
-            "INSERT INTO invoices (invoice_number, type, customer_id, customer_name, customer_phone, date, total_amount, discount, paid_amount, remaining_amount, old_balance, payment_method, payment_status, handled_by, notes) 
-            VALUES (?, 'sale', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [$invoiceNumber, $customerId, $customerName, $customerPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $customerOldBalance, $paymentMethod, $paymentStatus, $handledBy, $notes]
+        // Update invoice
+        execute(
+            "UPDATE invoices SET customer_id = ?, customer_name = ?, customer_phone = ?, date = ?, total_amount = ?, discount = ?, paid_amount = ?, remaining_amount = ?, old_balance = ?, payment_method = ?, payment_status = ?, handled_by = ?, notes = ? WHERE id = ?",
+            [$customerId, $customerName, $customerPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $customerOldBalance, $paymentMethod, $paymentStatus, $handledBy, $notes, $invoiceId]
         );
         
         // Insert items and update stock
@@ -81,13 +118,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             insert(
                 "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, unit, quantity, unit_price, total) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price']]
+                [$invoiceId, $item['id'], $item['code'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price']]
             );
             
             // Update stock (prevent going below 0)
             execute(
                 "UPDATE products SET stock_quantity = GREATEST(0, stock_quantity - ?) WHERE id = ?",
-                [$item['quantity'], $item['product_id']]
+                [$item['quantity'], $item['id']]
             );
         }
         
@@ -96,7 +133,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $existingCustomer = getRow("SELECT id, name FROM customers WHERE phone = ?", [$customerPhone]);
             
             if ($existingCustomer) {
-                // Phone belongs to existing customer - throw error
                 throw new Exception("رقم التليفون ({$customerPhone}) مسجل بالفعل للعميل: " . $existingCustomer['name'] . ". اختر العميل من القائمة أو استخدم رقم مختلف.");
             } else {
                 $customerId = insert(
@@ -110,12 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         // Update customer balance:
-        // - Negative balance means customer owes us
-        // - remainingAmount > 0 means still owes from this invoice
-        // - remainingAmount < 0 means overpaid (can apply to old debt)
         if ($customerId) {
-            // Always update balance with the remaining amount
-            // This handles both underpayment and overpayment
             execute(
                 "UPDATE customers SET balance = balance - ? WHERE id = ?",
                 [$remainingAmount, $customerId]
@@ -123,11 +154,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         commit();
-        logActivity('إنشاء فاتورة', "تم إنشاء فاتورة بيع رقم {$invoiceNumber}", $handledBy);
+        logActivity('تعديل فاتورة', "تم تعديل فاتورة بيع رقم {$invoiceNumber}", $handledBy);
         
         if (isset($_POST['save_only'])) {
-            setSuccess('تم حفظ الفاتورة بنجاح');
-            header("Location: sale.php");
+            setSuccess('تم تعديل الفاتورة بنجاح');
+            header("Location: list.php");
             exit;
         }
 
@@ -372,8 +403,8 @@ include '../../includes/navbar.php';
             <div class="invoice-header">
                 <div class="invoice-title">🧾 فاتورة بيع</div>
                 <div>
-                    <div class="invoice-number"><?php echo generateInvoiceNumber('sale'); ?></div>
-                    <input type="date" name="date" value="<?php echo date('Y-m-d'); ?>" style="margin-top: 4px; padding: 4px 6px; border-radius: 4px; border: 1px solid #d1d5db; font-size: 0.85em;">
+                    <div class="invoice-number"><?php echo $oldInvoice['invoice_number']; ?></div>
+                    <input type="date" name="date" value="<?php echo $oldInvoice['date']; ?>" style="margin-top: 4px; padding: 4px 6px; border-radius: 4px; border: 1px solid #d1d5db; font-size: 0.85em;">
                 </div>
             </div>
             
@@ -385,19 +416,19 @@ include '../../includes/navbar.php';
                         <label class="form-label">اسم العميل</label>
                         <div class="autocomplete-wrapper">
                             <input type="text" id="customerName" name="customer_name" class="form-control" 
-                                   placeholder="اكتب اسم العميل..." autocomplete="off" required>
-                            <input type="hidden" id="customerId" name="customer_id">
+                                   placeholder="اكتب اسم العميل..." autocomplete="off" required value="<?php echo htmlspecialchars($oldInvoice['customer_name']); ?>">
+                            <input type="hidden" id="customerId" name="customer_id" value="<?php echo $oldInvoice['customer_id']; ?>">
                             <div id="customerResults" class="autocomplete-results"></div>
                         </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">التليفون</label>
                         <input type="text" id="customerPhone" name="customer_phone" class="form-control" 
-                               placeholder="01xxxxxxxxx" required>
+                               placeholder="01xxxxxxxxx" required value="<?php echo htmlspecialchars($oldInvoice['customer_phone']); ?>">
                     </div>
                     <div class="form-group">
                         <label class="form-label">البائع</label>
-                        <input type="text" name="handled_by" class="form-control" value="المدير" required>
+                        <input type="text" name="handled_by" class="form-control" value="<?php echo htmlspecialchars($oldInvoice['handled_by'] ?? 'المدير'); ?>" required>
                     </div>
                 </div>
                 
@@ -455,9 +486,9 @@ include '../../includes/navbar.php';
                     </div>
                     <div class="total-box">
                         <div class="total-label">الخصم</div>
-                        <input type="number" step="0.01" name="discount" id="discount" 
-                               style="width: 100%; text-align: center; font-size: 1.2em; padding: 8px; border: 1px solid #d1d5db; border-radius: 5px;"
-                               value="0" oninput="calculateTotals()">
+                        <input type="number" step="0.01" id="discount" name="discount" 
+                               style="width: 100%; text-align: center; font-size: 0.9em; padding: 5px; border: 1px solid #d1d5db; border-radius: 4px;"
+                               value="<?php echo $oldInvoice['discount']; ?>" oninput="calculateTotals()">
                     </div>
                     <div class="total-box highlight">
                         <div class="total-label">الصافي</div>
@@ -472,7 +503,7 @@ include '../../includes/navbar.php';
                             <div class="total-label">المدفوع</div>
                             <input type="number" step="0.01" name="paid_amount" id="paidAmount" 
                                    style="width: 100%; text-align: center; font-size: 0.9em; padding: 5px; border: 1px solid #d1d5db; border-radius: 4px;"
-                                   value="0" oninput="calculateTotals()">
+                                   value="<?php echo $oldInvoice['paid_amount']; ?>" oninput="calculateTotals()">
                         </div>
                         <div class="total-box" id="oldBalanceBox" style="display: none;">
                             <div class="total-label">حساب قديم</div>
@@ -485,11 +516,11 @@ include '../../includes/navbar.php';
                         <div class="total-box">
                             <div class="total-label">طريقة الدفع</div>
                             <select name="payment_method" class="form-control" style="font-size: 0.85em; padding: 5px;">
-                                <option value="كاش">كاش</option>
-                                <option value="انستاباي">انستاباي</option>
-                                <option value="فودافون كاش">فودافون كاش</option>
-                                <option value="فيزا">فيزا</option>
-                                <option value="أقساط">أقساط</option>
+                                <option value="كاش" <?php echo $oldInvoice['payment_method'] === 'كاش' ? 'selected' : ''; ?>>كاش</option>
+                                <option value="انستاباي" <?php echo $oldInvoice['payment_method'] === 'انستاباي' ? 'selected' : ''; ?>>انستاباي</option>
+                                <option value="فودافون كاش" <?php echo $oldInvoice['payment_method'] === 'فودافون كاش' ? 'selected' : ''; ?>>فودافون كاش</option>
+                                <option value="فيزا" <?php echo $oldInvoice['payment_method'] === 'فيزا' ? 'selected' : ''; ?>>فيزا</option>
+                                <option value="أقساط" <?php echo $oldInvoice['payment_method'] === 'أقساط' ? 'selected' : ''; ?>>أقساط</option>
                             </select>
                         </div>
                     </div>
@@ -498,7 +529,7 @@ include '../../includes/navbar.php';
             
             <!-- Notes -->
             <div class="form-group" style="margin-bottom: 8px;">
-                <input type="text" name="notes" class="form-control" placeholder="ملاحظات..." style="font-size: 0.85em; padding: 6px;">
+                <input type="text" name="notes" class="form-control" placeholder="ملاحظات..." style="font-size: 0.85em; padding: 6px;" value="<?php echo htmlspecialchars($oldInvoice['notes']); ?>">
             </div>
             
             <input type="hidden" name="items" id="itemsData">
@@ -506,10 +537,10 @@ include '../../includes/navbar.php';
             <!-- Submit -->
             <div class="d-flex gap-2">
                 <button type="submit" name="save_and_print" class="btn-submit" style="flex: 1;">
-                    🖨️ حفظ وطباعة
+                    🖨️ تعديل وطباعة
                 </button>
                 <button type="submit" name="save_only" class="btn btn-success btn-lg" style="flex: 1;">
-                    💾 حفظ فقط
+                    💾 تعديل فقط
                 </button>
                 <a href="list.php" class="btn btn-secondary btn-lg" style="flex: 1; text-align: center;">❌ إلغاء</a>
             </div>
@@ -524,6 +555,41 @@ const products = <?php echo json_encode($products); ?>;
 
 let items = [];
 let itemCounter = 1;
+
+<?php
+$oldItemsForJs = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
+$jsItems = [];
+foreach ($oldItemsForJs as $item) {
+    $jsItems[] = [
+        'id' => $item['product_id'],
+        'code' => $item['product_code'],
+        'name' => $item['product_name'],
+        'unit' => $item['unit'],
+        'price' => floatval($item['unit_price']),
+        'quantity' => floatval($item['quantity']),
+        'stock_quantity' => 999999
+    ];
+}
+?>
+// Initialize with old items
+const initialItems = <?php echo json_encode($jsItems); ?>;
+initialItems.forEach(item => {
+    items.push({
+        id: itemCounter++,
+        product_id: item.id,
+        code: item.code,
+        name: item.name,
+        unit: item.unit,
+        price: item.price,
+        quantity: item.quantity,
+        max_qty: item.stock_quantity // bypass max qty limit for old items
+    });
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    renderItems();
+    calculateTotals();
+});
 
 // Customer Autocomplete
 const customerNameInput = document.getElementById('customerName');

@@ -141,7 +141,7 @@ include '../../includes/navbar.php';
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <a href="<?php echo $invoicePrintPage; ?>?id=<?php echo $return['original_invoice_id']; ?>" target="_blank">
+                                <a href="<?php echo $invoicePrintPage; ?>?id=<?php echo $return['original_invoice_id']; ?>">
                                     <?php echo $return['invoice_number']; ?>
                                 </a>
                             </td>
@@ -159,7 +159,7 @@ include '../../includes/navbar.php';
                             </td>
                             <td>
                                 <a href="view.php?id=<?php echo $return['id']; ?>" class="btn btn-info btn-sm" title="عرض">👁️</a>
-                                <a href="<?php echo $printPage; ?>?id=<?php echo $return['id']; ?>" class="btn btn-primary btn-sm" target="_blank" title="طباعة">🖨️</a>
+                                <a href="<?php echo $printPage; ?>?id=<?php echo $return['id']; ?>" class="btn btn-primary btn-sm" title="طباعة">🖨️</a>
                             </td>
                         </tr>
                         <?php endforeach; ?>

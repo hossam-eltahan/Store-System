@@ -29,6 +29,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $currency = sanitize($_POST['currency']);
     $enableStockAlerts = isset($_POST['enable_stock_alerts']) ? '1' : '0';
     $enableSoundAlerts = isset($_POST['enable_sound_alerts']) ? '1' : '0';
+    $allowEditInvoices = isset($_POST['allow_edit_invoices']) ? '1' : '0';
+    $allowDeleteInvoices = isset($_POST['allow_delete_invoices']) ? '1' : '0';
     
     // Handle logo upload
     if (isset($_FILES['store_logo']) && $_FILES['store_logo']['error'] === UPLOAD_ERR_OK) {
@@ -52,6 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     updateSetting('currency', $currency);
     updateSetting('enable_stock_alerts', $enableStockAlerts);
     updateSetting('enable_sound_alerts', $enableSoundAlerts);
+    updateSetting('allow_edit_invoices', $allowEditInvoices);
+    updateSetting('allow_delete_invoices', $allowDeleteInvoices);
     
     logActivity('تحديث الإعدادات', 'تم تحديث إعدادات النظام');
     setSuccess('تم حفظ الإعدادات بنجاح');
@@ -157,6 +161,22 @@ hr { margin: 5px 0 10px 0 !important; }
                         <input type="checkbox" name="enable_sound_alerts" value="1" 
                                <?php echo ($settings['enable_sound_alerts'] ?? '1') == '1' ? 'checked' : ''; ?>>
                         <span>التنبيهات الصوتية</span>
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85em;">
+                        <input type="checkbox" name="allow_edit_invoices" value="1" 
+                               <?php echo ($settings['allow_edit_invoices'] ?? '0') == '1' ? 'checked' : ''; ?>>
+                        <span>تفعيل زر (تعديل) للفواتير</span>
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85em;">
+                        <input type="checkbox" name="allow_delete_invoices" value="1" 
+                               <?php echo ($settings['allow_delete_invoices'] ?? '0') == '1' ? 'checked' : ''; ?>>
+                        <span>تفعيل زر (مسح) للفواتير</span>
                     </label>
                 </div>
                 

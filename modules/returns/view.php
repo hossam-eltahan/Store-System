@@ -36,7 +36,7 @@ include '../../includes/navbar.php';
         <div class="card-header d-flex justify-between align-center">
             <span>🔄 تفاصيل المرتجع: <?php echo $return['return_number']; ?></span>
             <div>
-                <a href="print.php?id=<?php echo $return['id']; ?>" class="btn btn-primary" target="_blank">🖨️ طباعة</a>
+                <a href="print.php?id=<?php echo $return['id']; ?>" class="btn btn-primary">🖨️ طباعة</a>
                 <a href="index.php" class="btn btn-secondary">← رجوع</a>
             </div>
         </div>
@@ -54,7 +54,7 @@ include '../../includes/navbar.php';
                         <tr>
                             <td style="font-weight: bold;">الفاتورة الأصلية</td>
                             <td>
-                                <a href="../invoices/print.php?id=<?php echo $return['original_invoice_id']; ?>" target="_blank">
+                                <a href="../invoices/print.php?id=<?php echo $return['original_invoice_id']; ?>">
                                     <?php echo $return['invoice_number']; ?>
                                 </a>
                             </td>
