@@ -6,6 +6,14 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('invoices.sale.edit');
+
+$settings = getAllSettings();
+if (($settings['allow_edit_invoices'] ?? '0') !== '1') {
+    setError('خاصية تعديل الفواتير غير مفعلة في الإعدادات');
+    redirect('list.php');
+}
 
 $pageTitle = 'تعديل فاتورة بيع';
 
@@ -42,14 +50,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $discount = floatval($_POST['discount'] ?? 0);
         $paidAmount = floatval($_POST['paid_amount'] ?? 0);
         $paymentMethod = sanitize($_POST['payment_method'] ?? 'كاش');
-        $handledBy = sanitize($_POST['handled_by'] ?? 'المدير');
+        $handledBy = $_SESSION['full_name'] ?? 'المدير';
         $notes = sanitize($_POST['notes'] ?? '');
         
         // === REVERSE OLD INVOICE ===
-        // 1. Reverse inventory
+        // 1. Reverse inventory for the old warehouse
+        $oldWarehouseId = (int)($oldInvoice['warehouse_id'] ?? 1);
         $oldItems = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
         foreach ($oldItems as $item) {
-            execute("UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", [$item['quantity'], $item['product_id']]);
+            updateWarehouseStock($oldWarehouseId, $item['product_id'], $item['quantity'], 'add');
         }
         
         // 2. Reverse customer balance
@@ -108,9 +117,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         // Update invoice
+        $userId = getCurrentUserId();
+        $warehouseId = (int)($_POST['warehouse_id'] ?? $oldWarehouseId);
         execute(
-            "UPDATE invoices SET customer_id = ?, customer_name = ?, customer_phone = ?, date = ?, total_amount = ?, discount = ?, paid_amount = ?, remaining_amount = ?, old_balance = ?, payment_method = ?, payment_status = ?, handled_by = ?, notes = ? WHERE id = ?",
-            [$customerId, $customerName, $customerPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $customerOldBalance, $paymentMethod, $paymentStatus, $handledBy, $notes, $invoiceId]
+            "UPDATE invoices SET customer_id = ?, customer_name = ?, customer_phone = ?, date = ?, total_amount = ?, discount = ?, paid_amount = ?, remaining_amount = ?, old_balance = ?, payment_method = ?, payment_status = ?, handled_by = ?, user_id = COALESCE(user_id, ?), warehouse_id = ?, notes = ? WHERE id = ?",
+            [$customerId, $customerName, $customerPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $customerOldBalance, $paymentMethod, $paymentStatus, $handledBy, $userId, $warehouseId, $notes, $invoiceId]
         );
         
         // Insert items and update stock
@@ -121,11 +132,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 [$invoiceId, $item['id'], $item['code'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price']]
             );
             
-            // Update stock (prevent going below 0)
-            execute(
-                "UPDATE products SET stock_quantity = GREATEST(0, stock_quantity - ?) WHERE id = ?",
-                [$item['quantity'], $item['id']]
-            );
+            // Deduct stock from selected warehouse
+            updateWarehouseStock($warehouseId, $item['id'], $item['quantity'], 'subtract');
         }
         
         // Auto-add customer if not registered and has phone number
@@ -184,6 +192,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Get customers and products for autocomplete with balance
 $customers = getRows("SELECT id, name, phone, balance FROM customers ORDER BY name");
 $products = getRows("SELECT id, code, name, unit, price, stock_quantity FROM products ORDER BY name");
+$warehouses = getAllWarehouses(true);
+$currentInvoiceWarehouseId = (int)($oldInvoice['warehouse_id'] ?? 1);
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -401,10 +411,22 @@ include '../../includes/navbar.php';
         <form method="POST" id="invoiceForm">
             <!-- Invoice Header -->
             <div class="invoice-header">
-                <div class="invoice-title">🧾 فاتورة بيع</div>
-                <div>
-                    <div class="invoice-number"><?php echo $oldInvoice['invoice_number']; ?></div>
-                    <input type="date" name="date" value="<?php echo $oldInvoice['date']; ?>" style="margin-top: 4px; padding: 4px 6px; border-radius: 4px; border: 1px solid #d1d5db; font-size: 0.85em;">
+                <div class="invoice-title">🧾 تعديل فاتورة بيع</div>
+                <div style="display: flex; gap: 15px; align-items: center;">
+                    <div style="text-align: right;">
+                        <label style="font-size: 0.8em; font-weight: 700; color: #1e3a8a; display: block; margin-bottom: 2px;">🏢 المخزن:</label>
+                        <select name="warehouse_id" id="invoiceWarehouseSelect" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #93c5fd; font-weight: 700; background: #eff6ff; color: #1e40af; font-size: 0.85em; cursor: pointer;">
+                            <?php foreach ($warehouses as $wh): ?>
+                                <option value="<?php echo $wh['id']; ?>" <?php echo ((int)$wh['id'] === (int)$currentInvoiceWarehouseId) ? 'selected' : ''; ?>>
+                                    🏢 <?php echo htmlspecialchars($wh['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <div class="invoice-number"><?php echo $oldInvoice['invoice_number']; ?></div>
+                        <input type="date" name="date" value="<?php echo $oldInvoice['date']; ?>" style="margin-top: 4px; padding: 4px 6px; border-radius: 4px; border: 1px solid #d1d5db; font-size: 0.85em;">
+                    </div>
                 </div>
             </div>
             
@@ -428,7 +450,7 @@ include '../../includes/navbar.php';
                     </div>
                     <div class="form-group">
                         <label class="form-label">البائع</label>
-                        <input type="text" name="handled_by" class="form-control" value="<?php echo htmlspecialchars($oldInvoice['handled_by'] ?? 'المدير'); ?>" required>
+                        <input type="text" name="handled_by" class="form-control" value="<?php echo htmlspecialchars($_SESSION['full_name'] ?? 'المدير'); ?>" readonly style="background: rgba(71,85,105,0.3); cursor: not-allowed;">
                     </div>
                 </div>
                 

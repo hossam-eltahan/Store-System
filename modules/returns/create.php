@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('returns.create_customer');
 
 $pageTitle = 'مرتجع عميل';
 
@@ -30,7 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $customerId = $_POST['customer_id'] ?: null;
         $customerName = sanitize($_POST['customer_name']);
         $returnDate = $_POST['return_date'];
-        $handledBy = sanitize($_POST['handled_by'] ?? 'المدير');
+        $handledBy = !empty($_POST['handled_by']) ? sanitize($_POST['handled_by']) : ($_SESSION['full_name'] ?? 'المدير');
+        $userId = getCurrentUserId();
         $notes = sanitize($_POST['notes'] ?? '');
         
         // Get items to return
@@ -111,11 +114,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Insert return record with type = 'customer'
+        // Get invoice warehouse
+        $invoiceRow = getRow("SELECT warehouse_id FROM invoices WHERE id = ?", [$invoiceId]);
+        $warehouseId = (int)($invoiceRow['warehouse_id'] ?? 1);
+
+        // Insert return record with type = 'customer', user_id, and warehouse_id
         $returnId = insert(
-            "INSERT INTO returns (return_number, type, original_invoice_id, customer_id, customer_name, return_date, total_amount, old_balance, deducted_from_balance, cash_refund, refund_method, handled_by, notes)
-             VALUES (?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [$returnNumber, $invoiceId, $customerId, $customerName, $returnDate, $totalAmount, $customerOldBalance, $deductedFromBalance, $cashRefund, $refundMethod, $handledBy, $notes]
+            "INSERT INTO returns (return_number, type, original_invoice_id, customer_id, customer_name, return_date, total_amount, old_balance, deducted_from_balance, cash_refund, refund_method, handled_by, user_id, warehouse_id, notes)
+             VALUES (?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [$returnNumber, $invoiceId, $customerId, $customerName, $returnDate, $totalAmount, $customerOldBalance, $deductedFromBalance, $cashRefund, $refundMethod, $handledBy, $userId, $warehouseId, $notes]
         );
         
         // Insert return items and update stock
@@ -126,11 +133,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 [$returnId, $item['product_id'], $item['code'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price']]
             );
             
-            // Return stock
-            execute(
-                "UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?",
-                [$item['quantity'], $item['product_id']]
-            );
+            // Return stock to the invoice's warehouse
+            updateWarehouseStock($warehouseId, $item['product_id'], $item['quantity'], 'add');
         }
         
         // Update customer balance if deducted
@@ -502,7 +506,7 @@ textarea.form-control {
                         </div>
                         <div class="form-group">
                             <label class="form-label">المسؤول</label>
-                            <input type="text" name="handled_by" class="form-control" value="المدير">
+                            <input type="text" name="handled_by" class="form-control" value="<?php echo htmlspecialchars($_SESSION['full_name'] ?? 'المدير'); ?>">
                         </div>
                     </div>
                     

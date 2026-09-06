@@ -2,6 +2,12 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+
+// Require authentication for all pages that include header
+if (!defined('SKIP_AUTH')) {
+    require_once __DIR__ . '/../config/auth.php';
+    requireLogin();
+}
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">

@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireAnyPermission(['returns.view', 'returns.create_customer', 'returns.create_supplier']);
 
 $pageTitle = 'المرتجعات';
 
@@ -69,8 +71,12 @@ include '../../includes/navbar.php';
         <div class="card-header d-flex justify-between align-center">
             <span>🔄 المرتجعات</span>
             <div style="display: flex; gap: 10px;">
+                <?php if (hasPermission('returns.create_customer')): ?>
                 <a href="create.php" class="btn btn-primary">+ مرتجع عميل</a>
+                <?php endif; ?>
+                <?php if (hasPermission('returns.create_supplier')): ?>
                 <a href="create_supplier.php" class="btn btn-success">+ مرتجع للمورد</a>
+                <?php endif; ?>
             </div>
         </div>
         

@@ -6,6 +6,7 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
 
 // Check if deletion is allowed
 $settings = getAllSettings();
@@ -20,6 +21,13 @@ $invoice = getRow("SELECT * FROM invoices WHERE id = ?", [$id]);
 if (!$invoice) {
     setError('الفاتورة غير موجودة');
     redirect('list.php');
+}
+
+// Require appropriate delete permission
+if ($invoice['type'] === 'purchase') {
+    requirePermission('invoices.purchase.delete');
+} else {
+    requirePermission('invoices.sale.delete');
 }
 
 try {
@@ -37,13 +45,14 @@ try {
         }
     }
     
-    // 2. Reverse inventory
+    // 2. Reverse inventory for the specific warehouse
+    $warehouseId = (int)($invoice['warehouse_id'] ?? 1);
     $items = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$id]);
     foreach ($items as $item) {
         if ($invoice['type'] === 'sale') {
-            execute("UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", [$item['quantity'], $item['product_id']]);
+            updateWarehouseStock($warehouseId, $item['product_id'], $item['quantity'], 'add');
         } else {
-            execute("UPDATE products SET stock_quantity = GREATEST(0, stock_quantity - ?) WHERE id = ?", [$item['quantity'], $item['product_id']]);
+            updateWarehouseStock($warehouseId, $item['product_id'], $item['quantity'], 'subtract');
         }
     }
     

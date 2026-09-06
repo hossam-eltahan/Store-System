@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('products.add');
 
 $pageTitle = 'إضافة صنف جديد';
 
@@ -35,6 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $wholesalePrice = !empty($_POST['wholesale_price']) ? floatval($_POST['wholesale_price']) : null;
     $costPrice = !empty($_POST['cost_price']) ? floatval($_POST['cost_price']) : null;
     $stockQuantity = intval($_POST['stock_quantity']);
+    $initialWarehouseId = (int)($_POST['warehouse_id'] ?? getCurrentWarehouseId());
     $minStockLevel = intval($_POST['min_stock_level']);
     $description = sanitize($_POST['description'] ?? '');
     
@@ -68,6 +71,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             
             if ($id) {
+                // Initialize stock across all warehouses
+                $allWhs = getAllWarehouses(false);
+                foreach ($allWhs as $wh) {
+                    $qty = ((int)$wh['id'] === $initialWarehouseId) ? $stockQuantity : 0;
+                    insert(
+                        "INSERT INTO warehouse_stock (warehouse_id, product_id, quantity, min_stock_level) VALUES (?, ?, ?, ?) 
+                         ON DUPLICATE KEY UPDATE quantity = VALUES(quantity)",
+                        [$wh['id'], $id, $qty, $minStockLevel]
+                    );
+                }
+                syncProductTotalStock($id);
+
                 logActivity('إضافة منتج', "تم إضافة المنتج: $name (كود: $code)");
                 setSuccess('تم إضافة الصنف بنجاح');
                 redirect('index.php');
@@ -77,6 +92,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
+$warehouses = getAllWarehouses(true);
+$userWarehouseId = getCurrentWarehouseId();
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -138,8 +156,20 @@ include '../../includes/navbar.php';
                 
                 <div class="form-row">
                     <div class="form-group">
-                        <label class="form-label required">الكمية في المخزون</label>
+                        <label class="form-label required">الكمية في المخزون الأولي</label>
                         <input type="number" name="stock_quantity" class="form-control" value="0" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">🏢 المخزن للرصيد الأولي</label>
+                        <select name="warehouse_id" class="form-control" style="font-weight: 600;">
+                            <?php foreach ($warehouses as $wh): ?>
+                                <option value="<?php echo $wh['id']; ?>" <?php echo ((int)$wh['id'] === (int)$userWarehouseId) ? 'selected' : ''; ?>>
+                                    🏢 <?php echo htmlspecialchars($wh['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small>المخزن الذي ستضاف له هذه الكمية</small>
                     </div>
                     
                     <div class="form-group">

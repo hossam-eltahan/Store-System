@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireAnyPermission(['installments.view', 'installments.pay', 'installments.create']);
 
 $customerId = $_GET['customer_id'] ?? 0;
 

@@ -6,11 +6,14 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('customers.view');
 
 $pageTitle = 'إدارة العملاء';
 
 // Handle delete
 if (isset($_GET['delete'])) {
+    requirePermission('customers.delete');
     $id = $_GET['delete'];
     $customer = getRow("SELECT * FROM customers WHERE id = ?", [$id]);
     
@@ -66,8 +69,10 @@ include '../../includes/navbar.php';
 <div class="container">
     <div class="card">
         <div class="card-header d-flex justify-between align-center">
-            <span>👥 إدارة العملاء</span>
+            <span>👥 قائمة العملاء</span>
+            <?php if (hasPermission('customers.add')): ?>
             <a href="add.php" class="btn btn-primary">+ إضافة عميل جديد</a>
+            <?php endif; ?>
         </div>
         
         <div class="card-body">
@@ -135,11 +140,17 @@ include '../../includes/navbar.php';
                             </td>
                             <td>
                                 <a href="view.php?id=<?php echo $customer['id']; ?>" class="btn btn-info btn-sm" title="تفاصيل">👁️</a>
+                                <?php if (hasAnyPermission(['invoices.sale.view', 'invoices.purchase.view'])): ?>
                                 <a href="../invoices/list.php?customer_id=<?php echo $customer['id']; ?>" class="btn btn-secondary btn-sm" title="الفواتير">📜</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('customers.edit')): ?>
                                 <a href="edit.php?id=<?php echo $customer['id']; ?>" class="btn btn-primary btn-sm" title="تعديل">✏️</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('customers.delete')): ?>
                                 <button type="button" class="btn btn-danger btn-sm btn-delete" 
                                         data-name="<?php echo htmlspecialchars($customer['name']); ?>" 
                                         data-url="index.php?delete=<?php echo $customer['id']; ?>" title="حذف">🗑️</button>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>

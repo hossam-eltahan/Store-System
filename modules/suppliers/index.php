@@ -6,11 +6,14 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('suppliers.view');
 
 $pageTitle = 'إدارة الموردين';
 
 // Handle delete
 if (isset($_GET['delete'])) {
+    requirePermission('suppliers.delete');
     $id = $_GET['delete'];
     $supplier = getRow("SELECT * FROM suppliers WHERE id = ?", [$id]);
     
@@ -86,7 +89,9 @@ include '../../includes/navbar.php';
     <div class="card">
         <div class="card-header d-flex justify-between align-center">
             <span>🚚 إدارة الموردين</span>
+            <?php if (hasPermission('suppliers.add')): ?>
             <a href="add.php" class="btn btn-primary">+ إضافة مورد جديد</a>
+            <?php endif; ?>
         </div>
         
         <div class="card-body">
@@ -173,11 +178,17 @@ include '../../includes/navbar.php';
                             <td><?php echo formatCurrency($supplier['balance']); ?></td>
                             <td>
                                 <a href="view.php?id=<?php echo $supplier['id']; ?>" class="btn btn-info btn-sm" title="تفاصيل">👁️</a>
+                                <?php if (hasAnyPermission(['invoices.sale.view', 'invoices.purchase.view'])): ?>
                                 <a href="../invoices/list.php?supplier_id=<?php echo $supplier['id']; ?>" class="btn btn-secondary btn-sm" title="الفواتير">📜</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('suppliers.edit')): ?>
                                 <a href="edit.php?id=<?php echo $supplier['id']; ?>" class="btn btn-primary btn-sm" title="تعديل">✏️</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('suppliers.delete')): ?>
                                 <button type="button" class="btn btn-danger btn-sm btn-delete" 
                                         data-name="<?php echo htmlspecialchars($supplier['name']); ?>" 
                                         data-url="index.php?delete=<?php echo $supplier['id']; ?>" title="حذف">🗑️</button>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>

@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('installments.create');
 
 $pageTitle = 'إنشاء قسط جديد';
 $type = $_GET['type'] ?? 'customer'; // customer or supplier
@@ -79,12 +81,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Calculate installment amount
         $installmentAmount = round($totalAmount / $numberOfInstallments, 2);
+        $userId = getCurrentUserId();
+        $handledBy = $_SESSION['full_name'] ?? 'المدير';
         
         // Create installment plan
         $planId = insert(
-            "INSERT INTO installment_plans (type, entity_id, entity_name, total_amount, remaining_amount, number_of_installments, installment_amount, start_date, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [$type, $entityId, $entityName, $totalAmount, $totalAmount, $numberOfInstallments, $installmentAmount, $startDate, $notes]
+            "INSERT INTO installment_plans (type, entity_id, entity_name, total_amount, remaining_amount, number_of_installments, installment_amount, start_date, notes, user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [$type, $entityId, $entityName, $totalAmount, $totalAmount, $numberOfInstallments, $installmentAmount, $startDate, $notes, $userId]
         );
         
         // Create individual installment payments
@@ -105,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         $typeText = $type === 'customer' ? 'العميل' : 'المورد';
-        logActivity('إنشاء خطة تقسيط', "تم إنشاء خطة تقسيط لـ{$typeText} {$entityName} بمبلغ {$totalAmount} على {$numberOfInstallments} قسط", 'المدير');
+        logActivity('إنشاء خطة تقسيط', "تم إنشاء خطة تقسيط لـ{$typeText} {$entityName} بمبلغ {$totalAmount} على {$numberOfInstallments} قسط", $handledBy);
         
         commit();
         

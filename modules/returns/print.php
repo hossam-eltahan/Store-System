@@ -6,8 +6,11 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireAnyPermission(['returns.view', 'returns.create_customer']);
 
 $id = $_GET['id'] ?? 0;
+$returnUrl = hasPermission('returns.view') ? 'index.php' : (hasPermission('returns.create_customer') ? 'create.php' : '../../index.php');
 
 $return = getRow(
     "SELECT r.*, i.invoice_number as original_invoice, c.name as customer_name_db, c.phone as customer_phone
@@ -263,10 +266,11 @@ window.addEventListener('beforeprint', function() {
 </body>
 <script>
 function closePage() {
-    window.close();
-    setTimeout(function() {
-        window.location.href = 'index.php';
-    }, 150);
+    if (window.opener && !window.opener.closed) {
+        window.close();
+    } else {
+        window.location.href = <?php echo json_encode($returnUrl); ?>;
+    }
 }
 </script>
 </html>

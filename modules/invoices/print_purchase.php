@@ -6,13 +6,30 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireAnyPermission(['invoices.purchase.view', 'invoices.purchase.create', 'reports.view']);
 
 $id = $_GET['id'] ?? 0;
 
+// Determine safe return URL based on permissions and referer
+if (isset($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'reports') !== false) {
+    $returnUrl = $_SERVER['HTTP_REFERER'];
+} elseif (hasPermission('invoices.purchase.view')) {
+    $returnUrl = 'list.php';
+} elseif (hasPermission('invoices.purchase.create')) {
+    $returnUrl = 'purchase.php';
+} else {
+    $returnUrl = '../../index.php';
+}
+
 $invoice = getRow(
-    "SELECT i.*, s.name as supplier_name_db, s.phone as supplier_phone_db
+    "SELECT i.*, 
+            w.name as warehouse_name,
+            s.name as supplier_name_db, 
+            s.phone as supplier_phone_db
      FROM invoices i
      LEFT JOIN suppliers s ON i.supplier_id = s.id
+     LEFT JOIN warehouses w ON i.warehouse_id = w.id
      WHERE i.id = ? AND i.type = 'purchase'",
     [$id]
 );
@@ -117,8 +134,10 @@ $pageTitle = 'فاتورة شراء ' . $invoice['invoice_number'];
 <body>
     <div class="no-print">
         <button class="btn btn-print" onclick="window.print()">🖨️ طباعة</button>
-        <button class="btn btn-close" onclick="closePage()">✕ إغلاق</button>
+        <button class="btn btn-close" onclick="closePage()">↩️ رجوع / إغلاق</button>
+        <?php if (hasPermission('invoices.purchase.create')): ?>
         <a href="purchase.php" class="btn btn-new">✚ فاتورة جديدة</a>
+        <?php endif; ?>
     </div>
     
     <div class="print-area">
@@ -157,6 +176,10 @@ $pageTitle = 'فاتورة شراء ' . $invoice['invoice_number'];
                                 <div class="info-row">
                                     <span class="info-label">المورد:</span>
                                     <span class="info-value"><?php echo $supplierName; ?></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">المخزن الوجهة:</span>
+                                    <span class="info-value"><?php echo htmlspecialchars($invoice['warehouse_name'] ?? 'المخزن الرئيسي'); ?></span>
                                 </div>
                                 <div class="info-row">
                                     <span class="info-label">المستلم:</span>
@@ -245,10 +268,11 @@ window.addEventListener('beforeprint', function() {
 </body>
 <script>
 function closePage() {
-    window.close();
-    setTimeout(function() {
-        window.location.href = 'list.php';
-    }, 150);
+    if (window.opener && !window.opener.closed) {
+        window.close();
+    } else {
+        window.location.href = <?php echo json_encode($returnUrl); ?>;
+    }
 }
 </script>
 </html>

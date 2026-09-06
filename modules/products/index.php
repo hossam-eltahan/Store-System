@@ -6,11 +6,14 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('products.view');
 
 $pageTitle = 'إدارة الأصناف';
 
 // Handle delete
 if (isset($_GET['delete'])) {
+    requirePermission('products.delete');
     $id = $_GET['delete'];
     $product = getRow("SELECT * FROM products WHERE id = ?", [$id]);
     
@@ -31,22 +34,32 @@ if (isset($_GET['delete'])) {
 // Filters
 $search = $_GET['search'] ?? '';
 $filter = $_GET['filter'] ?? '';
+$filterWarehouse = (int)($_GET['warehouse_id'] ?? 0);
+
+$warehouses = getAllWarehouses(false);
 
 $where = [];
 $params = [];
 
 if ($search) {
-    // Determine if search matches a numeric ID (for precise code search) or text
-    // But since code is VARCHAR, we treat all as string
-    $where[] = "(code LIKE ? OR name LIKE ? OR description LIKE ?)";
+    $where[] = "(p.code LIKE ? OR p.name LIKE ? OR p.description LIKE ?)";
     $searchTerm = "%$search%";
     $params[] = $searchTerm;
     $params[] = $searchTerm;
     $params[] = $searchTerm;
 }
 
+if ($filterWarehouse > 0) {
+    $where[] = "ws.warehouse_id = ?";
+    $params[] = $filterWarehouse;
+}
+
 if ($filter === 'low_stock') {
-    $where[] = "stock_quantity <= min_stock_level";
+    if ($filterWarehouse > 0) {
+        $where[] = "COALESCE(ws.quantity, 0) <= p.min_stock_level";
+    } else {
+        $where[] = "p.stock_quantity <= p.min_stock_level";
+    }
 }
 
 $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
@@ -57,14 +70,36 @@ $page = max(1, intval($_GET['page'] ?? 1));
 $offset = ($page - 1) * $perPage;
 
 // Get total count
-$totalProducts = getRow("SELECT COUNT(*) as count FROM products $whereClause", $params)['count'];
+if ($filterWarehouse > 0) {
+    $countSql = "SELECT COUNT(*) as count FROM products p LEFT JOIN warehouse_stock ws ON ws.product_id = p.id $whereClause";
+    $totalProducts = getRow($countSql, $params)['count'];
+} else {
+    $totalProducts = getRow("SELECT COUNT(*) as count FROM products p $whereClause", $params)['count'];
+}
 $totalPages = ceil($totalProducts / $perPage);
 
 // Get paginated products
-$products = getRows(
-    "SELECT * FROM products $whereClause ORDER BY name LIMIT $perPage OFFSET $offset",
-    $params
-);
+if ($filterWarehouse > 0) {
+    $products = getRows(
+        "SELECT p.*, COALESCE(ws.quantity, 0) as filtered_wh_stock 
+         FROM products p 
+         LEFT JOIN warehouse_stock ws ON ws.product_id = p.id AND ws.warehouse_id = $filterWarehouse
+         $whereClause ORDER BY p.name LIMIT $perPage OFFSET $offset",
+        $params
+    );
+} else {
+    $products = getRows(
+        "SELECT p.* FROM products p $whereClause ORDER BY p.name LIMIT $perPage OFFSET $offset",
+        $params
+    );
+}
+
+// Get stock breakdown per warehouse for products
+$whStocksRaw = getRows("SELECT ws.product_id, ws.quantity, w.name as warehouse_name FROM warehouse_stock ws JOIN warehouses w ON ws.warehouse_id = w.id WHERE w.is_active = 1");
+$stocksByProduct = [];
+foreach ($whStocksRaw as $sr) {
+    $stocksByProduct[$sr['product_id']][] = $sr;
+}
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -74,7 +109,9 @@ include '../../includes/navbar.php';
     <div class="card">
         <div class="card-header d-flex justify-between align-center">
             <span>📦 إدارة الأصناف</span>
+            <?php if (hasPermission('products.add')): ?>
             <a href="add.php" class="btn btn-primary">+ إضافة صنف جديد</a>
+            <?php endif; ?>
         </div>
         
         <div class="card-body">
@@ -91,9 +128,21 @@ include '../../includes/navbar.php';
                             <option value="low_stock" <?php echo $filter === 'low_stock' ? 'selected' : ''; ?>>مخزون منخفض</option>
                         </select>
                     </div>
+
+                    <div class="form-group">
+                        <select name="warehouse_id" id="warehouseFilter" class="form-control">
+                            <option value="">كل المخازن</option>
+                            <?php foreach ($warehouses as $wh): ?>
+                                <option value="<?php echo $wh['id']; ?>" <?php echo $filterWarehouse == $wh['id'] ? 'selected' : ''; ?>>
+                                    🏢 <?php echo htmlspecialchars($wh['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                     
                     <div class="form-group">
-                        <?php if ($search || $filter): ?>
+                        <button type="submit" class="btn btn-primary">بحث</button>
+                        <?php if ($search || $filter || $filterWarehouse): ?>
                         <a href="index.php" class="btn btn-secondary">✕ إلغاء</a>
                         <?php endif; ?>
                     </div>
@@ -156,9 +205,23 @@ include '../../includes/navbar.php';
                             <td><?php echo $product['unit']; ?></td>
                             <td><?php echo formatCurrency($product['price']); ?></td>
                             <td>
-                                <strong class="<?php echo $product['stock_quantity'] <= $product['min_stock_level'] ? 'text-danger' : 'text-success'; ?>">
-                                    <?php echo $product['stock_quantity']; ?>
-                                </strong>
+                                <div>
+                                    <strong class="<?php echo $product['stock_quantity'] <= $product['min_stock_level'] ? 'text-danger' : 'text-success'; ?>" style="font-size: 1.1em;">
+                                        <?php echo $product['stock_quantity']; ?>
+                                    </strong>
+                                    <?php if ($filterWarehouse > 0 && isset($product['filtered_wh_stock'])): ?>
+                                        <small style="display: block; color: #0284c7; font-weight: 600;">بالمخزن المحدد: <?php echo $product['filtered_wh_stock']; ?></small>
+                                    <?php endif; ?>
+                                </div>
+                                <?php if (!empty($stocksByProduct[$product['id']])): ?>
+                                    <div style="display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px;">
+                                        <?php foreach ($stocksByProduct[$product['id']] as $stk): ?>
+                                            <span style="font-size: 10px; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; border: 1px solid #cbd5e1; white-space: nowrap;">
+                                                <?php echo htmlspecialchars($stk['warehouse_name']); ?>: <strong><?php echo $stk['quantity']; ?></strong>
+                                            </span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <?php if ($product['stock_quantity'] <= 0): ?>
@@ -170,10 +233,14 @@ include '../../includes/navbar.php';
                                 <?php endif; ?>
                             </td>
                             <td>
+                                <?php if (hasPermission('products.edit')): ?>
                                 <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-primary">✏️ تعديل</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('products.delete')): ?>
                                 <button type="button" class="btn btn-danger btn-delete" 
                                         data-name="<?php echo htmlspecialchars($product['name']); ?>" 
                                         data-url="index.php?delete=<?php echo $product['id']; ?>">🗑️ حذف</button>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>

@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireAnyPermission(['installments.view', 'installments.create', 'installments.pay']);
 
 $pageTitle = 'الأقساط';
 
@@ -264,8 +266,12 @@ include '../../includes/navbar.php';
         <div class="card-header d-flex justify-between align-center" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white;">
             <span>📅 الأقساط</span>
             <div style="display: flex; gap: 8px;">
+                <?php if (hasPermission('installments.view')): ?>
                 <a href="invoices.php" class="btn" style="background: #f59e0b; color: white;">📋 فواتير الأقساط</a>
+                <?php endif; ?>
+                <?php if (hasPermission('installments.create')): ?>
                 <a href="create.php" class="btn" style="background: white; color: #7c3aed;">+ إنشاء قسط جديد</a>
+                <?php endif; ?>
             </div>
         </div>
         
@@ -362,7 +368,7 @@ include '../../includes/navbar.php';
                 <!-- Actions -->
                 <div style="margin-top: 15px; display: flex; gap: 10px;">
                     <a href="view.php?id=<?php echo $plan['id']; ?>" class="btn btn-primary btn-sm">📋 التفاصيل</a>
-                    <?php if ($plan['status'] === 'active'): ?>
+                    <?php if ($plan['status'] === 'active' && hasPermission('installments.pay')): ?>
                     <a href="pay.php?plan_id=<?php echo $plan['id']; ?>" class="btn btn-success btn-sm">💵 دفع</a>
                     <?php endif; ?>
                 </div>

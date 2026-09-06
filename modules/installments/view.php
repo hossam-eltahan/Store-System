@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('installments.view');
 
 $id = $_GET['id'] ?? 0;
 $plan = getRow("SELECT * FROM installment_plans WHERE id = ?", [$id]);
@@ -254,7 +256,7 @@ include '../../includes/navbar.php';
         <div class="card-header d-flex justify-between align-center" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white;">
             <span>📋 خطة التقسيط</span>
             <div style="display: flex; gap: 10px;">
-                <?php if ($plan['status'] === 'active'): ?>
+                <?php if ($plan['status'] === 'active' && hasPermission('installments.pay')): ?>
                 <a href="pay.php?plan_id=<?php echo $plan['id']; ?>" class="btn" style="background: #10b981; color: white;">💵 دفع قسط</a>
                 <?php endif; ?>
                 <a href="print_payment.php?plan_id=<?php echo $plan['id']; ?>&amount=0" class="btn" style="background: white; color: #7c3aed;">🖨️ طباعة</a>

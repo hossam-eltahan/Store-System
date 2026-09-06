@@ -6,9 +6,12 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireAnyPermission(['installments.pay', 'installments.view']);
 
 $planId = $_GET['plan_id'] ?? 0;
 $paidAmount = floatval($_GET['amount'] ?? 0);
+$returnUrl = hasPermission('installments.view') ? 'index.php' : (hasPermission('installments.pay') ? 'pay.php?plan_id=' . (int)$planId : '../../index.php');
 
 $plan = getRow("SELECT * FROM installment_plans WHERE id = ?", [$planId]);
 if (!$plan) {
@@ -301,10 +304,10 @@ $pageTitle = 'إيصال دفع قسط';
     
     <script>
     function goBack() {
-        if (window.history.length > 1) {
-            window.history.back();
+        if (window.opener && !window.opener.closed) {
+            window.close();
         } else {
-            window.location.href = 'index.php';
+            window.location.href = <?php echo json_encode($returnUrl); ?>;
         }
     }
     </script>

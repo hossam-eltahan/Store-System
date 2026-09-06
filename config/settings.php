@@ -143,11 +143,15 @@ function getError() {
 }
 
 // Log activity
-function logActivity($action, $description, $user = 'المدير') {
+function logActivity($action, $description, $user = null) {
+    if ($user === null) {
+        $user = (isset($_SESSION['full_name']) && !empty($_SESSION['full_name'])) ? $_SESSION['full_name'] : 'النظام';
+    }
+    $userId = $_SESSION['user_id'] ?? null;
     $ip = $_SERVER['REMOTE_ADDR'] ?? '';
     return insert(
-        "INSERT INTO activity_log (action, description, user, ip_address) VALUES (?, ?, ?, ?)",
-        [$action, $description, $user, $ip]
+        "INSERT INTO activity_log (user_id, action, description, user, ip_address) VALUES (?, ?, ?, ?, ?)",
+        [$userId, $action, $description, $user, $ip]
     );
 }
 
@@ -208,3 +212,120 @@ function deleteImage($filepath) {
     }
     return false;
 }
+
+// =============================================
+// Warehouse Helper Functions (دوال إدارة المخازن)
+// =============================================
+
+/**
+ * Get all active warehouses (or all)
+ */
+function getAllWarehouses($onlyActive = true) {
+    if ($onlyActive) {
+        return getRows("SELECT * FROM warehouses WHERE is_active = 1 ORDER BY is_default DESC, name ASC");
+    }
+    return getRows("SELECT * FROM warehouses ORDER BY is_default DESC, name ASC");
+}
+
+/**
+ * Get default warehouse
+ */
+function getDefaultWarehouse() {
+    $wh = getRow("SELECT * FROM warehouses WHERE is_default = 1 AND is_active = 1 LIMIT 1");
+    if (!$wh) {
+        $wh = getRow("SELECT * FROM warehouses WHERE is_active = 1 ORDER BY id ASC LIMIT 1");
+    }
+    return $wh;
+}
+
+/**
+ * Get warehouse by ID
+ */
+function getWarehouseById($id) {
+    return getRow("SELECT * FROM warehouses WHERE id = ?", [(int)$id]);
+}
+
+/**
+ * Get warehouse name by ID
+ */
+function getWarehouseName($id) {
+    $wh = getRow("SELECT name FROM warehouses WHERE id = ?", [(int)$id]);
+    return $wh ? $wh['name'] : 'المخزن الرئيسي';
+}
+
+/**
+ * Get stock quantity of a product in a specific warehouse
+ */
+function getWarehouseStock($warehouseId, $productId) {
+    $stock = getRow("SELECT quantity FROM warehouse_stock WHERE warehouse_id = ? AND product_id = ?", [(int)$warehouseId, (int)$productId]);
+    return $stock ? (int)$stock['quantity'] : 0;
+}
+
+/**
+ * Update stock for a product in a specific warehouse
+ * $quantityChange: positive integer
+ * $operation: 'add' | 'subtract' | 'set'
+ */
+function updateWarehouseStock($warehouseId, $productId, $quantityChange, $operation = 'add') {
+    $warehouseId = (int)$warehouseId;
+    $productId = (int)$productId;
+    $quantityChange = (int)$quantityChange;
+    
+    // Fallback if warehouseId is invalid
+    if ($warehouseId <= 0) {
+        $def = getDefaultWarehouse();
+        $warehouseId = $def ? (int)$def['id'] : 1;
+    }
+
+    $existing = getRow("SELECT id, quantity FROM warehouse_stock WHERE warehouse_id = ? AND product_id = ?", [$warehouseId, $productId]);
+    if (!$existing) {
+        insert("INSERT INTO warehouse_stock (warehouse_id, product_id, quantity) VALUES (?, ?, 0)", [$warehouseId, $productId]);
+        $currentQty = 0;
+    } else {
+        $currentQty = (int)$existing['quantity'];
+    }
+
+    if ($operation === 'add') {
+        $newQty = $currentQty + $quantityChange;
+    } elseif ($operation === 'subtract') {
+        $newQty = $currentQty - $quantityChange;
+    } elseif ($operation === 'set') {
+        $newQty = $quantityChange;
+    } else {
+        $newQty = $currentQty;
+    }
+
+    execute("UPDATE warehouse_stock SET quantity = ? WHERE warehouse_id = ? AND product_id = ?", [$newQty, $warehouseId, $productId]);
+
+    // Keep aggregate total in products table synchronized
+    syncProductTotalStock($productId);
+
+    return $newQty;
+}
+
+/**
+ * Synchronize product's total stock_quantity with the sum across all warehouses
+ */
+function syncProductTotalStock($productId) {
+    $productId = (int)$productId;
+    $row = getRow("SELECT COALESCE(SUM(quantity), 0) as total FROM warehouse_stock WHERE product_id = ?", [$productId]);
+    $totalQty = $row ? (int)$row['total'] : 0;
+    execute("UPDATE products SET stock_quantity = ? WHERE id = ?", [$totalQty, $productId]);
+    return $totalQty;
+}
+
+/**
+ * Generate stock transfer number (e.g. TRF-00001)
+ */
+function generateTransferNumber() {
+    $prefix = 'TRF-';
+    $last = getRow("SELECT transfer_number FROM stock_transfers ORDER BY id DESC LIMIT 1");
+    if ($last && !empty($last['transfer_number'])) {
+        $num = (int)str_replace($prefix, '', $last['transfer_number']);
+        $newNum = $num + 1;
+    } else {
+        $newNum = 1;
+    }
+    return $prefix . str_pad($newNum, 5, '0', STR_PAD_LEFT);
+}
+

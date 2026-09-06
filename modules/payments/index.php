@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireAnyPermission(['payments.view', 'payments.customer', 'payments.supplier']);
 
 $pageTitle = 'سجل المدفوعات';
 
@@ -59,8 +61,12 @@ include '../../includes/navbar.php';
         <div class="card-header d-flex justify-between align-center">
             <span>💵 سجل المدفوعات</span>
             <div style="display: flex; gap: 10px;">
+                <?php if (hasPermission('payments.customer')): ?>
                 <a href="pay_customer.php" class="btn btn-warning">💵 تحصيل من عميل</a>
+                <?php endif; ?>
+                <?php if (hasPermission('payments.supplier')): ?>
                 <a href="pay_supplier.php" class="btn btn-success">💵 دفع لمورد</a>
+                <?php endif; ?>
             </div>
         </div>
         

@@ -6,85 +6,93 @@
  */
 
 require_once '../../config/database.php';
+require_once '../../config/auth.php';
 require_once '../../config/settings.php';
 require_once '../../includes/notifications.php';
 
+requireLogin();
+
 $pageTitle = 'جميع الإشعارات';
 
-// Get all notifications (no limit)
+// Get all notifications (no limit) filtered by user permissions
 function getAllNotifications() {
     $notifications = [];
     
-    // 1. Low stock products - ALL
-    $lowStockProducts = getRows("SELECT id, name, code, stock_quantity, unit, min_stock_level FROM products WHERE stock_quantity <= min_stock_level ORDER BY stock_quantity ASC");
-    foreach ($lowStockProducts as $product) {
-        $notifications[] = [
-            'type' => 'warning',
-            'icon' => '⚠️',
-            'title' => 'مخزون منخفض',
-            'message' => $product['name'] . ' (' . $product['stock_quantity'] . '/' . $product['min_stock_level'] . ')',
-            'link' => 'modules/products/edit.php?id=' . $product['id'],
-            'priority' => 2,
-            'category' => 'stock'
-        ];
+    // 1. Low stock products - ALL (Only if user has products.view)
+    if (hasPermission('products.view')) {
+        $lowStockProducts = getRows("SELECT id, name, code, stock_quantity, unit, min_stock_level FROM products WHERE stock_quantity <= min_stock_level ORDER BY stock_quantity ASC");
+        $prodLink = hasPermission('products.edit') ? 'modules/products/edit.php?id=' : 'modules/products/index.php?search=';
+        foreach ($lowStockProducts as $product) {
+            $notifications[] = [
+                'type' => 'warning',
+                'icon' => '⚠️',
+                'title' => 'مخزون منخفض',
+                'message' => $product['name'] . ' (' . $product['stock_quantity'] . '/' . $product['min_stock_level'] . ')',
+                'link' => hasPermission('products.edit') ? 'modules/products/edit.php?id=' . $product['id'] : 'modules/products/index.php',
+                'priority' => 2,
+                'category' => 'stock'
+            ];
+        }
     }
     
-    // 2. Today's due installments - ALL
-    $dueInstallments = getRows("
-        SELECT ipy.*, ip.entity_name, ip.type, ip.id as plan_id
-        FROM installment_payments ipy
-        JOIN installment_plans ip ON ipy.plan_id = ip.id
-        WHERE ipy.due_date = CURDATE() AND ipy.status IN ('pending', 'partial')
-    ");
-    foreach ($dueInstallments as $payment) {
-        $notifications[] = [
-            'type' => 'danger',
-            'icon' => '💰',
-            'title' => 'قسط مستحق اليوم',
-            'message' => $payment['entity_name'] . ' - ' . number_format($payment['amount'], 2),
-            'link' => 'modules/installments/pay.php?plan_id=' . $payment['plan_id'],
-            'priority' => 1,
-            'category' => 'installments'
-        ];
+    // 2. Today's due installments - ALL (Only if user has installments.view)
+    if (hasPermission('installments.view')) {
+        $dueInstallments = getRows("
+            SELECT ipy.*, ip.entity_name, ip.type, ip.id as plan_id
+            FROM installment_payments ipy
+            JOIN installment_plans ip ON ipy.plan_id = ip.id
+            WHERE ipy.due_date = CURDATE() AND ipy.status IN ('pending', 'partial')
+        ");
+        foreach ($dueInstallments as $payment) {
+            $notifications[] = [
+                'type' => 'danger',
+                'icon' => '💰',
+                'title' => 'قسط مستحق اليوم',
+                'message' => $payment['entity_name'] . ' - ' . number_format($payment['amount'], 2),
+                'link' => hasPermission('installments.pay') ? 'modules/installments/pay.php?plan_id=' . $payment['plan_id'] : 'modules/installments/index.php',
+                'priority' => 1,
+                'category' => 'installments'
+            ];
+        }
+        
+        // 3. Overdue installments - ALL
+        $overdueInstallments = getRows("
+            SELECT ipy.*, ip.entity_name, ip.type, ip.id as plan_id,
+                   DATEDIFF(CURDATE(), ipy.due_date) as days_overdue
+            FROM installment_payments ipy
+            JOIN installment_plans ip ON ipy.plan_id = ip.id
+            WHERE ipy.status = 'overdue'
+            ORDER BY ipy.due_date ASC
+        ");
+        foreach ($overdueInstallments as $payment) {
+            $notifications[] = [
+                'type' => 'danger',
+                'icon' => '🚨',
+                'title' => 'قسط متأخر (' . $payment['days_overdue'] . ' يوم)',
+                'message' => $payment['entity_name'] . ' - ' . date('Y/m/d', strtotime($payment['due_date'])),
+                'link' => hasPermission('installments.pay') ? 'modules/installments/pay.php?plan_id=' . $payment['plan_id'] : 'modules/installments/index.php',
+                'priority' => 0,
+                'category' => 'installments'
+            ];
+        }
     }
     
-    // 3. Overdue installments - ALL
-    $overdueInstallments = getRows("
-        SELECT ipy.*, ip.entity_name, ip.type, ip.id as plan_id,
-               DATEDIFF(CURDATE(), ipy.due_date) as days_overdue
-        FROM installment_payments ipy
-        JOIN installment_plans ip ON ipy.plan_id = ip.id
-        WHERE ipy.status = 'overdue'
-        ORDER BY ipy.due_date ASC
-    ");
-    foreach ($overdueInstallments as $payment) {
-        $notifications[] = [
-            'type' => 'danger',
-            'icon' => '🚨',
-            'title' => 'قسط متأخر (' . $payment['days_overdue'] . ' يوم)',
-            'message' => $payment['entity_name'] . ' - ' . date('Y/m/d', strtotime($payment['due_date'])),
-            'link' => 'modules/installments/pay.php?plan_id=' . $payment['plan_id'],
-            'priority' => 0,
-            'category' => 'installments'
-        ];
+    // 4. Tomorrow's suppliers - ALL (Only if user has suppliers.view)
+    if (hasPermission('suppliers.view')) {
+        $tomorrowDay = getTomorrowDayName();
+        $tomorrowSuppliers = getRows("SELECT id, name, phone, expected_products FROM suppliers WHERE visit_days LIKE ?", ["%$tomorrowDay%"]);
+        foreach ($tomorrowSuppliers as $supplier) {
+            $notifications[] = [
+                'type' => 'info',
+                'icon' => '🚚',
+                'title' => 'مورد قادم غداً',
+                'message' => $supplier['name'] . ($supplier['expected_products'] ? ' - ' . $supplier['expected_products'] : ''),
+                'link' => 'modules/suppliers/index.php',
+                'priority' => 3,
+                'category' => 'suppliers'
+            ];
+        }
     }
-    
-    // 4. Tomorrow's suppliers - ALL
-    $tomorrowDay = getTomorrowDayName();
-    $tomorrowSuppliers = getRows("SELECT id, name, phone, expected_products FROM suppliers WHERE visit_days LIKE ?", ["%$tomorrowDay%"]);
-    foreach ($tomorrowSuppliers as $supplier) {
-        $notifications[] = [
-            'type' => 'info',
-            'icon' => '🚚',
-            'title' => 'مورد قادم غداً',
-            'message' => $supplier['name'] . ($supplier['expected_products'] ? ' - ' . $supplier['expected_products'] : ''),
-            'link' => 'modules/suppliers/index.php',
-            'priority' => 3,
-            'category' => 'suppliers'
-        ];
-    }
-    
-
     
     // Sort by priority (lower = more important)
     usort($notifications, function($a, $b) {
@@ -114,6 +122,11 @@ $categoryNames = [
     'stock' => 'المخزون',
     'suppliers' => 'الموردين'
 ];
+
+// Sanitize filterCategory with permissions
+if ($filterCategory === 'installments' && !hasPermission('installments.view')) $filterCategory = '';
+if ($filterCategory === 'stock' && !hasPermission('products.view')) $filterCategory = '';
+if ($filterCategory === 'suppliers' && !hasPermission('suppliers.view')) $filterCategory = '';
 
 if ($filterCategory && isset($counts[$filterCategory])) {
     $allNotifications = array_filter($allNotifications, function($n) use ($filterCategory) {
@@ -152,7 +165,7 @@ include '../../includes/navbar.php';
 .notification-content { flex: 1; }
 .notification-title { font-weight: bold; color: #1f2937; font-size: 0.95em; }
 .notification-message { font-size: 0.85em; color: #6b7280; }
-.stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px; }
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 15px; }
 .stat-box { background: white; border-radius: 8px; padding: 10px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; text-decoration: none; color: inherit; display: block; }
 .stat-box:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
 .stat-box.active { box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.5); transform: translateY(-2px); }
@@ -197,18 +210,24 @@ include '../../includes/navbar.php';
         <div class="card-body">
             <!-- Stats Summary - Clickable -->
             <div class="stats-row">
+                <?php if (hasPermission('installments.view')): ?>
                 <a href="?category=installments" class="stat-box danger <?php echo $filterCategory === 'installments' ? 'active' : ''; ?>">
                     <div class="stat-number"><?php echo $counts['installments']; ?></div>
                     <div class="stat-label">💰 أقساط</div>
                 </a>
+                <?php endif; ?>
+                <?php if (hasPermission('products.view')): ?>
                 <a href="?category=stock" class="stat-box warning <?php echo $filterCategory === 'stock' ? 'active' : ''; ?>">
                     <div class="stat-number"><?php echo $counts['stock']; ?></div>
                     <div class="stat-label">⚠️ مخزون</div>
                 </a>
+                <?php endif; ?>
+                <?php if (hasPermission('suppliers.view')): ?>
                 <a href="?category=suppliers" class="stat-box info <?php echo $filterCategory === 'suppliers' ? 'active' : ''; ?>">
                     <div class="stat-number"><?php echo $counts['suppliers']; ?></div>
                     <div class="stat-label">🚚 موردين</div>
                 </a>
+                <?php endif; ?>
             </div>
             
             <?php if (empty($allNotifications)): ?>

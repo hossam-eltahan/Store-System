@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('invoices.sale.create');
 
 $pageTitle = 'فاتورة بيع جديدة';
 
@@ -22,10 +24,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $customerName = sanitize($_POST['customer_name'] ?? '');
         $customerPhone = sanitize($_POST['customer_phone'] ?? '');
         $date = $_POST['date'];
+        $warehouseId = (int)($_POST['warehouse_id'] ?? getCurrentWarehouseId());
         $discount = floatval($_POST['discount'] ?? 0);
         $paidAmount = floatval($_POST['paid_amount'] ?? 0);
         $paymentMethod = sanitize($_POST['payment_method'] ?? 'كاش');
-        $handledBy = sanitize($_POST['handled_by'] ?? 'المدير');
+        $handledBy = $_SESSION['full_name'] ?? 'المدير';
+        $userId = getCurrentUserId();
         $notes = sanitize($_POST['notes'] ?? '');
         
         // Get customer's old balance BEFORE this invoice
@@ -51,12 +55,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $oldDebt = $customerOldBalance < 0 ? abs($customerOldBalance) : 0;
             $maxPayment = $finalAmount + $oldDebt;
             
-            if ($paidAmount > $maxPayment) {
-                if ($oldDebt > 0) {
-                    throw new Exception("المبلغ المدفوع ({$paidAmount}) يتجاوز قيمة الفاتورة ({$finalAmount}) + الحساب القديم ({$oldDebt})");
-                } else {
-                    throw new Exception("المبلغ المدفوع ({$paidAmount}) لا يمكن أن يتجاوز قيمة الفاتورة ({$finalAmount}) لأنه لا يوجد حساب قديم على العميل");
-                }
+            if ($customerOldBalance >= 0) {
+                // Customer has no debt - cannot overpay
+                throw new Exception("المبلغ المدفوع ({$paidAmount}) لا يمكن أن يتجاوز قيمة الفاتورة ({$finalAmount}) لأنه لا يوجد حساب قديم على العميل");
             }
         }
         
@@ -69,14 +70,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $paymentStatus = 'unpaid';
         }
         
-        // Insert invoice with old_balance
+        // Insert invoice with old_balance, user_id, and warehouse_id
         $invoiceId = insert(
-            "INSERT INTO invoices (invoice_number, type, customer_id, customer_name, customer_phone, date, total_amount, discount, paid_amount, remaining_amount, old_balance, payment_method, payment_status, handled_by, notes) 
-            VALUES (?, 'sale', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [$invoiceNumber, $customerId, $customerName, $customerPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $customerOldBalance, $paymentMethod, $paymentStatus, $handledBy, $notes]
+            "INSERT INTO invoices (invoice_number, type, customer_id, customer_name, customer_phone, date, total_amount, discount, paid_amount, remaining_amount, old_balance, payment_method, payment_status, handled_by, user_id, warehouse_id, notes) 
+            VALUES (?, 'sale', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [$invoiceNumber, $customerId, $customerName, $customerPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $customerOldBalance, $paymentMethod, $paymentStatus, $handledBy, $userId, $warehouseId, $notes]
         );
         
-        // Insert items and update stock
+        // Insert items and update warehouse stock
         foreach ($items as $item) {
             insert(
                 "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, unit, quantity, unit_price, total) 
@@ -84,11 +85,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price']]
             );
             
-            // Update stock (prevent going below 0)
-            execute(
-                "UPDATE products SET stock_quantity = GREATEST(0, stock_quantity - ?) WHERE id = ?",
-                [$item['quantity'], $item['product_id']]
-            );
+            // Deduct stock from selected warehouse (and sync aggregate products.stock_quantity)
+            updateWarehouseStock($warehouseId, $item['product_id'], $item['quantity'], 'subtract');
         }
         
         // Auto-add customer if not registered and has phone number
@@ -153,6 +151,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Get customers and products for autocomplete with balance
 $customers = getRows("SELECT id, name, phone, balance FROM customers ORDER BY name");
 $products = getRows("SELECT id, code, name, unit, price, stock_quantity FROM products ORDER BY name");
+
+// Warehouses and stock maps
+$warehouses = getAllWarehouses(true);
+$userWarehouseId = getCurrentWarehouseId();
+$stocksRaw = getRows("SELECT warehouse_id, product_id, quantity FROM warehouse_stock");
+$warehouseStocks = [];
+foreach ($stocksRaw as $sr) {
+    $warehouseStocks[$sr['warehouse_id']][$sr['product_id']] = (int)$sr['quantity'];
+}
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -371,9 +378,21 @@ include '../../includes/navbar.php';
             <!-- Invoice Header -->
             <div class="invoice-header">
                 <div class="invoice-title">🧾 فاتورة بيع</div>
-                <div>
-                    <div class="invoice-number"><?php echo generateInvoiceNumber('sale'); ?></div>
-                    <input type="date" name="date" value="<?php echo date('Y-m-d'); ?>" style="margin-top: 4px; padding: 4px 6px; border-radius: 4px; border: 1px solid #d1d5db; font-size: 0.85em;">
+                <div style="display: flex; gap: 15px; align-items: center;">
+                    <div style="text-align: right;">
+                        <label style="font-size: 0.8em; font-weight: 700; color: #1e3a8a; display: block; margin-bottom: 2px;">🏢 المخزن:</label>
+                        <select name="warehouse_id" id="invoiceWarehouseSelect" onchange="onWarehouseChange()" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #93c5fd; font-weight: 700; background: #eff6ff; color: #1e40af; font-size: 0.85em; cursor: pointer;">
+                            <?php foreach ($warehouses as $wh): ?>
+                                <option value="<?php echo $wh['id']; ?>" <?php echo ((int)$wh['id'] === (int)$userWarehouseId) ? 'selected' : ''; ?>>
+                                    🏢 <?php echo htmlspecialchars($wh['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <div class="invoice-number"><?php echo generateInvoiceNumber('sale'); ?></div>
+                        <input type="date" name="date" value="<?php echo date('Y-m-d'); ?>" style="margin-top: 4px; padding: 4px 6px; border-radius: 4px; border: 1px solid #d1d5db; font-size: 0.85em;">
+                    </div>
                 </div>
             </div>
             
@@ -397,7 +416,7 @@ include '../../includes/navbar.php';
                     </div>
                     <div class="form-group">
                         <label class="form-label">البائع</label>
-                        <input type="text" name="handled_by" class="form-control" value="المدير" required>
+                        <input type="text" name="handled_by" class="form-control" value="<?php echo htmlspecialchars($_SESSION['full_name'] ?? 'المدير'); ?>" readonly style="background: rgba(71,85,105,0.3); cursor: not-allowed;">
                     </div>
                 </div>
                 
@@ -521,6 +540,25 @@ include '../../includes/navbar.php';
 // Customer and Product data
 const customers = <?php echo json_encode($customers); ?>;
 const products = <?php echo json_encode($products); ?>;
+const warehouseStocks = <?php echo json_encode($warehouseStocks); ?>;
+
+function getCurrentWarehouseStock(productId) {
+    const whId = document.getElementById('invoiceWarehouseSelect')?.value || 1;
+    if (warehouseStocks[whId] && warehouseStocks[whId][productId] !== undefined) {
+        return parseInt(warehouseStocks[whId][productId]) || 0;
+    }
+    return 0;
+}
+
+function onWarehouseChange() {
+    items.forEach(item => {
+        item.stock = getCurrentWarehouseStock(item.product_id);
+    });
+    renderItems();
+    if (productSearch.value.trim().length > 0) {
+        productSearch.dispatchEvent(new Event('input'));
+    }
+}
 
 let items = [];
 let itemCounter = 1;
@@ -600,14 +638,17 @@ productSearch.addEventListener('input', function() {
     ).slice(0, 10);
     
     if (matches.length > 0) {
-        productResults.innerHTML = matches.map(p => `
-            <div class="autocomplete-item" onclick='addProduct(${JSON.stringify(p)})' style="${p.stock_quantity <= 0 ? 'background: #fef2f2;' : ''}">
-                <strong>${p.name}</strong> (${p.code})
-                ${p.stock_quantity <= 0 ? '<span style="color: #dc2626; font-weight: bold; margin-right: 8px;">⚠️ نفذ</span>' : ''}
-                <br>
-                <small style="color: #6b7280;">السعر: ${p.price} جنيه - المخزون: ${p.stock_quantity <= 0 ? '<span style="color: #dc2626;">0</span>' : p.stock_quantity}</small>
-            </div>
-        `).join('');
+        productResults.innerHTML = matches.map(p => {
+            const whStock = getCurrentWarehouseStock(p.id);
+            return `
+                <div class="autocomplete-item" onclick='addProduct(${JSON.stringify(p)})' style="${whStock <= 0 ? 'background: #fef2f2;' : ''}">
+                    <strong>${p.name}</strong> (${p.code})
+                    ${whStock <= 0 ? '<span style="color: #dc2626; font-weight: bold; margin-right: 8px;">⚠️ نفذ بالمخزن</span>' : ''}
+                    <br>
+                    <small style="color: #6b7280;">السعر: ${p.price} جنيه - رصيد المخزن المختار: ${whStock <= 0 ? '<span style="color: #dc2626;">0</span>' : whStock} (إجمالي الفروع: ${p.stock_quantity})</small>
+                </div>
+            `;
+        }).join('');
         productResults.style.display = 'block';
     } else {
         productResults.innerHTML = '<div class="autocomplete-item" style="color: #dc2626;">لا توجد نتائج</div>';
@@ -626,6 +667,7 @@ function addProduct(product) {
         return;
     }
     
+    const whStock = getCurrentWarehouseStock(product.id);
     items.push({
         id: itemCounter++,
         product_id: product.id,
@@ -634,7 +676,7 @@ function addProduct(product) {
         unit: product.unit,
         quantity: 1,
         price: parseFloat(product.price),
-        stock: parseInt(product.stock_quantity)
+        stock: whStock
     });
     
     renderItems();

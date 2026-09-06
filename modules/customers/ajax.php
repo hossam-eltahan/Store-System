@@ -6,6 +6,10 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireLogin();
+
+requireAnyPermission(['customers.view', 'invoices.sale.create', 'invoices.sale.view', 'installments.create', 'payments.customer', 'returns.create_customer']);
 
 header('Content-Type: application/json; charset=utf-8');
 

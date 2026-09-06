@@ -6,37 +6,50 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireAnyPermission(['invoices.sale.view', 'invoices.purchase.view']);
 
 $pageTitle = 'قائمة الفواتير';
 $settings = getAllSettings();
+
+$canViewSales = hasPermission('invoices.sale.view');
+$canViewPurchases = hasPermission('invoices.purchase.view');
 
 // Filters from GET
 $search = trim($_GET['search'] ?? '');
 $filterType = $_GET['type'] ?? '';
 $filterPayment = $_GET['payment'] ?? '';
+$filterWarehouse = (int)($_GET['warehouse_id'] ?? 0);
 $dateFrom = $_GET['date_from'] ?? '';
 $dateTo = $_GET['date_to'] ?? '';
 
+// Enforce type restriction based on permissions
+if ($canViewSales && !$canViewPurchases) {
+    $filterType = 'sale';
+} elseif ($canViewPurchases && !$canViewSales) {
+    $filterType = 'purchase';
+}
+
+$warehouses = getAllWarehouses(false);
+
 // Build query
 $sql = "SELECT i.*, 
+        w.name as warehouse_name,
         COALESCE(c.name, i.customer_name) as display_name,
         s.name as supplier_name_db
  FROM invoices i
  LEFT JOIN customers c ON i.customer_id = c.id
  LEFT JOIN suppliers s ON i.supplier_id = s.id
+ LEFT JOIN warehouses w ON i.warehouse_id = w.id
  WHERE 1=1";
 $params = [];
 
-if ($search !== '') {
-    $sql .= " AND (i.invoice_number LIKE ? OR c.name LIKE ? OR s.name LIKE ? OR i.customer_name LIKE ?)";
-    $searchParam = "%$search%";
-    $params[] = $searchParam;
-    $params[] = $searchParam;
-    $params[] = $searchParam;
-    $params[] = $searchParam;
-}
-
-if ($filterType !== '') {
+// Apply type permissions to query
+if ($canViewSales && !$canViewPurchases) {
+    $sql .= " AND i.type = 'sale'";
+} elseif ($canViewPurchases && !$canViewSales) {
+    $sql .= " AND i.type = 'purchase'";
+} elseif ($filterType !== '') {
     $sql .= " AND i.type = ?";
     $params[] = $filterType;
 }
@@ -44,6 +57,11 @@ if ($filterType !== '') {
 if ($filterPayment !== '') {
     $sql .= " AND i.payment_status = ?";
     $params[] = $filterPayment;
+}
+
+if ($filterWarehouse > 0) {
+    $sql .= " AND i.warehouse_id = ?";
+    $params[] = $filterWarehouse;
 }
 
 if ($dateFrom !== '') {
@@ -140,8 +158,12 @@ include '../../includes/navbar.php';
         <div class="card-header d-flex justify-between align-center">
             <span>📋 قائمة الفواتير</span>
             <div>
+                <?php if (hasPermission('invoices.sale.create')): ?>
                 <a href="sale.php" class="btn btn-primary">+ فاتورة بيع</a>
+                <?php endif; ?>
+                <?php if (hasPermission('invoices.purchase.create')): ?>
                 <a href="purchase.php" class="btn btn-success">+ فاتورة شراء</a>
+                <?php endif; ?>
             </div>
         </div>
         
@@ -160,9 +182,15 @@ include '../../includes/navbar.php';
                     <div class="filter-group">
                         <label>نوع الفاتورة</label>
                         <select name="type" id="filterType" class="form-control">
+                            <?php if ($canViewSales && $canViewPurchases): ?>
                             <option value="">الكل</option>
                             <option value="sale" <?php echo $filterType === 'sale' ? 'selected' : ''; ?>>مبيعات</option>
                             <option value="purchase" <?php echo $filterType === 'purchase' ? 'selected' : ''; ?>>مشتريات</option>
+                            <?php elseif ($canViewSales): ?>
+                            <option value="sale" selected>مبيعات</option>
+                            <?php elseif ($canViewPurchases): ?>
+                            <option value="purchase" selected>مشتريات</option>
+                            <?php endif; ?>
                         </select>
                     </div>
                     
@@ -177,13 +205,25 @@ include '../../includes/navbar.php';
                         <input type="date" name="date_to" id="filterDateTo" class="form-control"
                                value="<?php echo htmlspecialchars($dateTo); ?>">
                     </div>
-                    
+
+                    <div class="filter-group">
+                        <label>المخزن</label>
+                        <select name="warehouse_id" id="filterWarehouse" class="form-control">
+                            <option value="">كل المخازن</option>
+                            <?php foreach ($warehouses as $wh): ?>
+                                <option value="<?php echo $wh['id']; ?>" <?php echo $filterWarehouse == $wh['id'] ? 'selected' : ''; ?>>
+                                    🏢 <?php echo htmlspecialchars($wh['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
                     <div class="filter-group">
                         <label>حالة الدفع</label>
-                        <select name="payment" id="filterPaymentStatus" class="form-control">
+                        <select name="payment" id="filterPayment" class="form-control">
                             <option value="">الكل</option>
                             <option value="paid" <?php echo $filterPayment === 'paid' ? 'selected' : ''; ?>>مدفوع</option>
-                            <option value="partial" <?php echo $filterPayment === 'partial' ? 'selected' : ''; ?>>دفع جزئي</option>
+                            <option value="partial" <?php echo $filterPayment === 'partial' ? 'selected' : ''; ?>>مدفوع جزئياً</option>
                             <option value="unpaid" <?php echo $filterPayment === 'unpaid' ? 'selected' : ''; ?>>غير مدفوع</option>
                         </select>
                     </div>
@@ -194,15 +234,18 @@ include '../../includes/navbar.php';
                 </div>
             </form>
             
-            <!-- Results Count with Pagination -->
-            <div class="search-results-count">
-                <span>📊 عدد النتائج: <strong><?php echo $totalItems; ?></strong> فاتورة</span>
-                <div class="pagination" style="display: flex; align-items: center; gap: 8px;">
+            <!-- Pagination Info & Quick Navigation -->
+            <div class="d-flex justify-between align-center mb-1">
+                <div>
+                    <span class="badge badge-primary">إجمالي الفواتير: <?php echo $totalItems; ?></span>
+                </div>
+                <div>
                     <?php 
                     $queryParams = http_build_query([
                         'search' => $search,
                         'type' => $filterType,
                         'payment' => $filterPayment,
+                        'warehouse_id' => $filterWarehouse,
                         'date_from' => $dateFrom,
                         'date_to' => $dateTo
                     ]);
@@ -224,6 +267,7 @@ include '../../includes/navbar.php';
                         <tr>
                             <th>رقم الفاتورة</th>
                             <th>النوع</th>
+                            <th>المخزن</th>
                             <th>العميل/المورد</th>
                             <th>التاريخ</th>
                             <th>الإجمالي</th>
@@ -236,7 +280,7 @@ include '../../includes/navbar.php';
                     <tbody id="invoicesBody">
                         <?php if (empty($invoices)): ?>
                         <tr>
-                            <td colspan="9" class="text-center">لا توجد فواتير</td>
+                            <td colspan="10" class="text-center">لا توجد فواتير</td>
                         </tr>
                         <?php else: ?>
                         <?php foreach ($invoices as $invoice): ?>
@@ -245,6 +289,11 @@ include '../../includes/navbar.php';
                             <td>
                                 <span class="badge <?php echo $invoice['type'] === 'sale' ? 'badge-info' : 'badge-success'; ?>">
                                     <?php echo $invoice['type'] === 'sale' ? 'مبيعات' : 'مشتريات'; ?>
+                                </span>
+                            </td>
+                            <td>
+                                <span class="badge" style="background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 10px; font-weight: 600; font-size: 0.85em;">
+                                    🏢 <?php echo htmlspecialchars($invoice['warehouse_name'] ?? 'المخزن الرئيسي'); ?>
                                 </span>
                             </td>
                             <td>
@@ -282,13 +331,22 @@ include '../../includes/navbar.php';
                                 $printPage = $invoice['type'] === 'purchase' ? 'print_purchase.php' : 'print.php';
                                 $returnPage = $invoice['type'] === 'purchase' ? '../returns/create_supplier.php' : '../returns/create.php';
                                 $editPage = $invoice['type'] === 'purchase' ? 'edit_purchase.php' : 'edit_sale.php';
+
+                                $canPrintThis = $invoice['type'] === 'purchase' ? hasPermission('invoices.purchase.view') : hasPermission('invoices.sale.view');
+                                $canReturnThis = $invoice['type'] === 'purchase' ? hasPermission('returns.create_supplier') : hasPermission('returns.create_customer');
+                                $canEditThis = ($invoice['type'] === 'purchase' ? hasPermission('invoices.purchase.edit') : hasPermission('invoices.sale.edit')) && (($settings['allow_edit_invoices'] ?? '0') === '1');
+                                $canDeleteThis = ($invoice['type'] === 'purchase' ? hasPermission('invoices.purchase.delete') : hasPermission('invoices.sale.delete')) && (($settings['allow_delete_invoices'] ?? '0') === '1');
                                 ?>
+                                <?php if ($canPrintThis): ?>
                                 <a href="<?php echo $printPage; ?>?id=<?php echo $invoice['id']; ?>" class="btn btn-primary" title="طباعة">🖨️</a>
+                                <?php endif; ?>
+                                <?php if ($canReturnThis): ?>
                                 <a href="<?php echo $returnPage; ?>?invoice_id=<?php echo $invoice['id']; ?>" class="btn btn-warning" title="مرتجع">↩️</a>
-                                <?php if (($settings['allow_edit_invoices'] ?? '0') === '1'): ?>
+                                <?php endif; ?>
+                                <?php if ($canEditThis): ?>
                                 <a href="<?php echo $editPage; ?>?id=<?php echo $invoice['id']; ?>" class="btn btn-info" title="تعديل">✏️</a>
                                 <?php endif; ?>
-                                <?php if (($settings['allow_delete_invoices'] ?? '0') === '1'): ?>
+                                <?php if ($canDeleteThis): ?>
                                 <a href="delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger" title="مسح" onclick="return confirm('هل أنت متأكد من مسح هذه الفاتورة تماماً واسترجاع الأرصدة؟ لا يمكن التراجع عن هذه الخطوة!');">🗑️</a>
                                 <?php endif; ?>
                             </td>
@@ -309,7 +367,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var filterType = document.getElementById('filterType');
     var filterDateFrom = document.getElementById('filterDateFrom');
     var filterDateTo = document.getElementById('filterDateTo');
-    var filterPaymentStatus = document.getElementById('filterPaymentStatus');
+    var filterPayment = document.getElementById('filterPayment');
+    var filterWarehouse = document.getElementById('filterWarehouse');
     
     var timeout = null;
     
@@ -325,7 +384,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Instant submit on filter change
     if (filterType) filterType.addEventListener('change', function() { searchForm.submit(); });
-    if (filterPaymentStatus) filterPaymentStatus.addEventListener('change', function() { searchForm.submit(); });
+    if (filterPayment) filterPayment.addEventListener('change', function() { searchForm.submit(); });
+    if (filterWarehouse) filterWarehouse.addEventListener('change', function() { searchForm.submit(); });
     if (filterDateFrom) filterDateFrom.addEventListener('change', function() { searchForm.submit(); });
     if (filterDateTo) filterDateTo.addEventListener('change', function() { searchForm.submit(); });
 });

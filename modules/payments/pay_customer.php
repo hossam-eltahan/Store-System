@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('payments.customer');
 
 $pageTitle = 'دفع مستحقات عميل';
 
@@ -33,7 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $paymentMethod = sanitize($_POST['payment_method'] ?? 'كاش');
         $reference = sanitize($_POST['reference'] ?? '');
         $notes = sanitize($_POST['notes'] ?? '');
-        $handledBy = sanitize($_POST['handled_by'] ?? 'المدير');
+        $handledBy = !empty($_POST['handled_by']) ? sanitize($_POST['handled_by']) : ($_SESSION['full_name'] ?? 'المدير');
+        $userId = getCurrentUserId();
         
         if ($amount <= 0) {
             throw new Exception('المبلغ يجب أن يكون أكبر من صفر');
@@ -60,11 +63,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $newBalance = $oldBalance + $amount; // Add because negative balance = debt
         
-        // Insert payment record
+        // Insert payment record with user_id
         $paymentId = insert(
-            "INSERT INTO payments (payment_number, type, entity_id, entity_name, amount, old_balance, new_balance, payment_date, payment_method, reference, notes, handled_by)
-             VALUES (?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [$paymentNumber, $customerId, $customerName, $amount, $oldBalance, $newBalance, $paymentDate, $paymentMethod, $reference, $notes, $handledBy]
+            "INSERT INTO payments (payment_number, type, entity_id, entity_name, amount, old_balance, new_balance, payment_date, payment_method, reference, notes, handled_by, user_id)
+             VALUES (?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [$paymentNumber, $customerId, $customerName, $amount, $oldBalance, $newBalance, $paymentDate, $paymentMethod, $reference, $notes, $handledBy, $userId]
         );
         
         // Update customer balance
@@ -345,7 +348,7 @@ textarea.form-control {
                         </div>
                         <div class="form-group">
                             <label class="form-label">المسؤول</label>
-                            <input type="text" name="handled_by" class="form-control" value="المدير">
+                            <input type="text" name="handled_by" class="form-control" value="<?php echo htmlspecialchars($_SESSION['full_name'] ?? 'المدير'); ?>">
                         </div>
                     </div>
                     

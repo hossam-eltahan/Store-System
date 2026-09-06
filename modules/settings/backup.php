@@ -6,6 +6,12 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+
+// Auto backup doesn't require user session, but direct web requests do
+if (!isset($_GET['auto'])) {
+    requirePermission('settings.backup');
+}
 
 $pageTitle = 'النسخ الاحتياطي والاستعادة';
 

@@ -6,9 +6,10 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireAnyPermission(['reports.view', 'reports.statement']);
 
 $pageTitle = 'مركز التقارير';
-$reportType = $_GET['type'] ?? 'sales';
 
 // Show All Handling: default to empty dates if not explicitly provided, so queries return all records
 $dateFrom = $_GET['date_from'] ?? '';
@@ -19,8 +20,11 @@ $filterPhone = $_GET['entity_phone'] ?? '';
 $filterPayMethod = $_GET['pay_method'] ?? '';
 $filterStatus = $_GET['filter_status'] ?? '';
 $filterSubType = $_GET['sub_type'] ?? '';
+$filterUserId = $_GET['user_id'] ?? '';
+$filterWarehouse = $_GET['warehouse_id'] ?? '';
+$userSubView = $_GET['user_view'] ?? 'overview';
 
-$typeNames = [
+$allReportTypes = [
     'daily' => '📊 ملخص يومي/فتري',
     'sales' => '💰 المبيعات',
     'purchases' => '🛒 المشتريات',
@@ -31,12 +35,45 @@ $typeNames = [
     'customers' => '👥 حسابات العملاء',
     'suppliers' => '🚚 حسابات الموردين',
     'stock' => '📦 المخزون الجردي',
-    'statement' => '🧾 كشف حساب'
+    'statement' => '🧾 كشف حساب',
+    'users' => '👤 تقارير ونشاط المستخدمين'
 ];
 
-// Fetch lists for JS Autocomplete
+if (isAdmin()) {
+    $typeNames = $allReportTypes;
+    $reportType = $_GET['type'] ?? 'sales';
+} else {
+    // Non-admin employee: only allowed types based on explicit permissions
+    $typeNames = [];
+    if (hasPermission('reports.view')) {
+        $typeNames['users'] = '👤 تقارير ونشاط المستخدم';
+    }
+    if (hasPermission('reports.statement')) {
+        $typeNames['statement'] = '🧾 كشف حساب';
+    }
+    
+    // Validate requested report type
+    $requestedType = $_GET['type'] ?? '';
+    if (!empty($requestedType) && isset($typeNames[$requestedType])) {
+        $reportType = $requestedType;
+    } else {
+        // Fallback to first permitted tab
+        $reportType = !empty($typeNames) ? array_key_first($typeNames) : '';
+        if (!$reportType) {
+            showAccessDenied();
+            exit;
+        }
+    }
+    
+    // Always lock user_id to self for employee
+    $filterUserId = getCurrentUserId();
+}
+
+// Fetch lists for JS Autocomplete and user filtering
 $customersList = getRows("SELECT id, name, phone, balance FROM customers ORDER BY name ASC");
 $suppliersList = getRows("SELECT id, name, phone, balance FROM suppliers ORDER BY name ASC");
+$usersList = getRows("SELECT id, username, full_name, role FROM users ORDER BY (role='admin') DESC, full_name ASC");
+$warehousesList = getAllWarehouses();
 
 $columns = [];
 $data = [];
@@ -83,10 +120,11 @@ switch ($reportType) {
         break;
 
     case 'sales':
-        $activeFilters = ['date', 'entity_customer', 'pay_method'];
+        $activeFilters = ['date', 'warehouse', 'entity_customer', 'pay_method'];
         $columns = [
             'date' => 'التاريخ', 
             'invoice_number' => 'رقم الفاتورة', 
+            'warehouse_name' => 'المخزن',
             'customer_name' => 'اسم العميل',
             'customer_phone' => 'التليفون',
             'payment_method' => 'طريقة الدفع', 
@@ -98,10 +136,11 @@ switch ($reportType) {
         $w = "i.type='sale'"; 
         $p = [];
         if ($dateFrom && $dateTo) { $w .= " AND i.date BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
+        if ($filterWarehouse) { $w .= " AND i.warehouse_id=?"; $p[] = $filterWarehouse; }
         if ($filterEntity) { $w .= " AND i.customer_id=?"; $p[] = $filterEntity; }
         if ($filterPayMethod) { $w .= " AND i.payment_method=?"; $p[] = $filterPayMethod; }
         
-        $data = getRows("SELECT i.*, COALESCE(c.name, i.customer_name) as customer_name, COALESCE(c.phone, i.customer_phone) as customer_phone FROM invoices i LEFT JOIN customers c ON i.customer_id=c.id WHERE {$w} ORDER BY i.date DESC, i.id DESC", $p);
+        $data = getRows("SELECT i.*, COALESCE(w.name, 'المخزن الرئيسي') as warehouse_name, COALESCE(c.name, i.customer_name) as customer_name, COALESCE(c.phone, i.customer_phone) as customer_phone FROM invoices i LEFT JOIN customers c ON i.customer_id=c.id LEFT JOIN warehouses w ON i.warehouse_id=w.id WHERE {$w} ORDER BY i.date DESC, i.id DESC", $p);
         
         $totalS = 0; $totalP = 0; $totalR = 0;
         foreach($data as $row) { $totalS += $row['total_amount']; $totalP += $row['paid_amount']; $totalR += $row['remaining_amount']; }
@@ -115,10 +154,11 @@ switch ($reportType) {
         break;
 
     case 'purchases':
-        $activeFilters = ['date', 'entity_supplier', 'pay_method'];
+        $activeFilters = ['date', 'warehouse', 'entity_supplier', 'pay_method'];
         $columns = [
             'date' => 'التاريخ', 
             'invoice_number' => 'رقم الفاتورة', 
+            'warehouse_name' => 'المخزن',
             'supplier_name' => 'اسم المورد',
             'supplier_phone' => 'التليفون',
             'payment_method' => 'طريقة الدفع', 
@@ -130,10 +170,11 @@ switch ($reportType) {
         $w = "i.type='purchase'"; 
         $p = [];
         if ($dateFrom && $dateTo) { $w .= " AND i.date BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
+        if ($filterWarehouse) { $w .= " AND i.warehouse_id=?"; $p[] = $filterWarehouse; }
         if ($filterEntity) { $w .= " AND i.supplier_id=?"; $p[] = $filterEntity; }
         if ($filterPayMethod) { $w .= " AND i.payment_method=?"; $p[] = $filterPayMethod; }
         
-        $data = getRows("SELECT i.*, s.name as supplier_name, s.phone as supplier_phone FROM invoices i LEFT JOIN suppliers s ON i.supplier_id=s.id WHERE {$w} ORDER BY i.date DESC, i.id DESC", $p);
+        $data = getRows("SELECT i.*, COALESCE(w.name, 'المخزن الرئيسي') as warehouse_name, s.name as supplier_name, s.phone as supplier_phone FROM invoices i LEFT JOIN suppliers s ON i.supplier_id=s.id LEFT JOIN warehouses w ON i.warehouse_id=w.id WHERE {$w} ORDER BY i.date DESC, i.id DESC", $p);
         
         $totalP = 0; $totalPaid = 0; $totalR = 0;
         foreach($data as $row) { $totalP += $row['total_amount']; $totalPaid += $row['paid_amount']; $totalR += $row['remaining_amount']; }
@@ -147,10 +188,11 @@ switch ($reportType) {
         break;
 
     case 'profit':
-        $activeFilters = ['date'];
+        $activeFilters = ['date', 'warehouse'];
         $columns = [
             'date' => 'التاريخ', 
             'invoice_number' => 'رقم الفاتورة', 
+            'warehouse_name' => 'المخزن',
             'product_name' => 'اسم المنتج',
             'quantity' => 'الكمية', 
             'cost_price' => 'التكلفة', 
@@ -160,8 +202,9 @@ switch ($reportType) {
         
         $w = "i.type='sale'"; $p = [];
         if ($dateFrom && $dateTo) { $w .= " AND i.date BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
+        if ($filterWarehouse) { $w .= " AND i.warehouse_id=?"; $p[] = $filterWarehouse; }
         
-        $data = getRows("SELECT i.invoice_number, i.date, ii.quantity, ii.unit_price as sale_price, p.name as product_name, COALESCE(p.cost_price,0) as cost_price, (ii.unit_price - COALESCE(p.cost_price,0)) * ii.quantity as profit FROM invoice_items ii JOIN invoices i ON ii.invoice_id=i.id JOIN products p ON ii.product_id=p.id WHERE {$w} ORDER BY i.date DESC, i.id DESC", $p);
+        $data = getRows("SELECT i.invoice_number, i.date, COALESCE(w.name, 'المخزن الرئيسي') as warehouse_name, ii.quantity, ii.unit_price as sale_price, p.name as product_name, COALESCE(p.cost_price,0) as cost_price, (ii.unit_price - COALESCE(p.cost_price,0)) * ii.quantity as profit FROM invoice_items ii JOIN invoices i ON ii.invoice_id=i.id JOIN products p ON ii.product_id=p.id LEFT JOIN warehouses w ON i.warehouse_id=w.id WHERE {$w} ORDER BY i.date DESC, i.id DESC", $p);
         
         $totalProfit = 0; $totalRev = 0; $totalCost = 0;
         foreach($data as $row) { $totalProfit += $row['profit']; $totalRev += $row['sale_price']*$row['quantity']; $totalCost += $row['cost_price']*$row['quantity']; }
@@ -349,18 +392,30 @@ switch ($reportType) {
         break;
 
     case 'stock':
-        $activeFilters = ['status_stock'];
+        $activeFilters = ['warehouse', 'status_stock'];
+        $selectedWhName = $filterWarehouse ? getWarehouseName($filterWarehouse) : '';
+        $qtyColTitle = $selectedWhName ? "الكمية ($selectedWhName)" : 'الكمية (إجمالي كل المخازن)';
         $columns = [
             'code' => 'كود الصنف', 
             'name' => 'اسم المنتج', 
-            'stock_quantity' => 'الكمية المتاحة',
+            'stock_quantity' => $qtyColTitle,
             'cost_price_lbl' => 'سعر التكلفة', 
             'price_lbl' => 'سعر البيع', 
             'stock_value' => 'إجمالي التكلفة', 
             'status_label' => 'حالة المخزون'
         ];
         
-        $raw = getRows("SELECT * FROM products ORDER BY stock_quantity ASC");
+        if ($filterWarehouse) {
+            $raw = getRows("
+                SELECT p.id, p.code, p.name, p.min_stock_level, p.cost_price, p.price,
+                       COALESCE(ws.quantity, 0) as stock_quantity
+                FROM products p
+                LEFT JOIN warehouse_stock ws ON p.id = ws.product_id AND ws.warehouse_id = ?
+                ORDER BY stock_quantity ASC
+            ", [$filterWarehouse]);
+        } else {
+            $raw = getRows("SELECT * FROM products ORDER BY stock_quantity ASC");
+        }
         
         $totalCost = 0; $totalSale = 0; $items = 0;
         foreach($raw as $row) {
@@ -385,10 +440,11 @@ switch ($reportType) {
             $items += $row['stock_quantity'];
         }
         
+        $whTitleSuffix = $selectedWhName ? " ($selectedWhName)" : " (إجمالي شامل)";
         $summaryCards = [
-            ['title'=>'قيمة المخزون (بسعر التكلفة)', 'value'=>formatCurrency($totalCost), 'color'=>'primary', 'icon'=>'fa-boxes'],
-            ['title'=>'قيمة المخزون (بالبيع التقديري)', 'value'=>formatCurrency($totalSale), 'color'=>'success', 'icon'=>'fa-tags'],
-            ['title'=>'إجمالي القطع بالمخزن', 'value'=>$items . ' قطعة', 'color'=>'info', 'icon'=>'fa-layer-group'],
+            ['title'=>'قيمة المخزون (بالتكلفة)' . $whTitleSuffix, 'value'=>formatCurrency($totalCost), 'color'=>'primary', 'icon'=>'fa-boxes'],
+            ['title'=>'قيمة المخزون (بالبيع)' . $whTitleSuffix, 'value'=>formatCurrency($totalSale), 'color'=>'success', 'icon'=>'fa-tags'],
+            ['title'=>'إجمالي القطع' . $whTitleSuffix, 'value'=>$items . ' قطعة', 'color'=>'info', 'icon'=>'fa-layer-group'],
             ['title'=>'إجمالي الأصناف', 'value'=>count($raw), 'color'=>'secondary', 'icon'=>'fa-list-ol']
         ];
         break;
@@ -517,6 +573,305 @@ switch ($reportType) {
                 ['title' => 'إجمالي المتبقي', 'value' => formatCurrency($totalRem), 'color' => 'danger', 'icon' => 'fa-clock'],
                 ['title' => 'عدد الفواتير', 'value' => count($data), 'color' => 'secondary', 'icon' => 'fa-list']
             ];
+        }
+        break;
+
+    case 'users':
+        $activeFilters = ['date', 'user_select'];
+        
+        // Find target user details if filtered
+        $targetUser = null;
+        if ($filterUserId) {
+            foreach ($usersList as $u) {
+                if ($u['id'] == $filterUserId) {
+                    $targetUser = $u;
+                    break;
+                }
+            }
+        }
+        if (!isAdmin() && !$targetUser) {
+            $targetUser = getRow("SELECT id, username, full_name, role FROM users WHERE id = ?", [getCurrentUserId()]);
+        }
+        
+        // Conditions
+        $userWhereInv = "1=1";
+        $userWherePay = "1=1";
+        $userWhereRet = "1=1";
+        $userWhereInst = "1=1";
+        $userWhereAct = "1=1";
+        $paramsUserInv = [];
+        $paramsUserPay = [];
+        $paramsUserRet = [];
+        $paramsUserInst = [];
+        $paramsUserAct = [];
+        
+        if ($targetUser) {
+            $userWhereInv = "(i.user_id = ? OR i.handled_by = ? OR i.handled_by = ?)";
+            $paramsUserInv = [$targetUser['id'], $targetUser['full_name'], $targetUser['username']];
+            
+            $userWherePay = "(p.user_id = ? OR p.handled_by = ? OR p.handled_by = ?)";
+            $paramsUserPay = [$targetUser['id'], $targetUser['full_name'], $targetUser['username']];
+            
+            $userWhereRet = "(r.user_id = ? OR r.handled_by = ? OR r.handled_by = ?)";
+            $paramsUserRet = [$targetUser['id'], $targetUser['full_name'], $targetUser['username']];
+            
+            $userWhereInst = "(ip.user_id = ? OR ip.handled_by = ? OR ip.handled_by = ?)";
+            $paramsUserInst = [$targetUser['id'], $targetUser['full_name'], $targetUser['username']];
+            
+            $userWhereAct = "(a.user_id = ? OR a.user = ? OR a.user = ?)";
+            $paramsUserAct = [$targetUser['id'], $targetUser['full_name'], $targetUser['username']];
+        }
+        
+        // Date conditions
+        $dateCondInv = "";
+        $dateCondPay = "";
+        $dateCondRet = "";
+        $dateCondInst = "";
+        $dateCondAct = "";
+        if ($dateFrom && $dateTo) {
+            $dateCondInv = " AND i.date BETWEEN ? AND ?";
+            $dateCondPay = " AND p.payment_date BETWEEN ? AND ?";
+            $dateCondRet = " AND r.return_date BETWEEN ? AND ?";
+            $dateCondInst = " AND ip.paid_date BETWEEN ? AND ?";
+            $dateCondAct = " AND DATE(a.created_at) BETWEEN ? AND ?";
+        }
+        
+        // Summary KPIs (Aggregates)
+        $pSales = $paramsUserInv; if ($dateFrom && $dateTo) { $pSales[] = $dateFrom; $pSales[] = $dateTo; }
+        $userSales = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(i.total_amount - i.discount), 0) as total, COALESCE(SUM(i.paid_amount), 0) as paid, COALESCE(SUM(i.remaining_amount), 0) as remaining FROM invoices i WHERE i.type='sale' AND {$userWhereInv} {$dateCondInv}", $pSales);
+        
+        $pPur = $paramsUserInv; if ($dateFrom && $dateTo) { $pPur[] = $dateFrom; $pPur[] = $dateTo; }
+        $userPurchases = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(i.total_amount - i.discount), 0) as total, COALESCE(SUM(i.paid_amount), 0) as paid, COALESCE(SUM(i.remaining_amount), 0) as remaining FROM invoices i WHERE i.type='purchase' AND {$userWhereInv} {$dateCondInv}", $pPur);
+        
+        $pCustPay = $paramsUserPay; if ($dateFrom && $dateTo) { $pCustPay[] = $dateFrom; $pCustPay[] = $dateTo; }
+        $userCustPay = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(p.amount), 0) as total FROM payments p WHERE p.type='customer' AND {$userWherePay} {$dateCondPay}", $pCustPay);
+        
+        $pSuppPay = $paramsUserPay; if ($dateFrom && $dateTo) { $pSuppPay[] = $dateFrom; $pSuppPay[] = $dateTo; }
+        $userSuppPay = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(p.amount), 0) as total FROM payments p WHERE p.type='supplier' AND {$userWherePay} {$dateCondPay}", $pSuppPay);
+        
+        $pInst = $paramsUserInst; if ($dateFrom && $dateTo) { $pInst[] = $dateFrom; $pInst[] = $dateTo; }
+        $userInstPay = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(ip.paid_amount), 0) as total FROM installment_payments ip WHERE ip.status IN ('paid', 'partial') AND {$userWhereInst} {$dateCondInst}", $pInst);
+        
+        $pRet = $paramsUserRet; if ($dateFrom && $dateTo) { $pRet[] = $dateFrom; $pRet[] = $dateTo; }
+        $userReturns = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(r.total_amount), 0) as total, COALESCE(SUM(r.cash_refund), 0) as cash_refund FROM returns r WHERE {$userWhereRet} {$dateCondRet}", $pRet);
+        
+        $pAct = $paramsUserAct; if ($dateFrom && $dateTo) { $pAct[] = $dateFrom; $pAct[] = $dateTo; }
+        $userActivity = getRow("SELECT COUNT(*) as cnt FROM activity_log a WHERE {$userWhereAct} {$dateCondAct}", $pAct);
+        
+        $salesCash = floatval($userSales['paid']);
+        $custCash = floatval($userCustPay['total']);
+        $totalCashIn = $salesCash + $custCash;
+        
+        $purCash = floatval($userPurchases['paid']);
+        $suppCash = floatval($userSuppPay['total']);
+        $retRefund = floatval($userReturns['cash_refund']);
+        $totalCashOut = $purCash + $suppCash + $retRefund;
+        $netCash = $totalCashIn - $totalCashOut;
+        
+        $summaryCards = [
+            ['title'=>'إجمالي مبيعات المستخدم', 'value'=>formatCurrency($userSales['total']) . ' (' . $userSales['cnt'] . ' فاتورة)', 'color'=>'primary', 'icon'=>'fa-shopping-cart'],
+            ['title'=>'إجمالي النقد الداخل', 'value'=>formatCurrency($totalCashIn), 'color'=>'success', 'icon'=>'fa-arrow-down'],
+            ['title'=>'إجمالي مشتريات المستخدم', 'value'=>formatCurrency($userPurchases['total']) . ' (' . $userPurchases['cnt'] . ' فاتورة)', 'color'=>'warning', 'icon'=>'fa-truck-loading'],
+            ['title'=>'إجمالي النقد الخارج', 'value'=>formatCurrency($totalCashOut), 'color'=>'danger', 'icon'=>'fa-arrow-up'],
+            ['title'=>'صافي حركة الخزينة', 'value'=>formatCurrency($netCash), 'color'=>($netCash>=0 ? 'success':'danger'), 'icon'=>'fa-vault'],
+            ['title'=>'إجمالي المرتجعات', 'value'=>formatCurrency($userReturns['total']) . ' (' . $userReturns['cnt'] . ' عملية)', 'color'=>'secondary', 'icon'=>'fa-undo'],
+            ['title'=>'تحصيلات الأقساط', 'value'=>formatCurrency($userInstPay['total']) . ' (' . $userInstPay['cnt'] . ' قسط)', 'color'=>'info', 'icon'=>'fa-calendar-check'],
+            ['title'=>'سجل الحركات المسجلة', 'value'=>$userActivity['cnt'] . ' حركة', 'color'=>'secondary', 'icon'=>'fa-clipboard-list']
+        ];
+        
+        switch ($userSubView) {
+            case 'sales':
+                $columns = [
+                    'date' => 'التاريخ',
+                    'invoice_number' => 'رقم الفاتورة',
+                    'customer_name' => 'اسم العميل',
+                    'customer_phone' => 'التليفون',
+                    'payment_method' => 'طريقة الدفع',
+                    'total_amount' => 'إجمالي الفاتورة',
+                    'paid_amount' => 'المدفوع',
+                    'remaining_amount' => 'المتبقي',
+                    'actions' => 'عرض الفاتورة'
+                ];
+                $p = $paramsUserInv;
+                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
+                $raw = getRows("SELECT i.*, COALESCE(c.name, i.customer_name) as customer_name, COALESCE(c.phone, i.customer_phone) as customer_phone FROM invoices i LEFT JOIN customers c ON i.customer_id = c.id WHERE i.type='sale' AND {$userWhereInv} {$dateCondInv} ORDER BY i.date DESC, i.id DESC", $p);
+                foreach ($raw as $r) {
+                    $r['actions'] = '<a href="../invoices/print.php?id=' . $r['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> عرض الفاتورة</a>';
+                    $data[] = $r;
+                }
+                break;
+                
+            case 'purchases':
+                $columns = [
+                    'date' => 'التاريخ',
+                    'invoice_number' => 'رقم الفاتورة',
+                    'supplier_name' => 'اسم المورد',
+                    'supplier_phone' => 'التليفون',
+                    'payment_method' => 'طريقة الدفع',
+                    'total_amount' => 'إجمالي الفاتورة',
+                    'paid_amount' => 'المدفوع',
+                    'remaining_amount' => 'المتبقي',
+                    'actions' => 'عرض الفاتورة'
+                ];
+                $p = $paramsUserInv;
+                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
+                $raw = getRows("SELECT i.*, s.name as supplier_name, s.phone as supplier_phone FROM invoices i LEFT JOIN suppliers s ON i.supplier_id = s.id WHERE i.type='purchase' AND {$userWhereInv} {$dateCondInv} ORDER BY i.date DESC, i.id DESC", $p);
+                foreach ($raw as $r) {
+                    $r['actions'] = '<a href="../invoices/print_purchase.php?id=' . $r['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> عرض الفاتورة</a>';
+                    $data[] = $r;
+                }
+                break;
+                
+            case 'payments':
+                $columns = [
+                    'payment_date' => 'التاريخ',
+                    'payment_number' => 'رقم الإيصال',
+                    'type_label' => 'نوع الحركة',
+                    'entity_name' => 'الجهة / الاسم',
+                    'payment_method' => 'طريقة الدفع',
+                    'amount' => 'المبلغ',
+                    'notes' => 'البيان',
+                    'actions' => 'الإيصال'
+                ];
+                $p = $paramsUserPay;
+                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
+                $raw = getRows("SELECT p.* FROM payments p WHERE {$userWherePay} {$dateCondPay} ORDER BY p.payment_date DESC, p.id DESC", $p);
+                foreach ($raw as $r) {
+                    $r['type_label'] = $r['type'] == 'customer' ? '<span class="text-success">قبض من عميل</span>' : '<span class="text-danger">صرف لمورد</span>';
+                    $printFile = $r['type'] == 'customer' ? '../payments/print_customer.php' : '../payments/print_supplier.php';
+                    $r['actions'] = '<a href="' . $printFile . '?id=' . $r['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> الإيصال</a>';
+                    $data[] = $r;
+                }
+                break;
+                
+            case 'installments':
+                $columns = [
+                    'paid_date' => 'تاريخ السداد',
+                    'payment_number' => 'رقم القسط',
+                    'entity_name' => 'العميل / المورد',
+                    'amount' => 'المبلغ المستحق',
+                    'paid_amount' => 'المبلغ المسدد',
+                    'payment_method' => 'طريقة الدفع',
+                    'status_label' => 'الحالة',
+                    'actions' => 'الخطة'
+                ];
+                $p = $paramsUserInst;
+                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
+                $raw = getRows("SELECT ip.*, pl.entity_name FROM installment_payments ip JOIN installment_plans pl ON ip.plan_id = pl.id WHERE ip.status IN ('paid', 'partial') AND {$userWhereInst} {$dateCondInst} ORDER BY ip.paid_date DESC, ip.id DESC", $p);
+                foreach ($raw as $r) {
+                    $r['status_label'] = $r['status'] == 'paid' ? '<span class="badge badge-success">مدفوع بالكامل</span>' : '<span class="badge badge-warning">مدفوع جزئياً</span>';
+                    $r['actions'] = '<a href="../installments/view.php?id=' . $r['plan_id'] . '" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-eye"></i> الخطة</a>';
+                    $data[] = $r;
+                }
+                break;
+                
+            case 'returns':
+                $columns = [
+                    'return_date' => 'التاريخ',
+                    'return_number' => 'رقم المرتجع',
+                    'type_label' => 'نوع المرتجع',
+                    'entity_name' => 'الاسم',
+                    'total_amount' => 'إجمالي المرتجع',
+                    'cash_refund' => 'المسترد نقداً',
+                    'deducted_from_balance' => 'مخصوم من الحساب',
+                    'actions' => 'معاينة'
+                ];
+                $p = $paramsUserRet;
+                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
+                $raw = getRows("SELECT r.*, CASE WHEN r.type='customer' THEN COALESCE(c.name, r.customer_name) ELSE COALESCE(s.name, r.supplier_name) END as entity_name FROM returns r LEFT JOIN customers c ON r.customer_id=c.id LEFT JOIN suppliers s ON r.supplier_id=s.id WHERE {$userWhereRet} {$dateCondRet} ORDER BY r.return_date DESC, r.id DESC", $p);
+                foreach ($raw as $r) {
+                    $r['type_label'] = $r['type'] == 'customer' ? 'مرتجع عميل' : 'مرتجع مورد';
+                    $printFile = $r['type'] == 'customer' ? '../returns/print.php' : '../returns/print_supplier.php';
+                    $r['actions'] = '<a href="' . $printFile . '?id=' . $r['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> معاينة</a>';
+                    $data[] = $r;
+                }
+                break;
+                
+            case 'activity':
+                $columns = [
+                    'created_at' => 'التاريخ والوقت',
+                    'user' => 'المستخدم',
+                    'action' => 'العملية / الإجراء',
+                    'description' => 'التفاصيل والبيان',
+                    'ip_address' => 'عنوان IP'
+                ];
+                $p = $paramsUserAct;
+                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
+                $raw = getRows("SELECT a.* FROM activity_log a WHERE {$userWhereAct} {$dateCondAct} ORDER BY a.created_at DESC, a.id DESC", $p);
+                foreach ($raw as $r) {
+                    $data[] = $r;
+                }
+                break;
+                
+            case 'overview':
+            default:
+                if (!$targetUser) {
+                    // Comparative Table of ALL users
+                    $columns = [
+                        'user_name' => 'اسم الموظف / المستخدم',
+                        'role_label' => 'الدور',
+                        'sales_count' => 'عدد فواتير البيع',
+                        'sales_total' => 'إجمالي المبيعات',
+                        'sales_cash' => 'كاش المبيعات المحصل',
+                        'purchases_total' => 'إجمالي المشتريات',
+                        'returns_total' => 'إجمالي المرتجعات',
+                        'actions_count' => 'سجل النشاط',
+                        'actions' => 'التقرير التفصيلي'
+                    ];
+                    
+                    foreach ($usersList as $u) {
+                        $pU = [$u['id'], $u['full_name'], $u['username']];
+                        $pSalesU = $pU; if ($dateFrom && $dateTo) { $pSalesU[] = $dateFrom; $pSalesU[] = $dateTo; }
+                        $sU = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(total_amount - discount), 0) as total, COALESCE(SUM(paid_amount), 0) as paid FROM invoices i WHERE i.type='sale' AND (i.user_id = ? OR i.handled_by = ? OR i.handled_by = ?) {$dateCondInv}", $pSalesU);
+                        
+                        $pPurU = $pU; if ($dateFrom && $dateTo) { $pPurU[] = $dateFrom; $pPurU[] = $dateTo; }
+                        $purU = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(total_amount - discount), 0) as total FROM invoices i WHERE i.type='purchase' AND (i.user_id = ? OR i.handled_by = ? OR i.handled_by = ?) {$dateCondInv}", $pPurU);
+                        
+                        $pRetU = $pU; if ($dateFrom && $dateTo) { $pRetU[] = $dateFrom; $pRetU[] = $dateTo; }
+                        $retU = getRow("SELECT COALESCE(SUM(total_amount), 0) as total FROM returns r WHERE (r.user_id = ? OR r.handled_by = ? OR r.handled_by = ?) {$dateCondRet}", $pRetU);
+                        
+                        $pActU = $pU; if ($dateFrom && $dateTo) { $pActU[] = $dateFrom; $pActU[] = $dateTo; }
+                        $actU = getRow("SELECT COUNT(*) as cnt FROM activity_log a WHERE (a.user_id = ? OR a.user = ? OR a.user = ?) {$dateCondAct}", $pActU);
+                        
+                        $data[] = [
+                            'user_name' => '<strong>' . htmlspecialchars($u['full_name']) . '</strong> <small style="color:var(--gray);">(' . htmlspecialchars($u['username']) . ')</small>',
+                            'role_label' => $u['role'] === 'admin' ? '<span class="badge" style="background:#4f46e5;">👑 مدير نظام</span>' : '<span class="badge" style="background:#0284c7;">👤 موظف</span>',
+                            'sales_count' => $sU['cnt'] . ' فاتورة',
+                            'sales_total' => formatCurrency($sU['total']),
+                            'sales_cash' => formatCurrency($sU['paid']),
+                            'purchases_total' => formatCurrency($purU['total']),
+                            'returns_total' => formatCurrency($retU['total']),
+                            'actions_count' => $actU['cnt'] . ' حركة',
+                            'actions' => '<a href="?type=users&user_id=' . $u['id'] . '&user_view=overview' . ($dateFrom ? "&date_from=$dateFrom&date_to=$dateTo" : "") . '" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-user-check"></i> عرض تقريره</a>'
+                        ];
+                    }
+                } else {
+                    // Selected user's recent operations
+                    $columns = [
+                        'date_time' => 'التاريخ والوقت',
+                        'type_badge' => 'نوع الحركة',
+                        'ref_number' => 'المرجع / الرقم',
+                        'details' => 'البيان والتفاصيل',
+                        'amount_formatted' => 'المبلغ',
+                        'actions' => 'تفاصيل'
+                    ];
+                    
+                    $p = $paramsUserInv;
+                    if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
+                    $recentSales = getRows("SELECT i.date, i.created_at, i.invoice_number as ref, CONCAT('فاتورة بيع للعميل: ', COALESCE(c.name, i.customer_name)) as details, (i.total_amount - i.discount) as amount, 'sale' as itype, i.id FROM invoices i LEFT JOIN customers c ON i.customer_id = c.id WHERE i.type='sale' AND {$userWhereInv} {$dateCondInv} ORDER BY i.created_at DESC LIMIT 15", $p);
+                    
+                    foreach ($recentSales as $s) {
+                        $data[] = [
+                            'date_time' => date('Y-m-d h:i A', strtotime($s['created_at'] ?: $s['date'])),
+                            'type_badge' => '<span class="badge badge-success">فاتورة بيع</span>',
+                            'ref_number' => $s['ref'],
+                            'details' => $s['details'],
+                            'amount_formatted' => formatCurrency($s['amount']),
+                            'actions' => '<a href="../invoices/print.php?id=' . $s['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> معاينة</a>'
+                        ];
+                    }
+                }
+                break;
         }
         break;
 }
@@ -650,10 +1005,19 @@ include '../../includes/navbar.php';
     </div>
 
     <!-- Official Printable Header -->
+    <!-- Official Printable Header -->
     <div class="print-header">
         <h2 style="margin:0;"><?php echo getSetting('store_name'); ?></h2>
         <p style="margin:3px 0;"><?php echo getSetting('store_address'); ?> | ت: <?php echo getSetting('store_phone'); ?></p>
         <h3 style="margin:5px 0; text-decoration: underline;"><?php echo $typeNames[$reportType]; ?></h3>
+        <?php if($reportType === 'users' && !empty($targetUser)): ?>
+            <p style="margin:3px 0; font-weight:bold; font-size:15px;">تقرير نشاط المستخدم: <?php echo htmlspecialchars($targetUser['full_name']); ?> (<?php echo $targetUser['role'] === 'admin' ? '👑 مدير' : '👤 موظف'; ?>)</p>
+        <?php elseif($reportType === 'users'): ?>
+            <p style="margin:3px 0; font-weight:bold; font-size:15px;">تقرير مقارنة وأداء جميع مستخدمي النظام</p>
+        <?php endif; ?>
+        <?php if(in_array('warehouse', $activeFilters) && $filterWarehouse): ?>
+            <p style="margin:2px 0; font-weight:bold; font-size:14px;">🏢 المخزن: <?php echo htmlspecialchars(getWarehouseName($filterWarehouse)); ?></p>
+        <?php endif; ?>
         <?php if(in_array('date', $activeFilters) && ($dateFrom || $dateTo)): ?>
             <p style="margin:0;">عن الفترة من: <?php echo $dateFrom ?: 'البداية'; ?> إلى: <?php echo $dateTo ?: 'اليوم'; ?></p>
         <?php else: ?>
@@ -666,6 +1030,28 @@ include '../../includes/navbar.php';
     <div class="filters-card noprint">
         <form method="GET" class="filter-row">
             <input type="hidden" name="type" value="<?php echo $reportType; ?>">
+            <?php if ($reportType === 'users'): ?>
+                <input type="hidden" name="user_view" value="<?php echo htmlspecialchars($userSubView); ?>">
+            <?php endif; ?>
+            
+            <?php if(in_array('user_select', $activeFilters)): ?>
+                <div class="filter-group">
+                    <label>المستخدم / الموظف</label>
+                    <?php if (isAdmin()): ?>
+                    <select name="user_id" class="form-control" onchange="this.form.submit()">
+                        <option value="">-- جميع المستخدمين (مقارنة شاملة) --</option>
+                        <?php foreach ($usersList as $u): ?>
+                            <option value="<?php echo $u['id']; ?>" <?php echo ($filterUserId == $u['id']) ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($u['full_name']); ?> (<?php echo $u['role'] === 'admin' ? '👑 مدير' : '👤 موظف'; ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <?php else: ?>
+                    <input type="text" class="form-control" value="<?php echo htmlspecialchars($targetUser['full_name'] ?? getCurrentUserName()); ?>" readonly style="background:#f8fafc; font-weight:600;">
+                    <input type="hidden" name="user_id" value="<?php echo getCurrentUserId(); ?>">
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
             
             <?php if(in_array('sub_type_entity', $activeFilters)): ?>
                 <div class="filter-group">
@@ -673,6 +1059,20 @@ include '../../includes/navbar.php';
                     <select name="sub_type" class="form-control" onchange="this.form.submit()">
                         <option value="customer" <?php echo ($filterSubType=='customer' || !$filterSubType)?'selected':''; ?>>عميل</option>
                         <option value="supplier" <?php echo $filterSubType=='supplier'?'selected':''; ?>>مورد</option>
+                    </select>
+                </div>
+            <?php endif; ?>
+
+            <?php if(in_array('warehouse', $activeFilters)): ?>
+                <div class="filter-group">
+                    <label>🏢 المخزن</label>
+                    <select name="warehouse_id" class="form-control" onchange="this.form.submit()">
+                        <option value="">-- كل المخازن (إجمالي شامل) --</option>
+                        <?php foreach ($warehousesList as $wh): ?>
+                            <option value="<?php echo $wh['id']; ?>" <?php echo ($filterWarehouse == $wh['id']) ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($wh['name']); ?> (<?php echo htmlspecialchars($wh['code']); ?>)
+                            </option>
+                        <?php endforeach; ?>
                     </select>
                 </div>
             <?php endif; ?>
@@ -717,7 +1117,7 @@ include '../../includes/navbar.php';
 
             <div class="filter-group" style="flex:0 0 auto; display:flex; gap:8px;">
                 <button type="submit" class="btn-submit"><i class="fas fa-search"></i> تصفية</button>
-                <a href="?type=<?php echo $reportType; ?>&all=1" class="btn-all" title="إلغاء قيود التواريخ وعرض كل السجلات المسجلة"><i class="fas fa-globe"></i> عرض الكل</a>
+                <a href="?type=<?php echo $reportType; ?>&all=1<?php echo ($reportType === 'users' && $filterUserId) ? '&user_id=' . $filterUserId : ''; ?>" class="btn-all" title="إلغاء قيود التواريخ وعرض كل السجلات المسجلة"><i class="fas fa-globe"></i> عرض الكل</a>
                 
                 <?php if ($reportType == 'statement' && $filterEntity): ?>
                     <?php 
@@ -729,6 +1129,39 @@ include '../../includes/navbar.php';
                 <?php endif; ?>
             </div>
         </form>
+    </div>
+    <?php endif; ?>
+
+    <!-- User Report Sub-views Navigation -->
+    <?php if ($reportType === 'users'): ?>
+    <?php
+        $baseQuery = ['type' => 'users'];
+        if ($filterUserId) $baseQuery['user_id'] = $filterUserId;
+        if ($dateFrom) $baseQuery['date_from'] = $dateFrom;
+        if ($dateTo) $baseQuery['date_to'] = $dateTo;
+    ?>
+    <div class="user-subtabs noprint" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; background:white; padding:12px; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,0.04); border-top:3px solid var(--secondary);">
+        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'overview'])); ?>" class="report-tab <?php echo $userSubView === 'overview' ? 'active' : ''; ?>">
+            <i class="fas fa-chart-pie"></i> ملخص الأداء الشامل
+        </a>
+        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'sales'])); ?>" class="report-tab <?php echo $userSubView === 'sales' ? 'active' : ''; ?>">
+            <i class="fas fa-shopping-cart"></i> فواتير المبيعات (<?php echo $userSales['cnt'] ?? 0; ?>)
+        </a>
+        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'purchases'])); ?>" class="report-tab <?php echo $userSubView === 'purchases' ? 'active' : ''; ?>">
+            <i class="fas fa-truck-loading"></i> فواتير المشتريات (<?php echo $userPurchases['cnt'] ?? 0; ?>)
+        </a>
+        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'payments'])); ?>" class="report-tab <?php echo $userSubView === 'payments' ? 'active' : ''; ?>">
+            <i class="fas fa-receipt"></i> المقبوضات والمدفوعات (<?php echo ($userCustPay['cnt'] ?? 0) + ($userSuppPay['cnt'] ?? 0); ?>)
+        </a>
+        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'installments'])); ?>" class="report-tab <?php echo $userSubView === 'installments' ? 'active' : ''; ?>">
+            <i class="fas fa-calendar-alt"></i> تحصيل الأقساط (<?php echo $userInstPay['cnt'] ?? 0; ?>)
+        </a>
+        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'returns'])); ?>" class="report-tab <?php echo $userSubView === 'returns' ? 'active' : ''; ?>">
+            <i class="fas fa-undo"></i> المرتجعات (<?php echo $userReturns['cnt'] ?? 0; ?>)
+        </a>
+        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'activity'])); ?>" class="report-tab <?php echo $userSubView === 'activity' ? 'active' : ''; ?>">
+            <i class="fas fa-history"></i> سجل النشاط (<?php echo $userActivity['cnt'] ?? 0; ?>)
+        </a>
     </div>
     <?php endif; ?>
 
@@ -751,7 +1184,26 @@ include '../../includes/navbar.php';
     <?php if (!empty($columns)): ?>
     <div class="table-card">
         <div class="table-top-bar noprint">
-            <h3><?php echo $typeNames[$reportType]; ?> <small style="color:var(--gray); font-size:13px;">(إجمالي السجلات: <?php echo $totalItems; ?>)</small></h3>
+            <h3>
+                <?php 
+                    if ($reportType === 'users') {
+                        $viewNames = [
+                            'overview' => 'ملخص الأداء والمقارنة',
+                            'sales' => 'فواتير المبيعات الصادرة',
+                            'purchases' => 'فواتير المشتريات',
+                            'payments' => 'المقبوضات والمدفوعات',
+                            'installments' => 'تحصيل الأقساط',
+                            'returns' => 'المرتجعات',
+                            'activity' => 'سجل الحركات التفصيلي'
+                        ];
+                        $uTitle = ($targetUser ? htmlspecialchars($targetUser['full_name']) . ' - ' : '') . ($viewNames[$userSubView] ?? 'تقرير المستخدمين');
+                        echo "👤 $uTitle";
+                    } else {
+                        echo $typeNames[$reportType];
+                    }
+                ?>
+                <small style="color:var(--gray); font-size:13px;">(إجمالي السجلات: <?php echo $totalItems; ?>)</small>
+            </h3>
             <div style="display:flex; gap:8px;">
                 <button onclick="window.print()" class="btn-submit" style="background:var(--gray);"><i class="fas fa-print"></i> طباعة الصفحة</button>
             </div>
@@ -773,9 +1225,9 @@ include '../../includes/navbar.php';
                         <?php foreach($paginatedData as $row): ?>
                             <tr>
                                 <?php foreach($columns as $key => $label): ?>
-                                    <td <?php if(in_array($key, ['total_amount','paid_amount','remaining_amount','profit','amount','sale_price','cost_price','debit','credit'])) echo 'style="font-family:monospace; font-weight:bold; font-size:14px;"'; ?>>
+                                    <td <?php if(in_array($key, ['total_amount','paid_amount','remaining_amount','profit','amount','sale_price','cost_price','debit','credit','sales_total','sales_cash','purchases_total','returns_total'])) echo 'style="font-family:monospace; font-weight:bold; font-size:14px;"'; ?>>
                                         <?php 
-                                            if (in_array($key, ['total_amount','paid_amount','remaining_amount','profit','amount','cash_refund','deducted_from_balance','debit','credit']) && is_numeric($row[$key])) {
+                                            if (in_array($key, ['total_amount','paid_amount','remaining_amount','profit','amount','cash_refund','deducted_from_balance','debit','credit','sales_total','sales_cash','purchases_total','returns_total']) && is_numeric($row[$key])) {
                                                 echo number_format($row[$key], 2);
                                             } else {
                                                 echo $row[$key] ?? ''; 

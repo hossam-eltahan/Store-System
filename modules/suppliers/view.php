@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('suppliers.view');
 
 $id = $_GET['id'] ?? 0;
 $supplier = getRow("SELECT * FROM suppliers WHERE id = ?", [$id]);
@@ -60,7 +62,9 @@ include '../../includes/navbar.php';
                 <?php if ($supplier['balance'] > 0): ?>
                 <a href="../payments/pay_supplier.php?supplier_id=<?php echo $supplier['id']; ?>" class="btn btn-success">💵 دفع مستحقات</a>
                 <?php endif; ?>
+                <?php if (hasPermission('reports.statement')): ?>
                 <a href="../reports/statement.php?type=supplier&id=<?php echo $supplier['id']; ?>" class="btn btn-info">🖨️ كشف حساب</a>
+                <?php endif; ?>
                 <a href="edit.php?id=<?php echo $supplier['id']; ?>" class="btn btn-primary">✏️ تعديل</a>
                 <a href="index.php" class="btn btn-secondary">↩️ رجوع</a>
             </div>
@@ -269,11 +273,13 @@ include '../../includes/navbar.php';
                                 </span>
                             </td>
                             <td>
+                                <?php if (hasAnyPermission(['invoices.purchase.view', 'invoices.purchase.create'])): ?>
                                 <a href="../invoices/print_purchase.php?id=<?php echo $invoice['id']; ?>" class="btn btn-primary btn-sm">🖨️</a>
-                                <?php if (($settings['allow_edit_invoices'] ?? '0') === '1'): ?>
+                                <?php endif; ?>
+                                <?php if (hasPermission('invoices.purchase.edit') && (($settings['allow_edit_invoices'] ?? '0') === '1')): ?>
                                 <a href="../invoices/edit_purchase.php?id=<?php echo $invoice['id']; ?>" class="btn btn-info btn-sm" title="تعديل">✏️</a>
                                 <?php endif; ?>
-                                <?php if (($settings['allow_delete_invoices'] ?? '0') === '1'): ?>
+                                <?php if (hasPermission('invoices.purchase.delete') && (($settings['allow_delete_invoices'] ?? '0') === '1')): ?>
                                 <a href="../invoices/delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger btn-sm" title="مسح" onclick="return confirm('هل أنت متأكد من مسح هذه الفاتورة؟');">🗑️</a>
                                 <?php endif; ?>
                             </td>

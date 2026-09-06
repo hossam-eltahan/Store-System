@@ -6,11 +6,14 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('installments.view');
 
 $pageTitle = 'سداد أقساط العملاء';
 
 // Handle quick payment
 if (isset($_POST['quick_pay'])) {
+    requirePermission('installments.pay');
     try {
         beginTransaction();
         

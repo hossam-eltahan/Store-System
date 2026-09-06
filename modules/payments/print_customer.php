@@ -6,8 +6,11 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requireAnyPermission(['payments.customer', 'payments.view']);
 
 $id = $_GET['id'] ?? 0;
+$returnUrl = hasPermission('payments.view') ? 'index.php' : (hasPermission('payments.customer') ? 'pay_customer.php' : '../../index.php');
 
 $payment = getRow(
     "SELECT p.*, c.phone as customer_phone
@@ -173,10 +176,10 @@ $pageTitle = 'إيصال تحصيل ' . $payment['payment_number'];
     
     <script>
     function goBack() {
-        if (window.history.length > 1) {
-            window.history.back();
+        if (window.opener && !window.opener.closed) {
+            window.close();
         } else {
-            window.location.href = 'index.php';
+            window.location.href = <?php echo json_encode($returnUrl); ?>;
         }
     }
     </script>

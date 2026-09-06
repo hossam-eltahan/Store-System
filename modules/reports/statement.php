@@ -4,6 +4,8 @@
  */
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('reports.statement');
 
 $type = $_GET['type'] ?? 'customer'; 
 $id = intval($_GET['id'] ?? 0);
@@ -359,7 +361,7 @@ if ($type === 'customer') {
             if (!empty($_GET['date_from'])) $backLink .= "&date_from=" . urlencode($_GET['date_from']);
             if (!empty($_GET['date_to'])) $backLink .= "&date_to=" . urlencode($_GET['date_to']);
         ?>
-        <a href="<?php echo $backLink; ?>" class="btn btn-secondary"><i class="fas fa-arrow-right"></i> رجوع للتقارير</a>
+        <a href="<?php echo $backLink; ?>" class="btn btn-secondary"><i class="fas fa-arrow-right"></i> <?php echo (isAdmin() || hasPermission('reports.view')) ? 'رجوع للتقارير' : 'رجوع لكشف الحساب'; ?></a>
         <button onclick="window.print()" class="btn btn-primary"><i class="fas fa-print"></i> طباعة كشف الحساب</button>
     </div>
 

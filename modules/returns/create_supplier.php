@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('returns.create_supplier');
 
 $pageTitle = 'مرتجع للمورد';
 
@@ -30,7 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $supplierId = $_POST['supplier_id'] ?: null;
         $supplierName = sanitize($_POST['supplier_name']);
         $returnDate = $_POST['return_date'];
-        $handledBy = sanitize($_POST['handled_by'] ?? 'المدير');
+        $handledBy = !empty($_POST['handled_by']) ? sanitize($_POST['handled_by']) : ($_SESSION['full_name'] ?? 'المدير');
+        $userId = getCurrentUserId();
         $notes = sanitize($_POST['notes'] ?? '');
         
         // Get items to return
@@ -110,14 +113,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Insert return record with type = 'supplier'
+        // Get invoice warehouse
+        $invoiceRow = getRow("SELECT warehouse_id FROM invoices WHERE id = ?", [$invoiceId]);
+        $warehouseId = (int)($invoiceRow['warehouse_id'] ?? 1);
+
+        // Insert return record with type = 'supplier', user_id, and warehouse_id
         $returnId = insert(
-            "INSERT INTO returns (return_number, type, original_invoice_id, supplier_id, supplier_name, return_date, total_amount, old_balance, deducted_from_balance, cash_refund, refund_method, handled_by, notes)
-             VALUES (?, 'supplier', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [$returnNumber, $invoiceId, $supplierId, $supplierName, $returnDate, $totalAmount, $supplierOldBalance, $deductedFromBalance, $cashRefund, $refundMethod, $handledBy, $notes]
+            "INSERT INTO returns (return_number, type, original_invoice_id, supplier_id, supplier_name, return_date, total_amount, old_balance, deducted_from_balance, cash_refund, refund_method, handled_by, user_id, warehouse_id, notes)
+             VALUES (?, 'supplier', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [$returnNumber, $invoiceId, $supplierId, $supplierName, $returnDate, $totalAmount, $supplierOldBalance, $deductedFromBalance, $cashRefund, $refundMethod, $handledBy, $userId, $warehouseId, $notes]
         );
         
-        // Insert return items and DECREASE stock (opposite of customer return)
+        // Insert return items and DECREASE stock from the purchase invoice's warehouse
         foreach ($items as $item) {
             insert(
                 "INSERT INTO return_items (return_id, product_id, product_code, product_name, unit, quantity, unit_price, total)
@@ -125,11 +132,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 [$returnId, $item['product_id'], $item['code'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price']]
             );
             
-            // DECREASE stock (returning to supplier)
-            execute(
-                "UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?",
-                [$item['quantity'], $item['product_id']]
-            );
+            // DECREASE stock from the purchase invoice's warehouse
+            updateWarehouseStock($warehouseId, $item['product_id'], $item['quantity'], 'subtract');
         }
         
         // Update supplier balance if deducted
@@ -515,7 +519,7 @@ textarea.form-control {
                         </div>
                         <div class="form-group">
                             <label class="form-label">المسؤول</label>
-                            <input type="text" name="handled_by" class="form-control" value="المدير">
+                            <input type="text" name="handled_by" class="form-control" value="<?php echo htmlspecialchars($_SESSION['full_name'] ?? 'المدير'); ?>">
                         </div>
                     </div>
                     

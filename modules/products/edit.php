@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('products.edit');
 
 $pageTitle = 'تعديل صنف';
 
@@ -58,10 +60,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             execute(
                 "UPDATE products SET 
                  code = ?, name = ?, unit = ?, price = ?, wholesale_price = ?, cost_price = ?, 
-                 stock_quantity = ?, min_stock_level = ?, description = ?, image = ?
+                 min_stock_level = ?, description = ?, image = ?
                  WHERE id = ?",
-                [$code, $name, $unit, $price, $wholesalePrice, $costPrice, $stockQuantity, $minStockLevel, $description, $imagePath, $id]
+                [$code, $name, $unit, $price, $wholesalePrice, $costPrice, $minStockLevel, $description, $imagePath, $id]
             );
+
+            // Update per-warehouse stock if provided
+            if (isset($_POST['warehouse_stocks']) && is_array($_POST['warehouse_stocks'])) {
+                foreach ($_POST['warehouse_stocks'] as $whId => $qty) {
+                    updateWarehouseStock((int)$whId, $id, max(0, (int)$qty), 'set');
+                }
+            } else {
+                syncProductTotalStock($id);
+            }
             
             logActivity('تعديل منتج', "تم تعديل المنتج: $name (كود: $code)");
             setSuccess('تم تعديل الصنف بنجاح');
@@ -69,6 +80,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
+// Get warehouse stock for this product
+$warehouseStocks = getRows(
+    "SELECT w.id as warehouse_id, w.name as warehouse_name, COALESCE(ws.quantity, 0) as quantity 
+     FROM warehouses w 
+     LEFT JOIN warehouse_stock ws ON ws.warehouse_id = w.id AND ws.product_id = ?
+     WHERE w.is_active = 1
+     ORDER BY w.is_default DESC, w.name ASC", 
+    [$id]
+);
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -126,14 +147,27 @@ include '../../includes/navbar.php';
                     </div>
                 </div>
                 
+                <!-- Per-Warehouse Stock Management -->
+                <div style="background: var(--bg-primary); padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e2e8f0;">
+                    <label class="form-label" style="font-weight: 700; margin-bottom: 10px; display: block; color: #1e3a8a;">🏢 رصيد الصنف في المخازن:</label>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                        <?php foreach ($warehouseStocks as $ws): ?>
+                            <div>
+                                <label style="font-size: 0.85em; font-weight: 600; display: block; margin-bottom: 4px;">
+                                    🏢 <?php echo htmlspecialchars($ws['warehouse_name']); ?>:
+                                </label>
+                                <input type="number" name="warehouse_stocks[<?php echo $ws['warehouse_id']; ?>]" class="form-control" value="<?php echo $ws['quantity']; ?>" min="0" style="font-weight: 700;">
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <small style="color: var(--text-secondary); display: block; margin-top: 10px;">
+                        إجمالي رصيد الصنف الحالي: <strong><?php echo $product['stock_quantity']; ?></strong> قطعة (يتم تحديث الإجمالي تلقائياً كمجموع أرصدة المخازن)
+                    </small>
+                </div>
+                
                 <div class="form-row">
                     <div class="form-group">
-                        <label class="form-label required">الكمية في المخزون</label>
-                        <input type="number" name="stock_quantity" class="form-control" value="<?php echo $product['stock_quantity']; ?>" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label required">الحد الأدنى للمخزون</label>
+                        <label class="form-label required">الحد الأدنى للمخزون للتنبيه</label>
                         <input type="number" name="min_stock_level" class="form-control" value="<?php echo $product['min_stock_level']; ?>" required>
                     </div>
                 </div>

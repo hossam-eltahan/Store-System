@@ -6,6 +6,8 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/auth.php';
+requirePermission('installments.pay');
 
 $pageTitle = 'دفع قسط';
 $planId = $_GET['plan_id'] ?? 0;
@@ -29,7 +31,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $paymentAmount = floatval($_POST['payment_amount']);
         $paymentMethod = sanitize($_POST['payment_method'] ?? 'كاش');
-        $handledBy = sanitize($_POST['handled_by'] ?? 'المدير');
+        $handledBy = !empty($_POST['handled_by']) ? sanitize($_POST['handled_by']) : ($_SESSION['full_name'] ?? 'المدير');
+        $userId = getCurrentUserId();
         $notes = sanitize($_POST['notes'] ?? '');
         
         if ($paymentAmount <= 0) {
@@ -50,8 +53,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($remainingPayment >= $payment['amount']) {
                 // Full payment for this installment
                 execute(
-                    "UPDATE installment_payments SET status = 'paid', paid_date = CURDATE(), payment_method = ?, handled_by = ?, notes = ? WHERE id = ?",
-                    [$paymentMethod, $handledBy, $notes, $payment['id']]
+                    "UPDATE installment_payments SET status = 'paid', paid_date = CURDATE(), payment_method = ?, handled_by = ?, user_id = ?, notes = ? WHERE id = ?",
+                    [$paymentMethod, $handledBy, $userId, $notes, $payment['id']]
                 );
                 $remainingPayment -= $payment['amount'];
                 $paidInstallments[] = $payment['installment_number'];
@@ -61,8 +64,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Update this installment with remaining amount and mark as partial
                 execute(
-                    "UPDATE installment_payments SET amount = ?, status = 'partial', paid_amount = ?, notes = CONCAT(IFNULL(notes, ''), ' - دفعة جزئية: ', ?) WHERE id = ?",
-                    [$newAmount, $remainingPayment, $remainingPayment, $payment['id']]
+                    "UPDATE installment_payments SET amount = ?, status = 'partial', paid_amount = ?, handled_by = ?, user_id = ?, notes = CONCAT(IFNULL(notes, ''), ' - دفعة جزئية: ', ?) WHERE id = ?",
+                    [$newAmount, $remainingPayment, $handledBy, $userId, $remainingPayment, $payment['id']]
                 );
                 
                 $paidInstallments[] = $payment['installment_number'] . ' (جزئي)';
@@ -112,9 +115,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $oldBalance = $plan['type'] === 'customer' ? $newBalance - $paymentAmount : $newBalance + $paymentAmount;
         
         execute(
-            "INSERT INTO payments (payment_number, type, entity_id, entity_name, amount, old_balance, new_balance, payment_date, payment_method, reference, notes, handled_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?)",
-            [$paymentNumber, $plan['type'], $entityId, $entityName, $paymentAmount, $oldBalance, $newBalance, $paymentMethod, 'قسط-'.$planId, $notes, $handledBy]
+            "INSERT INTO payments (payment_number, type, entity_id, entity_name, amount, old_balance, new_balance, payment_date, payment_method, reference, notes, handled_by, user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?)",
+            [$paymentNumber, $plan['type'], $entityId, $entityName, $paymentAmount, $oldBalance, $newBalance, $paymentMethod, 'قسط-'.$planId, $notes, $handledBy, $userId]
         );
         
         $typeText = $plan['type'] === 'customer' ? 'العميل' : 'المورد';
@@ -280,7 +283,7 @@ textarea.form-control {
                     </div>
                     <div class="form-group">
                         <label class="form-label">المسؤول</label>
-                        <input type="text" name="handled_by" class="form-control" value="المدير">
+                        <input type="text" name="handled_by" class="form-control" value="<?php echo htmlspecialchars($_SESSION['full_name'] ?? 'المدير'); ?>">
                     </div>
                 </div>
                 

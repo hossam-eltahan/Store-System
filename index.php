@@ -6,83 +6,141 @@
 
 require_once 'config/database.php';
 require_once 'config/settings.php';
+require_once 'config/auth.php';
+requireLogin();
 
 $pageTitle = 'الرئيسية - لوحة التحكم';
 
-// Auto backup check - create backup if no backup today
-$lastBackupDate = getSetting('last_backup_date', '');
-if ($lastBackupDate !== date('Y-m-d')) {
-    // Trigger auto backup silently
-    $autoBackupUrl = BASE_URL . 'modules/settings/backup.php?auto=1';
-    @file_get_contents($autoBackupUrl);
+// Permissions checks for dashboard elements
+$canViewSuppliers = hasPermission('suppliers.view');
+$canViewProducts = hasPermission('products.view');
+$canViewInstallments = hasPermission('installments.view');
+$canViewSalesStats = isAdmin() || hasPermission('invoices.sale.view');
+$canViewWarehouses = hasPermission('warehouses.view');
+
+// Auto backup check - create backup if no backup today (only for admin or settings.backup)
+if (hasPermission('settings.backup')) {
+    $lastBackupDate = getSetting('last_backup_date', '');
+    if ($lastBackupDate !== date('Y-m-d')) {
+        $autoBackupUrl = BASE_URL . 'modules/settings/backup.php?auto=1';
+        @file_get_contents($autoBackupUrl);
+    }
 }
 
-// Get today's statistics
-$todayDay = getTodayDayName();
-$todaySuppliers = getRows("SELECT * FROM suppliers WHERE visit_days LIKE ?", ["%$todayDay%"]);
-$todaySuppliersCount = count($todaySuppliers);
+// Get today's statistics only if authorized
+$todaySuppliersCount = 0;
+if ($canViewSuppliers) {
+    $todayDay = getTodayDayName();
+    $todaySuppliers = getRows("SELECT * FROM suppliers WHERE visit_days LIKE ?", ["%$todayDay%"]);
+    $todaySuppliersCount = count($todaySuppliers);
+}
 
-$lowStockCount = getRow("SELECT COUNT(*) as count FROM products WHERE stock_quantity <= min_stock_level");
+$warehouseCount = 0;
+if ($canViewWarehouses) {
+    $whRow = getRow("SELECT COUNT(*) as count FROM warehouses WHERE is_active = 1");
+    $warehouseCount = intval($whRow['count'] ?? 0);
+}
 
-// Update overdue installments first
-execute("UPDATE installment_payments SET status = 'overdue' WHERE status = 'pending' AND due_date < CURDATE()");
+$lowStockCount = ['count' => 0];
+if ($canViewProducts) {
+    $lowStockCount = getRow("SELECT COUNT(*) as count FROM products WHERE stock_quantity <= min_stock_level");
+}
 
-// Today's due installments (from new table)
-$pendingInstallments = getRow("SELECT COUNT(*) as count FROM installment_payments WHERE due_date = CURDATE() AND status = 'pending'");
-$overdueInstallments = getRow("SELECT COUNT(*) as count FROM installment_payments WHERE status = 'overdue'");
+$pendingInstallments = ['count' => 0];
+$overdueInstallments = ['count' => 0];
+if ($canViewInstallments) {
+    // Update overdue installments first
+    execute("UPDATE installment_payments SET status = 'overdue' WHERE status = 'pending' AND due_date < CURDATE()");
+    $pendingInstallments = getRow("SELECT COUNT(*) as count FROM installment_payments WHERE due_date = CURDATE() AND status = 'pending'");
+    $overdueInstallments = getRow("SELECT COUNT(*) as count FROM installment_payments WHERE status = 'overdue'");
+}
 
-// Top 3 best selling products
-$topProducts = getRows("
-    SELECT p.name, p.code, SUM(ii.quantity) as total_sold
-    FROM invoice_items ii
-    JOIN products p ON ii.product_id = p.id
-    JOIN invoices i ON ii.invoice_id = i.id
-    WHERE i.type = 'sale'
-    GROUP BY ii.product_id
-    ORDER BY total_sold DESC
-    LIMIT 3
-");
+// Top 3 best selling products - only if authorized
+$topProducts = [];
+if ($canViewSalesStats) {
+    $topProducts = getRows("
+        SELECT p.name, p.code, SUM(ii.quantity) as total_sold
+        FROM invoice_items ii
+        JOIN products p ON ii.product_id = p.id
+        JOIN invoices i ON ii.invoice_id = i.id
+        WHERE i.type = 'sale'
+        GROUP BY ii.product_id
+        ORDER BY total_sold DESC
+        LIMIT 3
+    ");
+}
 
-// Last 7 days invoice count (not money)
+// Last 7 days invoice count (not money) - only if authorized
 $invoiceData = [];
-for ($i = 6; $i >= 0; $i--) {
-    $date = date('Y-m-d', strtotime("-$i days"));
-    $dayName = ['أحد', 'إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'][date('w', strtotime($date))];
-    $count = getRow("SELECT COUNT(*) as count FROM invoices WHERE type = 'sale' AND DATE(date) = ?", [$date]);
-    $invoiceData[] = [
-        'day' => $dayName,
-        'count' => intval($count['count'] ?? 0)
-    ];
+$maxInvoice = 1;
+if ($canViewSalesStats) {
+    for ($i = 6; $i >= 0; $i--) {
+        $date = date('Y-m-d', strtotime("-$i days"));
+        $dayName = ['أحد', 'إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'][date('w', strtotime($date))];
+        $count = getRow("SELECT COUNT(*) as count FROM invoices WHERE type = 'sale' AND DATE(date) = ?", [$date]);
+        $invoiceData[] = [
+            'day' => $dayName,
+            'count' => intval($count['count'] ?? 0)
+        ];
+    }
+    $maxInvoice = max(array_column($invoiceData, 'count')) ?: 1;
 }
-$maxInvoice = max(array_column($invoiceData, 'count')) ?: 1;
 
-// Stock status distribution
-$normalStock = getRow("SELECT COUNT(*) as count FROM products WHERE stock_quantity > min_stock_level");
-$lowStock = getRow("SELECT COUNT(*) as count FROM products WHERE stock_quantity <= min_stock_level AND stock_quantity > 0");
-$outOfStock = getRow("SELECT COUNT(*) as count FROM products WHERE stock_quantity = 0");
-$totalProducts = ($normalStock['count'] ?? 0) + ($lowStock['count'] ?? 0) + ($outOfStock['count'] ?? 0);
+// Stock status distribution - only if authorized
+$normalStock = ['count' => 0];
+$lowStock = ['count' => 0];
+$outOfStock = ['count' => 0];
+$totalProducts = 0;
+if ($canViewProducts) {
+    $normalStock = getRow("SELECT COUNT(*) as count FROM products WHERE stock_quantity > min_stock_level");
+    $lowStock = getRow("SELECT COUNT(*) as count FROM products WHERE stock_quantity <= min_stock_level AND stock_quantity > 0");
+    $outOfStock = getRow("SELECT COUNT(*) as count FROM products WHERE stock_quantity = 0");
+    $totalProducts = ($normalStock['count'] ?? 0) + ($lowStock['count'] ?? 0) + ($outOfStock['count'] ?? 0);
+}
+
+// Count available top stat cards
+$hasAnyStatCard = $canViewSuppliers || $canViewProducts || $canViewInstallments || $canViewWarehouses;
 
 include 'includes/header.php';
 include 'includes/navbar.php';
 ?>
 
 <div class="container">
-    <h1 class="mb-2">مرحباً في نظام إدارة المحل</h1>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+        <h1 class="mb-0" style="font-size: 1.6em;">👋 مرحباً، <?php echo htmlspecialchars(getCurrentUserName()); ?></h1>
+        <span style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 4px 12px; border-radius: 20px; font-weight: 600; font-size: 0.85em;">
+            <?php echo isAdmin() ? '👑 مدير النظام' : '👤 موظف'; ?>
+        </span>
+    </div>
     
-    <!-- Statistics Cards -->
-    <div class="stats-grid">
+    <!-- Statistics Cards (Only shown if user has permissions) -->
+    <?php if ($hasAnyStatCard): ?>
+    <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 15px;">
+        <?php if ($canViewWarehouses): ?>
+        <a href="modules/warehouses/index.php" class="stat-card clickable info" style="text-decoration: none; color: inherit;">
+            <div class="stat-icon">🏢</div>
+            <div class="stat-label">المخازن النشطة</div>
+            <div class="stat-value"><?php echo $warehouseCount; ?></div>
+        </a>
+        <?php endif; ?>
+
+        <?php if ($canViewSuppliers): ?>
         <a href="modules/suppliers/index.php?filter=today" class="stat-card clickable <?php echo $todaySuppliersCount > 0 ? 'info' : 'success'; ?>" style="text-decoration: none; color: inherit;">
             <div class="stat-icon">🚚</div>
             <div class="stat-label">موردين قادمين اليوم</div>
             <div class="stat-value"><?php echo $todaySuppliersCount; ?></div>
         </a>
+        <?php endif; ?>
         
+        <?php if ($canViewProducts): ?>
         <a href="modules/products/index.php?filter=low_stock" class="stat-card clickable <?php echo $lowStockCount['count'] > 0 ? 'warning' : 'success'; ?>" style="text-decoration: none; color: inherit;">
             <div class="stat-icon">📦</div>
-            <div class="stat-label">حالة المخزون</div>
+            <div class="stat-label">حالة المخزون المنخفض</div>
             <div class="stat-value"><?php echo $lowStockCount['count']; ?></div>
         </a>
+        <?php endif; ?>
         
+        <?php if ($canViewInstallments): ?>
         <a href="modules/installments/index.php" class="stat-card clickable <?php echo $pendingInstallments['count'] > 0 ? 'danger' : 'success'; ?>" style="text-decoration: none; color: inherit;">
             <div class="stat-icon">⏰</div>
             <div class="stat-label">أقساط اليوم</div>
@@ -96,39 +154,111 @@ include 'includes/navbar.php';
             <div class="stat-value"><?php echo $overdueInstallments['count']; ?></div>
         </a>
         <?php endif; ?>
+        <?php endif; ?>
     </div>
+    <?php endif; ?>
     
     <!-- Main Content Grid -->
-    <div class="grid grid-2" style="gap: 15px; margin-top: 15px;">
+    <div class="grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px; margin-top: 15px;">
         <!-- Quick Actions Card -->
         <div class="card">
-            <div class="card-header" style="padding: 8px 12px;">⚡ إجراءات سريعة</div>
-            <div class="card-body" style="padding: 10px;">
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-                    <a href="modules/invoices/sale.php" class="action-btn sale">🧾 فاتورة بيع</a>
-                    <a href="modules/invoices/purchase.php" class="action-btn purchase">📦 فاتورة شراء</a>
-                    <a href="modules/returns/create.php" class="action-btn return">🔄 إنشاء مرتجع</a>
-                    <a href="modules/payments/pay_customer.php" class="action-btn pay">💵 تحصيل من عميل</a>
-                    <a href="modules/payments/pay_supplier.php" class="action-btn pay">💸 دفع لمورد</a>
-                    <a href="modules/installments/index.php" class="action-btn installment">📅 الأقساط</a>
-                    <a href="modules/installments/create.php" class="action-btn installment">➕ إنشاء قسط</a>
-                    <a href="modules/invoices/list.php" class="action-btn secondary">📋 الفواتير</a>
+            <div class="card-header" style="padding: 10px 14px; font-weight: 700;">⚡ إجراءات سريعة مصرح بها</div>
+            <div class="card-body" style="padding: 12px;">
+                <?php
+                // Build list of permitted primary actions
+                $primaryActions = [];
+                if (hasPermission('invoices.sale.create')) {
+                    $primaryActions[] = '<a href="modules/invoices/sale.php" class="action-btn sale">🧾 فاتورة بيع</a>';
+                }
+                if (hasPermission('invoices.purchase.create')) {
+                    $primaryActions[] = '<a href="modules/invoices/purchase.php" class="action-btn purchase">📦 فاتورة شراء</a>';
+                }
+                if (hasPermission('warehouses.transfer')) {
+                    $primaryActions[] = '<a href="modules/warehouses/transfer.php" class="action-btn secondary" style="background: linear-gradient(135deg, #0d9488, #0f766e); color: white;">🔄 تحويل مخزون</a>';
+                }
+                if (hasAnyPermission(['returns.create_customer', 'returns.create_supplier'])) {
+                    $primaryActions[] = '<a href="modules/returns/create.php" class="action-btn return">🔄 إنشاء مرتجع</a>';
+                }
+                if (hasPermission('payments.customer')) {
+                    $primaryActions[] = '<a href="modules/payments/pay_customer.php" class="action-btn pay">💵 تحصيل من عميل</a>';
+                }
+                if (hasPermission('payments.supplier')) {
+                    $primaryActions[] = '<a href="modules/payments/pay_supplier.php" class="action-btn pay">💸 دفع لمورد</a>';
+                }
+                if (hasPermission('installments.view')) {
+                    $primaryActions[] = '<a href="modules/installments/index.php" class="action-btn installment">📅 الأقساط</a>';
+                }
+                if (hasPermission('installments.create')) {
+                    $primaryActions[] = '<a href="modules/installments/create.php" class="action-btn installment">➕ إنشاء قسط</a>';
+                }
+                if (hasAnyPermission(['invoices.sale.view', 'invoices.purchase.view'])) {
+                    $primaryActions[] = '<a href="modules/invoices/list.php" class="action-btn secondary">📋 الفواتير</a>';
+                }
+
+                // Build list of permitted secondary actions
+                $secondaryActions = [];
+                if (hasPermission('products.add')) {
+                    $secondaryActions[] = '<a href="modules/products/add.php" class="action-btn-sm">➕ صنف</a>';
+                }
+                if (hasPermission('warehouses.view')) {
+                    $secondaryActions[] = '<a href="modules/warehouses/index.php" class="action-btn-sm">🏢 المخازن</a>';
+                }
+                if (hasPermission('warehouses.manage')) {
+                    $secondaryActions[] = '<a href="modules/warehouses/add.php" class="action-btn-sm">➕ مخزن</a>';
+                }
+                if (hasPermission('customers.add')) {
+                    $secondaryActions[] = '<a href="modules/customers/add.php" class="action-btn-sm">👤 عميل</a>';
+                }
+                if (hasPermission('suppliers.add')) {
+                    $secondaryActions[] = '<a href="modules/suppliers/add.php" class="action-btn-sm">🚚 مورد</a>';
+                }
+                if (isAdmin()) {
+                    $secondaryActions[] = '<a href="modules/reports/index.php" class="action-btn-sm">📊 تقارير</a>';
+                } else {
+                    if (hasPermission('reports.view')) {
+                        $secondaryActions[] = '<a href="modules/reports/index.php" class="action-btn-sm">📊 تقاريري</a>';
+                    }
+                    if (hasPermission('reports.statement')) {
+                        $secondaryActions[] = '<a href="modules/reports/index.php?type=statement" class="action-btn-sm">🧾 كشف حساب</a>';
+                    }
+                }
+                if (hasPermission('settings.backup')) {
+                    $secondaryActions[] = '<a href="modules/settings/backup.php" class="action-btn-sm">💾 نسخ احتياطي</a>';
+                }
+                if (hasPermission('settings.manage')) {
+                    $secondaryActions[] = '<a href="modules/settings/index.php" class="action-btn-sm">⚙️ إعدادات</a>';
+                }
+                ?>
+
+                <?php if (!empty($primaryActions)): ?>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px;">
+                    <?php echo implode("\n", $primaryActions); ?>
                 </div>
-                <hr style="margin: 10px 0;">
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
-                    <a href="modules/products/add.php" class="action-btn-sm">➕ صنف</a>
-                    <a href="modules/customers/add.php" class="action-btn-sm">👤 عميل</a>
-                    <a href="modules/suppliers/add.php" class="action-btn-sm">🚚 مورد</a>
-                    <a href="modules/reports/index.php" class="action-btn-sm">📊 تقارير</a>
-                    <a href="modules/settings/backup.php" class="action-btn-sm">💾 نسخ احتياطي</a>
-                    <a href="modules/settings/index.php" class="action-btn-sm">⚙️ إعدادات</a>
+                <?php endif; ?>
+
+                <?php if (!empty($primaryActions) && !empty($secondaryActions)): ?>
+                <hr style="margin: 10px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <?php endif; ?>
+
+                <?php if (!empty($secondaryActions)): ?>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); gap: 8px;">
+                    <?php echo implode("\n", $secondaryActions); ?>
                 </div>
+                <?php endif; ?>
+
+                <?php if (empty($primaryActions) && empty($secondaryActions)): ?>
+                <div style="text-align: center; padding: 20px; color: #6b7280;">
+                    <div style="font-size: 1.8em; margin-bottom: 6px;">🔒</div>
+                    <div>لا توجد إجراءات سريعة مصرح لك بها حالياً. تواصل مع المدير.</div>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
         
-        <!-- Top 3 Products -->
+        <!-- Top 3 Products (Only if permitted) -->
+        <?php if ($canViewSalesStats): ?>
         <div class="card">
-            <div class="card-header" style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 8px 12px;">
+            <div class="card-header" style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 10px 14px; font-weight: 700;">
                 🏆 أفضل 3 منتجات مبيعاً
             </div>
             <div class="card-body" style="padding: 0;">
@@ -145,8 +275,8 @@ include 'includes/navbar.php';
                             <?php echo $index + 1; ?>
                         </div>
                         <div class="product-info">
-                            <div class="product-name"><?php echo $product['name']; ?></div>
-                            <div class="product-code"><?php echo $product['code']; ?></div>
+                            <div class="product-name"><?php echo htmlspecialchars($product['name']); ?></div>
+                            <div class="product-code"><?php echo htmlspecialchars($product['code']); ?></div>
                         </div>
                         <div class="sold-count"><?php echo number_format($product['total_sold']); ?> قطعة</div>
                     </div>
@@ -155,13 +285,16 @@ include 'includes/navbar.php';
                 <?php endif; ?>
             </div>
         </div>
+        <?php endif; ?>
     </div>
     
-    <!-- Charts Row -->
-    <div class="grid grid-2" style="gap: 15px; margin-top: 15px;">
+    <!-- Charts Row (Only shown if user has relevant permissions) -->
+    <?php if ($canViewSalesStats || $canViewProducts): ?>
+    <div class="grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px; margin-top: 15px;">
         <!-- Invoice Count Chart -->
+        <?php if ($canViewSalesStats): ?>
         <div class="card">
-            <div class="card-header" style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 8px 12px;">
+            <div class="card-header" style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 10px 14px; font-weight: 700;">
                 📊 عدد فواتير البيع (آخر 7 أيام)
             </div>
             <div class="card-body" style="padding: 12px;">
@@ -177,10 +310,12 @@ include 'includes/navbar.php';
                 </div>
             </div>
         </div>
+        <?php endif; ?>
         
         <!-- Stock Status Chart -->
+        <?php if ($canViewProducts): ?>
         <div class="card">
-            <div class="card-header" style="background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; padding: 8px 12px;">
+            <div class="card-header" style="background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; padding: 10px 14px; font-weight: 700;">
                 📦 حالة المخزون (<?php echo $totalProducts; ?> صنف)
             </div>
             <div class="card-body" style="padding: 12px;">
@@ -209,7 +344,9 @@ include 'includes/navbar.php';
                 </div>
             </div>
         </div>
+        <?php endif; ?>
     </div>
+    <?php endif; ?>
 </div>
 
 <style>
