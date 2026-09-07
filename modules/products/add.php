@@ -6,6 +6,7 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/categories.php';
 require_once '../../config/auth.php';
 requirePermission('products.add');
 
@@ -27,6 +28,7 @@ $autoCode = generateProductCode();
 
 // Get existing units for datalist
 $existingUnits = getRows("SELECT DISTINCT unit FROM products ORDER BY unit");
+$categories = getCategoriesForSelect();
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -40,19 +42,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $initialWarehouseId = (int)($_POST['warehouse_id'] ?? getCurrentWarehouseId());
     $minStockLevel = intval($_POST['min_stock_level']);
     $description = sanitize($_POST['description'] ?? '');
-    
+    $categoryId = !empty($_POST['category_id']) ? (int)$_POST['category_id'] : null;
+
     // Check if code exists
     $existing = getRow("SELECT id FROM products WHERE code = ?", [$code]);
     if ($existing) {
         setError('كود الصنف موجود مسبقاً');
     }
-    
+
     // Check if exact name exists
     $existingName = getRow("SELECT id FROM products WHERE name = ?", [$name]);
     if ($existingName) {
         setError('يوجد صنف بنفس الاسم بالضبط، يمكنك تعديل الاسم قليلاً');
     }
-    
+
     if (!isset($_SESSION['error'])) {
         // Handle image upload
         $imagePath = null;
@@ -62,21 +65,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 setError('فشل رفع الصورة');
             }
         }
-        
+
         if (!isset($_SESSION['error'])) {
             $id = insert(
-                "INSERT INTO products (code, name, unit, price, wholesale_price, cost_price, stock_quantity, min_stock_level, description, image) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [$code, $name, $unit, $price, $wholesalePrice, $costPrice, $stockQuantity, $minStockLevel, $description, $imagePath]
+                "INSERT INTO products (category_id, code, name, unit, price, wholesale_price, cost_price, stock_quantity, min_stock_level, description, image)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [$categoryId, $code, $name, $unit, $price, $wholesalePrice, $costPrice, $stockQuantity, $minStockLevel, $description, $imagePath]
             );
-            
+
             if ($id) {
                 // Initialize stock across all warehouses
                 $allWhs = getAllWarehouses(false);
                 foreach ($allWhs as $wh) {
                     $qty = ((int)$wh['id'] === $initialWarehouseId) ? $stockQuantity : 0;
                     insert(
-                        "INSERT INTO warehouse_stock (warehouse_id, product_id, quantity, min_stock_level) VALUES (?, ?, ?, ?) 
+                        "INSERT INTO warehouse_stock (warehouse_id, product_id, quantity, min_stock_level) VALUES (?, ?, ?, ?)
                          ON DUPLICATE KEY UPDATE quantity = VALUES(quantity)",
                         [$wh['id'], $id, $qty, $minStockLevel]
                     );
@@ -111,12 +114,22 @@ include '../../includes/navbar.php';
                         <input type="text" name="code" class="form-control" value="<?php echo $autoCode; ?>" required readonly style="background-color: #f0f0f0;">
                         <small>كود تلقائي فريد للصنف</small>
                     </div>
-                    
+
                     <div class="form-group">
                         <label class="form-label required">اسم الصنف</label>
                         <input type="text" name="name" class="form-control" placeholder="مثال: مقشات" required>
                     </div>
-                    
+
+
+                    <div class="form-group">
+                        <label class="form-label">الفئة</label>
+                        <select name="category_id" class="form-control">
+                            <option value="">بدون فئة</option>
+                            <?php foreach ($categories as $category): ?>
+                            <option value="<?php echo $category['id']; ?>"><?php echo htmlspecialchars($category['display_name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                     <div class="form-group">
                         <label class="form-label required">الوحدة</label>
                         <input type="text" name="unit" class="form-control" list="unitsList" placeholder="اختر أو اكتب وحدة جديدة" required>
@@ -135,25 +148,25 @@ include '../../includes/navbar.php';
                         <small>يمكنك اختيار وحدة موجودة أو كتابة وحدة جديدة</small>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label required">سعر البيع</label>
                         <input type="number" step="0.01" name="price" class="form-control" placeholder="0.00" required>
                     </div>
-                    
+
                     <div class="form-group">
                         <label class="form-label">سعر الجملة</label>
                         <input type="number" step="0.01" name="wholesale_price" class="form-control" placeholder="0.00">
                     </div>
-                    
+
                     <div class="form-group">
                         <label class="form-label">سعر الشراء (التكلفة)</label>
                         <input type="number" step="0.01" name="cost_price" class="form-control" placeholder="0.00">
                         <small>لحساب الأرباح</small>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label required">الكمية في المخزون الأولي</label>
@@ -171,25 +184,25 @@ include '../../includes/navbar.php';
                         </select>
                         <small>المخزن الذي ستضاف له هذه الكمية</small>
                     </div>
-                    
+
                     <div class="form-group">
                         <label class="form-label required">الحد الأدنى للمخزون</label>
                         <input type="number" name="min_stock_level" class="form-control" value="5" required>
                         <small>سيتم التنبيه عند الوصول لهذا الحد</small>
                     </div>
                 </div>
-                
+
                 <div class="form-group">
                     <label class="form-label">وصف الصنف</label>
                     <textarea name="description" class="form-control" rows="3" placeholder="وصف تفصيلي للصنف..."></textarea>
                 </div>
-                
+
                 <div class="form-group">
                     <label class="form-label">صورة الصنف</label>
                     <input type="file" name="image" class="form-control" accept="image/*">
                     <small>الحد الأقصى: 5 ميجابايت - الصيغ المدعومة: JPG, PNG, GIF</small>
                 </div>
-                
+
                 <div class="d-flex gap-2 mt-2">
                     <button type="submit" class="btn btn-primary btn-lg">💾 حفظ الصنف</button>
                     <a href="index.php" class="btn btn-secondary btn-lg">❌ إلغاء</a>

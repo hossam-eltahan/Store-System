@@ -17,13 +17,21 @@ $canViewProducts = hasPermission('products.view');
 $canViewInstallments = hasPermission('installments.view');
 $canViewSalesStats = isAdmin() || hasPermission('invoices.sale.view');
 $canViewWarehouses = hasPermission('warehouses.view');
+$canViewExpenses = isAdmin() || hasPermission('expenses.view');
 
-// Auto backup check - create backup if no backup today (only for admin or settings.backup)
+$monthExpensesTotal = 0;
+if ($canViewExpenses) {
+    $monthExpRow = getRow("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE expense_date BETWEEN ? AND ?", [date('Y-m-01'), date('Y-m-t')]);
+    $monthExpensesTotal = floatval($monthExpRow['total'] ?? 0);
+}
+
+// Auto backup check - trigger in background without delaying page load
+$triggerAutoBackup = false;
 if (hasPermission('settings.backup')) {
     $lastBackupDate = getSetting('last_backup_date', '');
     if ($lastBackupDate !== date('Y-m-d')) {
-        $autoBackupUrl = BASE_URL . 'modules/settings/backup.php?auto=1';
-        @file_get_contents($autoBackupUrl);
+        updateSetting('last_backup_date', date('Y-m-d'));
+        $triggerAutoBackup = true;
     }
 }
 
@@ -99,7 +107,7 @@ if ($canViewProducts) {
 }
 
 // Count available top stat cards
-$hasAnyStatCard = $canViewSuppliers || $canViewProducts || $canViewInstallments || $canViewWarehouses;
+$hasAnyStatCard = $canViewSuppliers || $canViewProducts || $canViewInstallments || $canViewWarehouses || $canViewExpenses;
 
 include 'includes/header.php';
 include 'includes/navbar.php';
@@ -139,6 +147,14 @@ include 'includes/navbar.php';
             <div class="stat-value"><?php echo $lowStockCount['count']; ?></div>
         </a>
         <?php endif; ?>
+
+        <?php if ($canViewExpenses): ?>
+        <a href="modules/expenses/index.php" class="stat-card clickable danger" style="text-decoration: none; color: inherit;">
+            <div class="stat-icon">💸</div>
+            <div class="stat-label">مصروفات هذا الشهر</div>
+            <div class="stat-value"><?php echo formatCurrency($monthExpensesTotal); ?></div>
+        </a>
+        <?php endif; ?>
         
         <?php if ($canViewInstallments): ?>
         <a href="modules/installments/index.php" class="stat-card clickable <?php echo $pendingInstallments['count'] > 0 ? 'danger' : 'success'; ?>" style="text-decoration: none; color: inherit;">
@@ -172,6 +188,9 @@ include 'includes/navbar.php';
                 }
                 if (hasPermission('invoices.purchase.create')) {
                     $primaryActions[] = '<a href="modules/invoices/purchase.php" class="action-btn purchase">📦 فاتورة شراء</a>';
+                }
+                if (hasPermission('expenses.add')) {
+                    $primaryActions[] = '<a href="modules/expenses/index.php" class="action-btn pay" style="background: linear-gradient(135deg, #ef4444, #b91c1c); color: white;">💸 تسجيل مصروف</a>';
                 }
                 if (hasPermission('warehouses.transfer')) {
                     $primaryActions[] = '<a href="modules/warehouses/transfer.php" class="action-btn secondary" style="background: linear-gradient(135deg, #0d9488, #0f766e); color: white;">🔄 تحويل مخزون</a>';
@@ -221,6 +240,9 @@ include 'includes/navbar.php';
                     if (hasPermission('reports.statement')) {
                         $secondaryActions[] = '<a href="modules/reports/index.php?type=statement" class="action-btn-sm">🧾 كشف حساب</a>';
                     }
+                }
+                if (hasPermission('expenses.view')) {
+                    $secondaryActions[] = '<a href="modules/expenses/index.php" class="action-btn-sm">💸 المصروفات</a>';
                 }
                 if (hasPermission('settings.backup')) {
                     $secondaryActions[] = '<a href="modules/settings/backup.php" class="action-btn-sm">💾 نسخ احتياطي</a>';
@@ -484,7 +506,16 @@ include 'includes/navbar.php';
     font-weight: bold;
     width: 35px;
     text-align: left;
-}
 </style>
+<?php if ($triggerAutoBackup): ?>
+<script>
+// Run backup silently in the background without delaying page load
+window.addEventListener('load', function() {
+    setTimeout(function() {
+        fetch('<?php echo BASE_URL; ?>modules/settings/backup.php?auto=1').catch(function(){});
+    }, 1500);
+});
+</script>
+<?php endif; ?>
 
 <?php include 'includes/footer.php'; ?>

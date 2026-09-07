@@ -7,6 +7,7 @@
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
 require_once '../../config/auth.php';
+require_once '../../config/categories.php';
 requirePermission('products.view');
 
 $pageTitle = 'إدارة الأصناف';
@@ -16,18 +17,18 @@ if (isset($_GET['delete'])) {
     requirePermission('products.delete');
     $id = $_GET['delete'];
     $product = getRow("SELECT * FROM products WHERE id = ?", [$id]);
-    
+
     if ($product) {
         // Delete image if exists
         if ($product['image']) {
             deleteImage($product['image']);
         }
-        
+
         execute("DELETE FROM products WHERE id = ?", [$id]);
         logActivity('حذف منتج', "تم حذف المنتج: {$product['name']}");
         setSuccess('تم حذف الصنف بنجاح');
     }
-    
+
     redirect('index.php');
 }
 
@@ -35,8 +36,10 @@ if (isset($_GET['delete'])) {
 $search = $_GET['search'] ?? '';
 $filter = $_GET['filter'] ?? '';
 $filterWarehouse = (int)($_GET['warehouse_id'] ?? 0);
+$filterCategory = (int)($_GET['category_id'] ?? 0);
 
 $warehouses = getAllWarehouses(false);
+$categories = getCategoriesForSelect(false);
 
 $where = [];
 $params = [];
@@ -47,6 +50,11 @@ if ($search) {
     $params[] = $searchTerm;
     $params[] = $searchTerm;
     $params[] = $searchTerm;
+}
+
+if ($filterCategory > 0) {
+    $where[] = "p.category_id = ?";
+    $params[] = $filterCategory;
 }
 
 if ($filterWarehouse > 0) {
@@ -61,7 +69,6 @@ if ($filter === 'low_stock') {
         $where[] = "p.stock_quantity <= p.min_stock_level";
     }
 }
-
 $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 // Pagination
@@ -71,29 +78,29 @@ $offset = ($page - 1) * $perPage;
 
 // Get total count
 if ($filterWarehouse > 0) {
-    $countSql = "SELECT COUNT(*) as count FROM products p LEFT JOIN warehouse_stock ws ON ws.product_id = p.id $whereClause";
+    $countSql = "SELECT COUNT(*) as count FROM products p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN warehouse_stock ws ON ws.product_id = p.id $whereClause";
     $totalProducts = getRow($countSql, $params)['count'];
 } else {
-    $totalProducts = getRow("SELECT COUNT(*) as count FROM products p $whereClause", $params)['count'];
+    $totalProducts = getRow("SELECT COUNT(*) as count FROM products p LEFT JOIN categories c ON c.id = p.category_id $whereClause", $params)['count'];
 }
 $totalPages = ceil($totalProducts / $perPage);
 
 // Get paginated products
 if ($filterWarehouse > 0) {
     $products = getRows(
-        "SELECT p.*, COALESCE(ws.quantity, 0) as filtered_wh_stock 
-         FROM products p 
+        "SELECT p.*, c.name as category_name, COALESCE(ws.quantity, 0) as filtered_wh_stock
+         FROM products p
+         LEFT JOIN categories c ON c.id = p.category_id
          LEFT JOIN warehouse_stock ws ON ws.product_id = p.id AND ws.warehouse_id = $filterWarehouse
          $whereClause ORDER BY p.name LIMIT $perPage OFFSET $offset",
         $params
     );
 } else {
     $products = getRows(
-        "SELECT p.* FROM products p $whereClause ORDER BY p.name LIMIT $perPage OFFSET $offset",
+        "SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id $whereClause ORDER BY p.name LIMIT $perPage OFFSET $offset",
         $params
     );
 }
-
 // Get stock breakdown per warehouse for products
 $whStocksRaw = getRows("SELECT ws.product_id, ws.quantity, w.name as warehouse_name FROM warehouse_stock ws JOIN warehouses w ON ws.warehouse_id = w.id WHERE w.is_active = 1");
 $stocksByProduct = [];
@@ -113,7 +120,7 @@ include '../../includes/navbar.php';
             <a href="add.php" class="btn btn-primary">+ إضافة صنف جديد</a>
             <?php endif; ?>
         </div>
-        
+
         <div class="card-body">
             <!-- Search and Filter -->
             <form method="GET" class="mb-2" id="productFilterForm">
@@ -121,7 +128,7 @@ include '../../includes/navbar.php';
                     <div class="form-group" style="flex: 2;">
                         <input type="text" name="search" id="productSearch" class="form-control" placeholder="🔍 بحث بالكود أو الاسم..." value="<?php echo htmlspecialchars($search); ?>">
                     </div>
-                    
+
                     <div class="form-group">
                         <select name="filter" id="productFilter" class="form-control">
                             <option value="">كل الأصناف</option>
@@ -129,7 +136,15 @@ include '../../includes/navbar.php';
                         </select>
                     </div>
 
-                    <div class="form-group">
+                                        <div class="form-group">
+                        <select name="category_id" id="categoryFilter" class="form-control">
+                            <option value="">كل الفئات</option>
+                            <?php foreach ($categories as $category): ?>
+                                <option value="<?php echo $category['id']; ?>" <?php echo $filterCategory == $category['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($category['display_name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+<div class="form-group">
                         <select name="warehouse_id" id="warehouseFilter" class="form-control">
                             <option value="">كل المخازن</option>
                             <?php foreach ($warehouses as $wh): ?>
@@ -139,16 +154,16 @@ include '../../includes/navbar.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    
+
                     <div class="form-group">
                         <button type="submit" class="btn btn-primary">بحث</button>
-                        <?php if ($search || $filter || $filterWarehouse): ?>
+                        <?php if ($search || $filter || $filterWarehouse || $filterCategory): ?>
                         <a href="index.php" class="btn btn-secondary">✕ إلغاء</a>
                         <?php endif; ?>
                     </div>
                 </div>
             </form>
-            
+
             <!-- Products Count with Pagination -->
             <div class="search-results-count">
                 <span>📊 إجمالي الأصناف: <strong><?php echo $totalProducts; ?></strong></span>
@@ -165,7 +180,7 @@ include '../../includes/navbar.php';
                 <span class="badge badge-warning">⚠️ مخزون منخفض</span>
                 <?php endif; ?>
             </div>
-            
+
             <!-- Products Table -->
             <div class="table-container">
                 <table class="table">
@@ -192,8 +207,8 @@ include '../../includes/navbar.php';
                             <td><strong><?php echo $product['code']; ?></strong></td>
                             <td>
                                 <?php if ($product['image']): ?>
-                                    <img src="../../assets/uploads/<?php echo $product['image']; ?>" 
-                                         alt="<?php echo $product['name']; ?>" 
+                                    <img src="../../assets/uploads/<?php echo $product['image']; ?>"
+                                         alt="<?php echo $product['name']; ?>"
                                          style="width: 50px; height: 50px; object-fit: cover; border-radius: 5px;">
                                 <?php else: ?>
                                     <div style="width: 50px; height: 50px; background: #f0f0f0; border-radius: 5px; display: flex; align-items: center; justify-content: center;">
@@ -201,7 +216,7 @@ include '../../includes/navbar.php';
                                     </div>
                                 <?php endif; ?>
                             </td>
-                            <td><?php echo $product['name']; ?></td>
+                            <td><strong><?php echo $product['name']; ?></strong><?php if (!empty($product['category_name'])): ?><small style="display:block;color:#64748b;margin-top:3px;">🏷️ <?php echo htmlspecialchars($product['category_name']); ?></small><?php endif; ?></td>
                             <td><?php echo $product['unit']; ?></td>
                             <td><?php echo formatCurrency($product['price']); ?></td>
                             <td>
@@ -237,8 +252,8 @@ include '../../includes/navbar.php';
                                 <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-primary">✏️ تعديل</a>
                                 <?php endif; ?>
                                 <?php if (hasPermission('products.delete')): ?>
-                                <button type="button" class="btn btn-danger btn-delete" 
-                                        data-name="<?php echo htmlspecialchars($product['name']); ?>" 
+                                <button type="button" class="btn btn-danger btn-delete"
+                                        data-name="<?php echo htmlspecialchars($product['name']); ?>"
                                         data-url="index.php?delete=<?php echo $product['id']; ?>">🗑️ حذف</button>
                                 <?php endif; ?>
                             </td>
@@ -376,14 +391,14 @@ document.addEventListener('DOMContentLoaded', function() {
     var filterSelect = document.getElementById('productFilter');
     var filterForm = document.getElementById('productFilterForm');
     var tableBody = document.getElementById('productsTableBody');
-    
+
     // Auto-submit filter on change
     if (filterSelect && filterForm) {
         filterSelect.addEventListener('change', function() {
             filterForm.submit();
         });
     }
-    
+
     // Auto-submit search after typing
     if (searchInput && filterForm) {
         var timeout = null;
@@ -394,13 +409,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }, 500);
         });
     }
-    
+
     // Delete Modal
     var modal = document.getElementById('deleteModal');
     var confirmBtn = document.getElementById('confirmDeleteBtn');
     var cancelBtn = document.getElementById('cancelDeleteBtn');
     var productNameSpan = document.getElementById('deleteProductName');
-    
+
     // Attach click handlers to all delete buttons
     var deleteButtons = document.querySelectorAll('.btn-delete');
     for (var j = 0; j < deleteButtons.length; j++) {
@@ -408,20 +423,20 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             var productName = this.getAttribute('data-name');
             var deleteUrl = this.getAttribute('data-url');
-            
+
             productNameSpan.textContent = productName;
             confirmBtn.href = deleteUrl;
             modal.style.display = 'flex';
         };
     }
-    
+
     // Cancel button closes modal
     if (cancelBtn) {
         cancelBtn.onclick = function() {
             modal.style.display = 'none';
         };
     }
-    
+
     // Click outside modal closes it
     if (modal) {
         modal.onclick = function(e) {
@@ -430,7 +445,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
     }
-    
+
     // Escape key closes modal
     document.onkeydown = function(e) {
         if (e.key === 'Escape' && modal && modal.style.display === 'flex') {

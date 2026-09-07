@@ -77,7 +77,8 @@ function searchProducts(input, resultsContainer) {
         return;
     }
 
-    fetch(`${window.location.origin}/سيستم اجهزه منزليه/modules/products/ajax.php?action=search&q=${encodeURIComponent(query)}`)
+    const basePath = window.location.pathname.substring(0, window.location.pathname.indexOf('/', 1) + 1) || '/';
+    fetch(`${basePath}modules/products/ajax.php?action=search&q=${encodeURIComponent(query)}`)
         .then(response => response.json())
         .then(data => {
             if (data.success && data.products.length > 0) {

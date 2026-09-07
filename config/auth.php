@@ -32,7 +32,14 @@ function getAllPermissions() {
                 'products.delete' => 'حذف صنف',
             ]
         ],
-        'customers' => [
+        'categories' => [
+            'label' => 'فئات الأصناف',
+            'icon' => '🏷️',
+            'permissions' => [
+                'categories.view' => 'عرض فئات الأصناف',
+                'categories.manage' => 'إدارة فئات الأصناف',
+            ]
+        ],        'customers' => [
             'label' => 'العملاء',
             'icon' => '👥',
             'permissions' => [
@@ -79,6 +86,17 @@ function getAllPermissions() {
                 'payments.view' => 'عرض سجل المدفوعات',
                 'payments.customer' => 'تحصيل من عميل',
                 'payments.supplier' => 'دفع لمورد',
+            ]
+        ],
+        'expenses' => [
+            'label' => 'المصروفات والتكاليف',
+            'icon' => '💸',
+            'permissions' => [
+                'expenses.view' => 'عرض المصروفات',
+                'expenses.add' => 'تسجيل مصروف جديد',
+                'expenses.edit' => 'تعديل مصروف',
+                'expenses.delete' => 'حذف مصروف',
+                'expenses.categories' => 'إدارة تصنيفات المصروفات',
             ]
         ],
         'installments' => [
@@ -277,7 +295,8 @@ function getBaseUrl() {
     if (defined('BASE_URL')) {
         return BASE_URL;
     }
-    return '/سيستم اجهزه منزليه/';
+    $dirName = basename(dirname(__DIR__));
+    return '/' . $dirName . '/';
 }
 
 /**

@@ -7,6 +7,7 @@
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
 require_once '../../config/auth.php';
+require_once '../../config/expenses.php';
 requireAnyPermission(['reports.view', 'reports.statement']);
 
 $pageTitle = 'مركز التقارير';
@@ -22,13 +23,15 @@ $filterStatus = $_GET['filter_status'] ?? '';
 $filterSubType = $_GET['sub_type'] ?? '';
 $filterUserId = $_GET['user_id'] ?? '';
 $filterWarehouse = $_GET['warehouse_id'] ?? '';
+$filterExpenseCat = !empty($_GET['category_id']) ? intval($_GET['category_id']) : '';
 $userSubView = $_GET['user_view'] ?? 'overview';
 
 $allReportTypes = [
     'daily' => '📊 ملخص يومي/فتري',
     'sales' => '💰 المبيعات',
     'purchases' => '🛒 المشتريات',
-    'profit' => '📈 الأرباح التقديرية',
+    'profit' => '📈 الأرباح وصافي الدخل',
+    'expenses' => '💸 المصروفات والتكاليف',
     'returns' => '🔄 المرتجعات',
     'installments' => '📅 الأقساط',
     'payments' => '💵 التحصيلات والمدفوعات',
@@ -74,6 +77,7 @@ $customersList = getRows("SELECT id, name, phone, balance FROM customers ORDER B
 $suppliersList = getRows("SELECT id, name, phone, balance FROM suppliers ORDER BY name ASC");
 $usersList = getRows("SELECT id, username, full_name, role FROM users ORDER BY (role='admin') DESC, full_name ASC");
 $warehousesList = getAllWarehouses();
+$expenseCategoriesList = getExpenseCategories(false);
 
 $columns = [];
 $data = [];
@@ -90,20 +94,24 @@ switch ($reportType) {
         $dateCondInv = ($dateFrom && $dateTo) ? "AND date BETWEEN '$dateFrom' AND '$dateTo'" : "";
         $dateCondRet = ($dateFrom && $dateTo) ? "AND return_date BETWEEN '$dateFrom' AND '$dateTo'" : "";
         $dateCondPay = ($dateFrom && $dateTo) ? "AND payment_date BETWEEN '$dateFrom' AND '$dateTo'" : "";
+        $dateCondExp = ($dateFrom && $dateTo) ? "AND expense_date BETWEEN '$dateFrom' AND '$dateTo'" : "";
 
         $salesData = getRow("SELECT COUNT(*) as c, COALESCE(SUM(total_amount - discount),0) as t, COALESCE(SUM(paid_amount),0) as p FROM invoices WHERE type='sale' {$dateCondInv}");
         $purchasesData = getRow("SELECT COUNT(*) as c, COALESCE(SUM(total_amount - discount),0) as t, COALESCE(SUM(paid_amount),0) as p FROM invoices WHERE type='purchase' {$dateCondInv}");
         $returnsData = getRow("SELECT COUNT(*) as c, COALESCE(SUM(total_amount),0) as t, COALESCE(SUM(cash_refund),0) as r FROM returns WHERE 1=1 {$dateCondRet}");
         $custPay = getRow("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='customer' {$dateCondPay}");
         $suppPay = getRow("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='supplier' {$dateCondPay}");
+        $expCashData = getRow("SELECT COALESCE(SUM(amount),0) as t, COUNT(*) as c FROM expenses WHERE payment_method='نقدي' {$dateCondExp}");
         
         $sp = floatval($salesData['p'] ?? 0); 
         $pp = floatval($purchasesData['p'] ?? 0);
         $cp = floatval($custPay['t'] ?? 0); 
         $spp = floatval($suppPay['t'] ?? 0);
         $rr = floatval($returnsData['r'] ?? 0);
+        $expCash = floatval($expCashData['t'] ?? 0);
+
         $cashIn = $sp + $cp; 
-        $cashOut = $pp + $spp + $rr;
+        $cashOut = $pp + $spp + $rr + $expCash;
         $netCash = $cashIn - $cashOut;
 
         $summaryCards = [
@@ -113,6 +121,7 @@ switch ($reportType) {
             ['title'=>'المشتريات النقدية', 'value'=>formatCurrency($pp), 'color'=>'warning', 'icon'=>'fa-shopping-bag'],
             ['title'=>'مدفوعات الموردين', 'value'=>formatCurrency($spp), 'color'=>'danger', 'icon'=>'fa-money-bill-wave'],
             ['title'=>'مرتجعات نقدية مستردة', 'value'=>formatCurrency($rr), 'color'=>'danger', 'icon'=>'fa-undo'],
+            ['title'=>'مصروفات تشغيلية (نقداً)', 'value'=>formatCurrency($expCash), 'color'=>'danger', 'icon'=>'fa-file-invoice-dollar'],
             ['title'=>'إجمالي النقد الخارج', 'value'=>formatCurrency($cashOut), 'color'=>'danger', 'icon'=>'fa-arrow-up'],
             ['title'=>'صافي الخزينة بالفترة', 'value'=>formatCurrency($netCash), 'color'=>($netCash>=0?'success':'danger'), 'icon'=>'fa-vault']
         ];
@@ -197,7 +206,7 @@ switch ($reportType) {
             'quantity' => 'الكمية', 
             'cost_price' => 'التكلفة', 
             'sale_price' => 'سعر البيع',
-            'profit' => 'صافي الربح'
+            'profit' => 'هامش ربح الصنف'
         ];
         
         $w = "i.type='sale'"; $p = [];
@@ -206,14 +215,82 @@ switch ($reportType) {
         
         $data = getRows("SELECT i.invoice_number, i.date, COALESCE(w.name, 'المخزن الرئيسي') as warehouse_name, ii.quantity, ii.unit_price as sale_price, p.name as product_name, COALESCE(p.cost_price,0) as cost_price, (ii.unit_price - COALESCE(p.cost_price,0)) * ii.quantity as profit FROM invoice_items ii JOIN invoices i ON ii.invoice_id=i.id JOIN products p ON ii.product_id=p.id LEFT JOIN warehouses w ON i.warehouse_id=w.id WHERE {$w} ORDER BY i.date DESC, i.id DESC", $p);
         
-        $totalProfit = 0; $totalRev = 0; $totalCost = 0;
-        foreach($data as $row) { $totalProfit += $row['profit']; $totalRev += $row['sale_price']*$row['quantity']; $totalCost += $row['cost_price']*$row['quantity']; }
+        $grossProfit = 0; $totalRev = 0; $totalCost = 0;
+        foreach($data as $row) { 
+            $grossProfit += $row['profit']; 
+            $totalRev += $row['sale_price'] * $row['quantity']; 
+            $totalCost += $row['cost_price'] * $row['quantity']; 
+        }
+
+        // Calculate operating expenses for the exact same filtered period
+        $expCond = "1=1"; $expParams = [];
+        if ($dateFrom && $dateTo) { 
+            $expCond .= " AND expense_date BETWEEN ? AND ?"; 
+            $expParams[] = $dateFrom; 
+            $expParams[] = $dateTo; 
+        }
+        $expRow = getRow("SELECT COALESCE(SUM(amount), 0) as total_exp, COUNT(*) as cnt FROM expenses WHERE {$expCond}", $expParams);
+        $totalExpenses = floatval($expRow['total_exp'] ?? 0);
+
+        // Net Real Profit = Gross Profit from sales minus Operating Expenses
+        $netRealProfit = $grossProfit - $totalExpenses;
+        $netMargin = ($totalRev > 0) ? ($netRealProfit / $totalRev) * 100 : 0;
         
         $summaryCards = [
-            ['title'=>'إجمالي الإيراد', 'value'=>formatCurrency($totalRev), 'color'=>'primary', 'icon'=>'fa-chart-line'],
-            ['title'=>'إجمالي تكلفة البضاعة', 'value'=>formatCurrency($totalCost), 'color'=>'warning', 'icon'=>'fa-box'],
-            ['title'=>'صافي الربح التقديري', 'value'=>formatCurrency($totalProfit), 'color'=>'success', 'icon'=>'fa-smile'],
-            ['title'=>'نسبة هامش الربح', 'value'=> ($totalRev>0 ? number_format(($totalProfit/$totalRev)*100, 1) : 0) . '%', 'color'=>'info', 'icon'=>'fa-percent']
+            ['title'=>'إجمالي الإيراد (المبيعات)', 'value'=>formatCurrency($totalRev), 'color'=>'primary', 'icon'=>'fa-chart-line'],
+            ['title'=>'تكلفة البضاعة المباعة', 'value'=>formatCurrency($totalCost), 'color'=>'warning', 'icon'=>'fa-box'],
+            ['title'=>'مجمل ربح البضاعة', 'value'=>formatCurrency($grossProfit), 'color'=>'info', 'icon'=>'fa-coins'],
+            ['title'=>'المصروفات والتكاليف التشغيلية', 'value'=>formatCurrency($totalExpenses), 'color'=>'danger', 'icon'=>'fa-file-invoice-dollar'],
+            ['title'=>'صافي الربح الفعلي النهائي', 'value'=>formatCurrency($netRealProfit), 'color'=>($netRealProfit >= 0 ? 'success' : 'danger'), 'icon'=>($netRealProfit >= 0 ? 'fa-smile' : 'fa-frown')],
+            ['title'=>'نسبة هامش صافي الربح', 'value'=>number_format($netMargin, 1) . '%', 'color'=>($netMargin >= 0 ? 'info' : 'danger'), 'icon'=>'fa-percent']
+        ];
+        break;
+
+    case 'expenses':
+        $activeFilters = ['date', 'expense_category', 'pay_method'];
+        $columns = [
+            'expense_date' => 'التاريخ',
+            'expense_number' => 'رقم السند',
+            'category_name' => 'البند والتصنيف',
+            'title' => 'بيان وتفاصيل المصروف',
+            'amount' => 'المبلغ',
+            'payment_method' => 'طريقة الدفع',
+            'paid_to' => 'المدفوع له',
+            'receipt_number' => 'رقم الإيصال الورقي',
+            'handled_by' => 'المسؤول',
+            'actions' => 'سند الصرف'
+        ];
+
+        $w = "1=1"; $p = [];
+        if ($dateFrom && $dateTo) { $w .= " AND e.expense_date BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
+        if ($filterExpenseCat) { $w .= " AND e.category_id = ?"; $p[] = $filterExpenseCat; }
+        if ($filterPayMethod) { $w .= " AND e.payment_method = ?"; $p[] = $filterPayMethod; }
+
+        $rawExpenses = getRows("
+            SELECT e.*, COALESCE(c.name, 'غير مصنف') as category_name, COALESCE(c.icon, '💸') as category_icon
+            FROM expenses e
+            LEFT JOIN expense_categories c ON e.category_id = c.id
+            WHERE {$w}
+            ORDER BY e.expense_date DESC, e.id DESC
+        ", $p);
+
+        $totalExpVal = 0; $cashExpVal = 0; $otherExpVal = 0;
+        foreach($rawExpenses as $r) {
+            $totalExpVal += $r['amount'];
+            if ($r['payment_method'] === 'نقدي') $cashExpVal += $r['amount'];
+            else $otherExpVal += $r['amount'];
+
+            $r['category_name'] = $r['category_icon'] . ' ' . htmlspecialchars($r['category_name']);
+            $r['amount'] = '<span class="text-danger" style="font-weight:700;">' . formatCurrency($r['amount']) . '</span>';
+            $r['actions'] = '<a href="../expenses/print.php?id=' . $r['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> معاينة</a>';
+            $data[] = $r;
+        }
+
+        $summaryCards = [
+            ['title'=>'إجمالي المصروفات بالفترة', 'value'=>formatCurrency($totalExpVal), 'color'=>'danger', 'icon'=>'fa-file-invoice-dollar'],
+            ['title'=>'المصروفات النقدية (الخزينة)', 'value'=>formatCurrency($cashExpVal), 'color'=>'warning', 'icon'=>'fa-money-bill-wave'],
+            ['title'=>'طرق دفع أخرى (تحويل/شيك)', 'value'=>formatCurrency($otherExpVal), 'color'=>'info', 'icon'=>'fa-credit-card'],
+            ['title'=>'عدد سندات الصرف', 'value'=>count($data) . ' سند', 'color'=>'primary', 'icon'=>'fa-receipt']
         ];
         break;
 
@@ -1096,7 +1173,21 @@ include '../../includes/navbar.php';
             <?php endif; ?>
 
             <?php if(in_array('pay_method', $activeFilters)): ?>
-                <div class="filter-group"><label>طريقة الدفع</label><select name="pay_method" class="form-control"><option value="">الكل</option><option value="كاش" <?php echo $filterPayMethod=='كاش'?'selected':''; ?>>كاش</option><option value="آجل" <?php echo $filterPayMethod=='آجل'?'selected':''; ?>>آجل</option><option value="تحويل" <?php echo $filterPayMethod=='تحويل'?'selected':''; ?>>تحويل</option></select></div>
+                <div class="filter-group"><label>طريقة الدفع</label><select name="pay_method" class="form-control"><option value="">الكل</option><option value="كاش" <?php echo $filterPayMethod=='كاش'?'selected':''; ?>>كاش</option><option value="نقدي" <?php echo $filterPayMethod=='نقدي'?'selected':''; ?>>نقدي</option><option value="آجل" <?php echo $filterPayMethod=='آجل'?'selected':''; ?>>آجل</option><option value="تحويل" <?php echo $filterPayMethod=='تحويل'?'selected':''; ?>>تحويل</option><option value="تحويل بنكي" <?php echo $filterPayMethod=='تحويل بنكي'?'selected':''; ?>>تحويل بنكي</option><option value="فودافون كاش" <?php echo $filterPayMethod=='فودافون كاش'?'selected':''; ?>>فودافون كاش</option></select></div>
+            <?php endif; ?>
+
+            <?php if(in_array('expense_category', $activeFilters)): ?>
+                <div class="filter-group">
+                    <label>🏷️ بند المصروف</label>
+                    <select name="category_id" class="form-control" onchange="this.form.submit()">
+                        <option value="">-- كل بنود المصروفات --</option>
+                        <?php foreach ($expenseCategoriesList as $ec): ?>
+                            <option value="<?php echo $ec['id']; ?>" <?php echo ($filterExpenseCat == $ec['id']) ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($ec['icon'] . ' ' . $ec['name']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
             <?php endif; ?>
 
             <?php if(in_array('status_inst', $activeFilters)): ?>

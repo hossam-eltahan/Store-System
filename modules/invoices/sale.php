@@ -150,7 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get customers and products for autocomplete with balance
 $customers = getRows("SELECT id, name, phone, balance FROM customers ORDER BY name");
-$products = getRows("SELECT id, code, name, unit, price, stock_quantity FROM products ORDER BY name");
+$products = getRows("SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
 
 // Warehouses and stock maps
 $warehouses = getAllWarehouses(true);

@@ -6,8 +6,8 @@
 
 // Include notifications helper
 require_once __DIR__ . '/notifications.php';
-$notificationCount = getNotificationCount();
 $notifications = getNotifications();
+$notificationCount = count($notifications);
 
 // Get current user info
 $currentUser = getCurrentUser();
@@ -152,6 +152,14 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
             
+            <?php if (hasPermission('categories.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/categories/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'categories') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🏷️</span>
+                    <span class="sidebar-text">فئات الأصناف</span>
+                </a>
+            </li>
+            <?php endif; ?>
             <?php if (hasPermission('warehouses.view')): ?>
             <li>
                 <a href="<?php echo BASE_URL; ?>modules/warehouses/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'warehouses') !== false ? 'active' : ''; ?>">
@@ -255,6 +263,15 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
                 <a href="<?php echo BASE_URL; ?>modules/payments/index.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' && strpos($_SERVER['PHP_SELF'], 'payments') !== false ? 'active' : ''; ?>">
                     <span class="sidebar-icon">📒</span>
                     <span class="sidebar-text">سجل المدفوعات</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <?php if (hasPermission('expenses.view') || hasPermission('expenses.add')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/expenses/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'expenses') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">💸</span>
+                    <span class="sidebar-text">المصروفات</span>
                 </a>
             </li>
             <?php endif; ?>

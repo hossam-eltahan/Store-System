@@ -94,9 +94,11 @@ $storeLogo = getSetting('store_logo', '');
         .orb {
             position: absolute;
             border-radius: 50%;
-            filter: blur(80px);
-            opacity: 0.4;
+            filter: blur(35px);
+            opacity: 0.35;
             animation: floatOrb 15s ease-in-out infinite;
+            will-change: transform;
+            transform: translateZ(0);
         }
 
         .orb-1 {
@@ -194,9 +196,10 @@ $storeLogo = getSetting('store_logo', '');
                 0 25px 80px rgba(0, 0, 0, 0.5),
                 0 0 40px rgba(59, 130, 246, 0.08),
                 inset 0 1px 0 rgba(255, 255, 255, 0.05);
-            animation: cardAppear 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation: cardAppear 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
             opacity: 0;
-            transform: translateY(30px);
+            transform: translateY(20px);
+            will-change: transform, opacity;
         }
 
         @keyframes cardAppear {

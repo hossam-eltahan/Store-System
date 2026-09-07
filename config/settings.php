@@ -20,8 +20,20 @@ mb_internal_encoding('UTF-8');
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// Base URL
-define('BASE_URL', 'http://localhost/سيستم اجهزه منزليه/');
+// Base URL (Dynamic detection for any host, port, and directory)
+if (!defined('BASE_URL')) {
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+    $dirName = basename(dirname(__DIR__));
+    $pos = strpos($scriptName, '/' . $dirName);
+    if ($pos !== false) {
+        $basePath = substr($scriptName, 0, $pos + strlen($dirName) + 1);
+    } else {
+        $basePath = '/';
+    }
+    define('BASE_URL', $protocol . $host . rtrim($basePath, '/') . '/');
+}
 
 // File upload settings
 define('UPLOAD_DIR', __DIR__ . '/../assets/uploads/');

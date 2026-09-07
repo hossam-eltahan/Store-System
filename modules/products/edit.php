@@ -6,6 +6,7 @@
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
+require_once '../../config/categories.php';
 require_once '../../config/auth.php';
 requirePermission('products.edit');
 
@@ -21,6 +22,7 @@ if (!$product) {
 
 // Get existing units for datalist
 $existingUnits = getRows("SELECT DISTINCT unit FROM products ORDER BY unit");
+$categories = getCategoriesForSelect();
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -33,7 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stockQuantity = intval($_POST['stock_quantity']);
     $minStockLevel = intval($_POST['min_stock_level']);
     $description = sanitize($_POST['description'] ?? '');
-    
+    $categoryId = !empty($_POST['category_id']) ? (int)$_POST['category_id'] : null;
+
     // Check if code exists for other products
     $existing = getRow("SELECT id FROM products WHERE code = ? AND id != ?", [$code, $id]);
     if ($existing) {
@@ -55,14 +58,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $imagePath = uploadImage($_FILES['image'], 'products');
         }
-        
+
         if (!isset($_SESSION['error'])) {
             execute(
-                "UPDATE products SET 
-                 code = ?, name = ?, unit = ?, price = ?, wholesale_price = ?, cost_price = ?, 
+                "UPDATE products SET
+                 category_id = ?, code = ?, name = ?, unit = ?, price = ?, wholesale_price = ?, cost_price = ?,
                  min_stock_level = ?, description = ?, image = ?
                  WHERE id = ?",
-                [$code, $name, $unit, $price, $wholesalePrice, $costPrice, $minStockLevel, $description, $imagePath, $id]
+                [$categoryId, $code, $name, $unit, $price, $wholesalePrice, $costPrice, $minStockLevel, $description, $imagePath, $id]
             );
 
             // Update per-warehouse stock if provided
@@ -73,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 syncProductTotalStock($id);
             }
-            
+
             logActivity('تعديل منتج', "تم تعديل المنتج: $name (كود: $code)");
             setSuccess('تم تعديل الصنف بنجاح');
             redirect('index.php');
@@ -83,11 +86,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get warehouse stock for this product
 $warehouseStocks = getRows(
-    "SELECT w.id as warehouse_id, w.name as warehouse_name, COALESCE(ws.quantity, 0) as quantity 
-     FROM warehouses w 
+    "SELECT w.id as warehouse_id, w.name as warehouse_name, COALESCE(ws.quantity, 0) as quantity
+     FROM warehouses w
      LEFT JOIN warehouse_stock ws ON ws.warehouse_id = w.id AND ws.product_id = ?
      WHERE w.is_active = 1
-     ORDER BY w.is_default DESC, w.name ASC", 
+     ORDER BY w.is_default DESC, w.name ASC",
     [$id]
 );
 
@@ -105,12 +108,22 @@ include '../../includes/navbar.php';
                         <label class="form-label required">كود الصنف</label>
                         <input type="text" name="code" class="form-control" value="<?php echo $product['code']; ?>" required readonly style="background-color: #f0f0f0;">
                     </div>
-                    
+
                     <div class="form-group">
                         <label class="form-label required">اسم الصنف</label>
                         <input type="text" name="name" class="form-control" value="<?php echo $product['name']; ?>" required>
                     </div>
-                    
+
+
+                    <div class="form-group">
+                        <label class="form-label">الفئة</label>
+                        <select name="category_id" class="form-control">
+                            <option value="">بدون فئة</option>
+                            <?php foreach ($categories as $category): ?>
+                            <option value="<?php echo $category['id']; ?>" <?php echo (int)$product['category_id'] === (int)$category['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($category['display_name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                     <div class="form-group">
                         <label class="form-label required">الوحدة</label>
                         <input type="text" name="unit" class="form-control" list="unitsList" value="<?php echo $product['unit']; ?>" placeholder="اختر أو اكتب وحدة جديدة" required>
@@ -129,24 +142,24 @@ include '../../includes/navbar.php';
                         <small>يمكنك اختيار وحدة موجودة أو كتابة وحدة جديدة</small>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label required">سعر البيع</label>
                         <input type="number" step="0.01" name="price" class="form-control" value="<?php echo $product['price']; ?>" required>
                     </div>
-                    
+
                     <div class="form-group">
                         <label class="form-label">سعر الجملة</label>
                         <input type="number" step="0.01" name="wholesale_price" class="form-control" value="<?php echo $product['wholesale_price']; ?>">
                     </div>
-                    
+
                     <div class="form-group">
                         <label class="form-label">سعر الشراء (التكلفة)</label>
                         <input type="number" step="0.01" name="cost_price" class="form-control" value="<?php echo $product['cost_price']; ?>">
                     </div>
                 </div>
-                
+
                 <!-- Per-Warehouse Stock Management -->
                 <div style="background: var(--bg-primary); padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e2e8f0;">
                     <label class="form-label" style="font-weight: 700; margin-bottom: 10px; display: block; color: #1e3a8a;">🏢 رصيد الصنف في المخازن:</label>
@@ -164,19 +177,19 @@ include '../../includes/navbar.php';
                         إجمالي رصيد الصنف الحالي: <strong><?php echo $product['stock_quantity']; ?></strong> قطعة (يتم تحديث الإجمالي تلقائياً كمجموع أرصدة المخازن)
                     </small>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label required">الحد الأدنى للمخزون للتنبيه</label>
                         <input type="number" name="min_stock_level" class="form-control" value="<?php echo $product['min_stock_level']; ?>" required>
                     </div>
                 </div>
-                
+
                 <div class="form-group">
                     <label class="form-label">وصف الصنف</label>
                     <textarea name="description" class="form-control" rows="3"><?php echo $product['description']; ?></textarea>
                 </div>
-                
+
                 <div class="form-group">
                     <label class="form-label">صورة الصنف</label>
                     <?php if ($product['image']): ?>
@@ -191,7 +204,7 @@ include '../../includes/navbar.php';
                     <input type="file" name="image" class="form-control" accept="image/*" id="newImageInput">
                     <small>اتركها فارغة إذا لم ترد تغيير الصورة</small>
                 </div>
-                
+
                 <style>
                 .image-preview-container {
                     display: flex;
@@ -211,7 +224,7 @@ include '../../includes/navbar.php';
                     content: '✓ ';
                 }
                 </style>
-                
+
                 <script>
                 document.addEventListener('DOMContentLoaded', function() {
                     var removeCheckbox = document.getElementById('removeImage');
@@ -228,7 +241,7 @@ include '../../includes/navbar.php';
                     }
                 });
                 </script>
-                
+
                 <div class="d-flex gap-2 mt-2">
                     <button type="submit" class="btn btn-primary btn-lg">💾 حفظ التعديلات</button>
                     <a href="index.php" class="btn btn-secondary btn-lg">❌ إلغاء</a>

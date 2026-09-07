@@ -17,27 +17,27 @@ switch ($action) {
     case 'search':
         searchProducts();
         break;
-        
+
     case 'get_product':
         getProduct();
         break;
-        
+
     case 'get_items':
         getInvoiceItems();
         break;
-        
+
     case 'generate_code':
         generateProductCode();
         break;
-        
+
     case 'add_product':
         addProduct();
         break;
-        
+
     case 'search_invoices':
         searchInvoices();
         break;
-        
+
     default:
         echo json_encode(['success' => false, 'message' => 'Invalid action']);
 }
@@ -53,47 +53,47 @@ function searchInvoices() {
     $dateFrom = $_GET['date_from'] ?? '';
     $dateTo = $_GET['date_to'] ?? '';
     $paymentStatus = $_GET['payment_status'] ?? '';
-    
+
     // Restrict type according to permissions
     if ($canViewSales && !$canViewPurchases) {
         $type = 'sale';
     } elseif ($canViewPurchases && !$canViewSales) {
         $type = 'purchase';
     }
-    
+
     $where = [];
     $params = [];
-    
+
     if ($type) {
         $where[] = "i.type = ?";
         $params[] = $type;
     }
-    
+
     if ($search) {
         $where[] = "(i.invoice_number LIKE ? OR i.customer_name LIKE ? OR c.name LIKE ? OR s.name LIKE ? OR c.phone LIKE ? OR s.phone LIKE ?)";
         $searchTerm = "%$search%";
         $params = array_merge($params, [$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm]);
     }
-    
+
     if ($dateFrom) {
         $where[] = "i.date >= ?";
         $params[] = $dateFrom;
     }
-    
+
     if ($dateTo) {
         $where[] = "i.date <= ?";
         $params[] = $dateTo;
     }
-    
+
     if ($paymentStatus) {
         $where[] = "i.payment_status = ?";
         $params[] = $paymentStatus;
     }
-    
+
     $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
-    
+
     $invoices = getRows(
-        "SELECT i.*, 
+        "SELECT i.*,
                 COALESCE(c.name, i.customer_name) as display_name,
                 s.name as supplier_name_db
          FROM invoices i
@@ -104,7 +104,7 @@ function searchInvoices() {
          LIMIT 100",
         $params
     );
-    
+
     // Format for display
     $results = [];
     foreach ($invoices as $inv) {
@@ -124,7 +124,7 @@ function searchInvoices() {
             'return_url' => '../returns/' . ($inv['type'] === 'purchase' ? 'create_supplier.php' : 'create.php') . '?invoice_id=' . $inv['id']
         ];
     }
-    
+
     echo json_encode(['success' => true, 'invoices' => $results, 'count' => count($results)]);
 }
 
@@ -147,12 +147,12 @@ function addProduct() {
     $unit = sanitize($_POST['unit'] ?? 'قطعة');
     $price = floatval($_POST['price'] ?? 0);
     $minStock = intval($_POST['min_stock'] ?? 5);
-    
+
     if (empty($name)) {
         echo json_encode(['success' => false, 'error' => 'اسم الصنف مطلوب']);
         return;
     }
-    
+
     // Generate code if empty
     if (empty($code)) {
         $lastProduct = getRow("SELECT code FROM products WHERE code LIKE 'PRD%' ORDER BY id DESC LIMIT 1");
@@ -163,13 +163,13 @@ function addProduct() {
         }
         $code = 'PRD' . str_pad($nextNum, 4, '0', STR_PAD_LEFT);
     }
-    
+
     try {
         $productId = insert(
             "INSERT INTO products (code, name, unit, price, stock_quantity, min_stock_level) VALUES (?, ?, ?, ?, 0, ?)",
             [$code, $name, $unit, $price, $minStock]
         );
-        
+
         echo json_encode(['success' => true, 'product_id' => $productId, 'code' => $code]);
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
@@ -180,19 +180,20 @@ function searchProducts() {
     requireAnyPermission(['products.view', 'invoices.sale.create', 'invoices.purchase.create', 'invoices.sale.edit', 'invoices.purchase.edit']);
     $query = $_GET['q'] ?? '';
     $warehouseId = (int)($_GET['warehouse_id'] ?? 0);
-    
+
     if (strlen($query) < 2) {
         echo json_encode(['success' => false, 'message' => 'Query too short']);
         return;
     }
-    
+
     $searchTerm = "%$query%";
     if ($warehouseId > 0) {
         $products = getRows(
-            "SELECT p.id, p.code, p.name, p.unit, p.price, 
+            "SELECT p.id, p.code, p.name, p.unit, p.price, c.name AS category_name,
                     COALESCE(ws.quantity, 0) as stock_quantity,
                     p.stock_quantity as total_stock_quantity
              FROM products p
+             LEFT JOIN categories c ON c.id = p.category_id
              LEFT JOIN warehouse_stock ws ON ws.product_id = p.id AND ws.warehouse_id = ?
              WHERE p.code LIKE ? OR p.name LIKE ? OR p.description LIKE ?
              ORDER BY p.name
@@ -201,15 +202,15 @@ function searchProducts() {
         );
     } else {
         $products = getRows(
-            "SELECT id, code, name, unit, price, stock_quantity 
-             FROM products 
+            "SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name
+             FROM products p LEFT JOIN categories c ON c.id = p.category_id
              WHERE code LIKE ? OR name LIKE ? OR description LIKE ?
              ORDER BY name
              LIMIT 20",
             [$searchTerm, $searchTerm, $searchTerm]
         );
     }
-    
+
     echo json_encode([
         'success' => true,
         'products' => $products
@@ -220,26 +221,27 @@ function getProduct() {
     requireAnyPermission(['products.view', 'invoices.sale.create', 'invoices.purchase.create', 'invoices.sale.edit', 'invoices.purchase.edit']);
     $id = $_GET['id'] ?? 0;
     $warehouseId = (int)($_GET['warehouse_id'] ?? 0);
-    
+
     if ($warehouseId > 0) {
         $product = getRow(
-            "SELECT p.id, p.code, p.name, p.unit, p.price, 
+            "SELECT p.id, p.code, p.name, p.unit, p.price, c.name AS category_name,
                     COALESCE(ws.quantity, 0) as stock_quantity,
                     p.stock_quantity as total_stock_quantity
              FROM products p
+             LEFT JOIN categories c ON c.id = p.category_id
              LEFT JOIN warehouse_stock ws ON ws.product_id = p.id AND ws.warehouse_id = ?
              WHERE p.id = ?",
             [$warehouseId, $id]
         );
     } else {
         $product = getRow(
-            "SELECT id, code, name, unit, price, stock_quantity 
-             FROM products 
+            "SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name
+             FROM products p LEFT JOIN categories c ON c.id = p.category_id
              WHERE id = ?",
             [$id]
         );
     }
-    
+
     if ($product) {
         echo json_encode([
             'success' => true,
@@ -256,29 +258,29 @@ function getProduct() {
 function getInvoiceItems() {
     requireAnyPermission(['invoices.sale.view', 'invoices.purchase.view', 'returns.create_customer', 'returns.create_supplier']);
     $invoiceId = $_GET['invoice_id'] ?? 0;
-    
+
     $items = getRows(
-        "SELECT 
+        "SELECT
             ii.*,
             (
-                SELECT COALESCE(SUM(ri.quantity), 0) 
-                FROM return_items ri 
-                JOIN returns r ON ri.return_id = r.id 
-                WHERE r.original_invoice_id = ii.invoice_id 
+                SELECT COALESCE(SUM(ri.quantity), 0)
+                FROM return_items ri
+                JOIN returns r ON ri.return_id = r.id
+                WHERE r.original_invoice_id = ii.invoice_id
                 AND ri.product_id = ii.product_id
             ) as returned_quantity
-         FROM invoice_items ii 
+         FROM invoice_items ii
          WHERE ii.invoice_id = ?",
         [$invoiceId]
     );
-    
+
     $availableItems = [];
     foreach ($items as $item) {
         $available = $item['quantity'] - $item['returned_quantity'];
         $item['available_quantity'] = max(0, $available);
         $availableItems[] = $item;
     }
-    
+
     echo json_encode([
         'success' => true,
         'items' => $availableItems
