@@ -16,13 +16,83 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
 
 <!-- Top Header Bar -->
 <header class="top-header noprint">
-    <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">
-        <span class="toggle-icon">☰</span>
-    </button>
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">
+            <span class="toggle-icon">☰</span>
+        </button>
+        <div class="header-title"><?php echo getSetting('store_name', 'نظام إدارة المحل'); ?></div>
+    </div>
     
-    <div class="header-title"><?php echo getSetting('store_name', 'نظام إدارة المحل'); ?></div>
-    
+    <!-- Center Section: License Status & Expiry (وسط رأس البرنامج) -->
+    <div class="header-license-center" style="margin: 0 auto; display: flex; align-items: center; gap: 8px;">
+        <?php
+        require_once __DIR__ . '/../config/license.php';
+        $licenseDetails = function_exists('getLicenseDetails') ? getLicenseDetails() : null;
+        if ($licenseDetails && $licenseDetails['status'] === 'valid'):
+            if (!empty($licenseDetails['is_dev'])): ?>
+                <span title="بيئة تطوير المبرمج" style="font-size: 11.5px; padding: 4px 14px; border-radius: 20px; background: rgba(59,130,246,0.12); color: #2563eb; border: 1px solid rgba(59,130,246,0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                    <span>🛠️</span> وضع المطور (غير مقيد)
+                </span>
+            <?php elseif (!empty($licenseDetails['is_lifetime'])): ?>
+                <span style="font-size: 11.5px; padding: 4px 14px; border-radius: 20px; background: rgba(16,185,129,0.12); color: #059669; border: 1px solid rgba(16,185,129,0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                    <span>💎</span> ترخيص دائم مدى الحياة
+                </span>
+            <?php else: 
+                $days = (int)$licenseDetails['days_left'];
+                $mins = (int)($licenseDetails['mins_left'] ?? 0);
+                $isTest = !empty($licenseDetails['is_test']) || ($mins <= 60 && $days == 0);
+                $isTrial = !empty($licenseDetails['is_trial']);
+                $isUrgent = ($days <= 7 || $isTest);
+
+                $badgeBg = $isUrgent ? 'rgba(239,68,68,0.12)' : ($days <= 15 ? 'rgba(245,158,11,0.12)' : 'rgba(16,185,129,0.12)');
+                $badgeColor = $isUrgent ? '#dc2626' : ($days <= 15 ? '#d97706' : '#059669');
+                $badgeBorder = $isUrgent ? 'rgba(239,68,68,0.35)' : ($days <= 15 ? 'rgba(245,158,11,0.35)' : 'rgba(16,185,129,0.3)');
+                
+                $labelText = $isTest ? "فترة اختبار: متبقي {$mins} دقيقة" : ($isTrial ? "نسخة تجريبية: متبقي {$days} أيام" : "الاشتراك ساري: متبقي {$days} يوم");
+                $expiryText = $licenseDetails['expires_at'] ?? '';
+            ?>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="font-size: 11.5px; padding: 4px 14px; border-radius: 20px; background: <?php echo $badgeBg; ?>; color: <?php echo $badgeColor; ?>; border: 1px solid <?php echo $badgeBorder; ?>; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                        <span><?php echo $isUrgent ? '⚠️' : '⏱️'; ?></span>
+                        <span><?php echo $labelText; ?></span>
+                        <?php if (!empty($expiryText)): ?>
+                            <span style="opacity: 0.8; font-size: 10.5px; margin-right: 4px;">(موعد التجديد: <?php echo $expiryText; ?>)</span>
+                        <?php endif; ?>
+                    </div>
+                    <a href="<?php echo BASE_URL; ?>activate.php" title="تجديد الاشتراك / إدخال كود جديد" style="text-decoration: none; font-size: 11px; padding: 4px 12px; border-radius: 6px; background: #7c3aed; color: white; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 6px rgba(124,58,237,0.25);">
+                        <span>🔑</span> تجديد الاشتراك
+                    </a>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
+
     <div style="display: flex; align-items: center; gap: 12px;">
+        <!-- License Status Badge -->
+        <?php
+        $licenseDetails = function_exists('getLicenseDetails') ? getLicenseDetails() : null;
+        if ($licenseDetails && $licenseDetails['status'] === 'valid'):
+            if (!empty($licenseDetails['is_dev'])): ?>
+                <span title="بيئة تطوير المبرمج" style="font-size: 11px; padding: 4px 10px; border-radius: 6px; background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); font-weight: 700;">
+                    🛠️ وضع المطور
+                </span>
+            <?php elseif (!empty($licenseDetails['is_lifetime'])): ?>
+                <span style="font-size: 11px; padding: 4px 10px; border-radius: 6px; background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); font-weight: 700;">
+                    💎 ترخيص دائم
+                </span>
+            <?php else: 
+                $days = (int)$licenseDetails['days_left'];
+                $badgeBg = $days <= 7 ? 'rgba(239,68,68,0.15)' : ($days <= 15 ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.15)');
+                $badgeColor = $days <= 7 ? '#f87171' : ($days <= 15 ? '#fbbf24' : '#34d399');
+                $badgeBorder = $days <= 7 ? 'rgba(239,68,68,0.3)' : ($days <= 15 ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)');
+            ?>
+                <a href="<?php echo BASE_URL; ?>activate.php" title="تاريخ الانتهاء: <?php echo $licenseDetails['expires_at']; ?> - اضغط للتجديد" style="text-decoration: none; font-size: 11px; padding: 4px 10px; border-radius: 6px; background: <?php echo $badgeBg; ?>; color: <?php echo $badgeColor; ?>; border: 1px solid <?php echo $badgeBorder; ?>; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                    <span>⏱️</span>
+                    <span><?php echo (!empty($licenseDetails['is_test']) || (!empty($licenseDetails['mins_left']) && $licenseDetails['mins_left'] <= 60)) ? "متبقي " . $licenseDetails['mins_left'] . " دقيقة" : (!empty($licenseDetails['is_trial']) ? "تجريبي: " . $days . " أيام" : "متبقي " . $days . " يوم"); ?></span>
+                </a>
+            <?php endif; ?>
+        <?php endif; ?>
+
         <!-- Notification Bell -->
         <div class="notification-wrapper">
             <button class="notification-bell" id="notificationBell" onclick="toggleNotifications(event)">
@@ -117,6 +187,8 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
         </div>
     </div>
 </header>
+
+
 
 <!-- Sidebar -->
 <aside class="sidebar noprint" id="sidebar">
@@ -344,7 +416,38 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
 </aside>
 
 <!-- Main Content Wrapper Start -->
+<!-- Main Content Wrapper Start -->
 <div class="main-content" id="mainContent">
+
+<!-- Urgent Renewal Alert Banner (Shown when <= 7 days left) -->
+<?php
+$licenseDetails = function_exists('getLicenseDetails') ? getLicenseDetails() : null;
+if ($licenseDetails && $licenseDetails['status'] === 'valid' && empty($licenseDetails['is_dev']) && empty($licenseDetails['is_lifetime']) && !empty($licenseDetails['days_left']) && (int)$licenseDetails['days_left'] <= 7):
+    $remDays = (int)$licenseDetails['days_left'];
+    $remMins = (int)($licenseDetails['mins_left'] ?? 0);
+    $expDate = $licenseDetails['expires_at'] ?? '';
+    if (is_numeric($expDate)) {
+        $expDate = date('Y-m-d H:i:s', $expDate);
+    }
+    $isMinTest = !empty($licenseDetails['is_test']) || ($remMins <= 60 && $remDays == 0);
+    $durationNotice = $isMinTest ? "متبقي {$remMins} دقيقة فقط" : "متبقي {$remDays} أيام فقط";
+?>
+<div id="licenseExpiryAlertBanner" class="noprint" style="background: linear-gradient(135deg, #fff7ed, #ffedd5); border: 1px solid #f97316; border-radius: 10px; padding: 12px 20px; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(249, 115, 22, 0.12);">
+    <div style="display: flex; align-items: center; gap: 12px; color: #9a3412;">
+        <span style="font-size: 22px;">⚠️</span>
+        <div style="font-size: 13.5px; font-weight: 600; line-height: 1.5;">
+            <strong style="font-size: 14px; color: #c2410c;">تنبيه هام بقرب انتهاء الاشتراك:</strong>
+            <?php echo $durationNotice; ?> (تاريخ وموعد الانتهاء: <span style="text-decoration: underline; font-weight: 700; color: #9a3412;"><?php echo $expDate; ?></span>). يرجى تجديد الاشتراك لتفادي توقف النظام وحظر العمل.
+        </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <a href="<?php echo BASE_URL; ?>activate.php" class="btn" style="background: #ea580c; color: white; font-weight: 700; padding: 6px 16px; font-size: 12.5px; border-radius: 6px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(234, 88, 12, 0.3);">
+            <span>🔑</span> تجديد الاشتراك الآن
+        </a>
+        <button type="button" onclick="document.getElementById('licenseExpiryAlertBanner').style.display='none'" style="background: transparent; border: none; font-size: 22px; line-height: 1; color: #9a3412; cursor: pointer; padding: 0 4px;" title="إغلاق التنبيه">&times;</button>
+    </div>
+</div>
+<?php endif; ?>
 
 <script>
 function toggleSidebar() {

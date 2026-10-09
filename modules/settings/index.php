@@ -7,6 +7,7 @@
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
 require_once '../../config/auth.php';
+require_once '../../config/version.php';
 requirePermission('settings.manage');
 
 $pageTitle = 'إعدادات النظام';
@@ -90,6 +91,113 @@ hr { margin: 5px 0 10px 0 !important; }
 </style>
 
 <div class="container">
+
+<!-- License & Subscription Details Card -->
+<?php
+require_once __DIR__ . '/../../config/license.php';
+$licInfo = function_exists('getFullLicenseInfo') ? getFullLicenseInfo() : (function_exists('getLicenseDetails') ? getLicenseDetails() : []);
+$licStatus = $licInfo['status'] ?? 'unlicensed';
+$isDev = !empty($licInfo['is_dev']);
+$isLife = !empty($licInfo['is_lifetime']);
+$isTrial = !empty($licInfo['is_trial']);
+$isTest = !empty($licInfo['is_test']);
+$hwid = $licInfo['hwid'] ?? (function_exists('getMachineFingerprint') ? getMachineFingerprint() : '');
+$code = $licInfo['code'] ?? '';
+$daysLeft = (int)($licInfo['days_left'] ?? 0);
+$minsLeft = (int)($licInfo['mins_left'] ?? 0);
+$activatedDate = !empty($licInfo['activated_at']) ? (is_numeric($licInfo['activated_at']) ? date('Y-m-d H:i', $licInfo['activated_at']) : $licInfo['activated_at']) : 'غير مسجل';
+$rawExp = $licInfo['expires_at'] ?? '';
+if (is_numeric($rawExp) && $rawExp > 0) {
+    $expiryDate = date('Y-m-d H:i:s', $rawExp);
+} elseif (!empty($rawExp)) {
+    $expiryDate = $rawExp;
+} else {
+    $expiryDate = $isLife ? 'مدى الحياة (دائم)' : 'غير محدد';
+}
+$durationLabel = $licInfo['duration_label'] ?? ($isLife ? 'مدى الحياة (دائم)' : ($daysLeft ? $daysLeft . ' يوم' : 'غير محدد'));
+
+$statusBadgeBg = $isLife ? '#ecfdf5' : ($isDev ? '#eff6ff' : ($licStatus === 'valid' ? ($daysLeft <= 7 ? '#fff7ed' : '#f0fdf4') : '#fef2f2'));
+$statusBadgeColor = $isLife ? '#059669' : ($isDev ? '#2563eb' : ($licStatus === 'valid' ? ($daysLeft <= 7 ? '#ea580c' : '#16a34a') : '#dc2626'));
+$statusBadgeBorder = $isLife ? '#a7f3d0' : ($isDev ? '#bfdbfe' : ($licStatus === 'valid' ? ($daysLeft <= 7 ? '#fed7aa' : '#bbf7d0') : '#fecaca'));
+$statusText = $isLife ? '💎 ترخيص دائم مدى الحياة' : ($isDev ? '🛠️ وضع المطور' : ($licStatus === 'valid' ? ($isTest ? '🧪 فترة اختبار (' . $minsLeft . ' دقيقة)' : ($isTrial ? '🎁 نسخة تجريبية (' . $daysLeft . ' يوم)' : '✅ اشتراك نشط وساري')) : '❌ منتهي الصلاحية'));
+?>
+
+<div class="card" style="margin-bottom: 20px; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+    <div class="card-header" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: white; display: flex; align-items: center; justify-content: space-between; padding: 12px 18px;">
+        <div style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1rem;">
+            <span style="font-size: 18px;">🛡️</span>
+            <span>بيانات ترخيص النظام والاشتراك</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="background: <?php echo $statusBadgeBg; ?>; color: <?php echo $statusBadgeColor; ?>; border: 1px solid <?php echo $statusBadgeBorder; ?>; padding: 4px 12px; border-radius: 20px; font-size: 11.5px; font-weight: 700;">
+                <?php echo $statusText; ?>
+            </span>
+            <a href="<?php echo BASE_URL; ?>activate.php" class="btn btn-sm" style="background: linear-gradient(135deg, #7c3aed, #6d28d9); color: white; border: none; font-size: 11.5px; font-weight: 700; padding: 5px 14px; border-radius: 6px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(124,58,237,0.3);">
+                <span>🔑</span> تجديد الاشتراك / إدخال كود جديد
+            </a>
+        </div>
+    </div>
+    <div class="card-body" style="background: #ffffff; padding: 18px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+            <!-- Box 1: HWID -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 5px; font-weight: 600;">معرف الجهاز الخاص بك (Hardware ID):</div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                    <code style="font-family: monospace; font-size: 13px; font-weight: 700; color: #0f172a; background: #e2e8f0; padding: 4px 8px; border-radius: 4px;"><?php echo htmlspecialchars($hwid); ?></code>
+                    <button type="button" onclick="navigator.clipboard.writeText('<?php echo htmlspecialchars($hwid); ?>'); alert('تم نسخ معرف الجهاز بنجاح!');" class="btn btn-sm" style="background: #e2e8f0; color: #334155; padding: 3px 8px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer;" title="نسخ المعرف">
+                        📋 نسخ
+                    </button>
+                </div>
+            </div>
+
+            <!-- Box 2: Duration & Status -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 5px; font-weight: 600;">نوع ومدة الاشتراك:</div>
+                <div style="font-size: 13.5px; font-weight: 700; color: #1e293b;">
+                    <?php echo htmlspecialchars($durationLabel); ?>
+                </div>
+            </div>
+
+            <!-- Box 3: Expiry Date -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 5px; font-weight: 600;">موعد التجديد القادم:</div>
+                <div style="font-size: 13.5px; font-weight: 700; color: <?php echo ($daysLeft <= 7 && !$isLife) ? '#dc2626' : '#059669'; ?>;">
+                    <?php echo htmlspecialchars($expiryDate); ?>
+                    <?php if (!$isLife && $daysLeft > 0): ?>
+                        <span style="font-size: 11px; font-weight: normal; color: #64748b;">(متبقي <?php echo $daysLeft; ?> يوم)</span>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Box 4: Current Code -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 5px; font-weight: 600;">كود التفعيل المسجل:</div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                    <code style="font-family: monospace; font-size: 11px; color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;"><?php echo htmlspecialchars($code ?: 'غير متوفر'); ?></code>
+                    <?php if (!empty($code)): ?>
+                    <button type="button" onclick="navigator.clipboard.writeText('<?php echo htmlspecialchars($code); ?>'); alert('تم نسخ كود التفعيل!');" class="btn btn-sm" style="background: #e2e8f0; color: #334155; padding: 3px 8px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer;" title="نسخ الكود">
+                        📋 نسخ
+                    </button>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e2e8f0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <div style="font-size: 12px; color: #64748b;">
+                💡 لتجديد الاشتراك أو ترقية نسختك، يمكنك التواصل مع الدعم الفني وإرسال معرف جهازك لإصدار كود التجديد فوراً.
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <a href="https://wa.me/201271191616?text=<?php echo urlencode("مرحباً، أود تجديد اشتراك نظام إدارة الأجهزة.\nمعرف جهازي: " . $hwid); ?>" target="_blank" class="btn btn-sm" style="background: #25d366; color: white; font-weight: 700; text-decoration: none; padding: 6px 14px; font-size: 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(37,211,102,0.25);">
+                    <span>💬</span> تواصل لتجديد الاشتراك (واتساب)
+                </a>
+                <a href="<?php echo BASE_URL; ?>activate.php" class="btn btn-sm" style="background: #7c3aed; color: white; font-weight: 700; text-decoration: none; padding: 6px 14px; font-size: 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(124,58,237,0.25);">
+                    <span>🔑</span> شاشة إدخال كود التفعيل
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
     <div class="card">
         <div class="card-header" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white;">⚙️ إعدادات النظام</div>
         <div class="card-body">
@@ -185,6 +293,7 @@ hr { margin: 5px 0 10px 0 !important; }
                 <div style="margin-top: 15px; display: flex; gap: 8px;">
                     <button type="submit" class="btn btn-primary">💾 حفظ</button>
                     <a href="backup.php" class="btn btn-success">💾 نسخ احتياطي</a>
+                    <a href="update.php" class="btn" style="background:#0284c7; color:white; border:none; display:inline-flex; align-items:center; gap:6px;"><span>🔄</span> تحديثات البرنامج</a>
                 </div>
                 </div>
                 </div>
@@ -192,5 +301,33 @@ hr { margin: 5px 0 10px 0 !important; }
         </div>
     </div>
 </div>
+
+
+    <!-- بطاقة إصدار النظام والتحديثات -->
+    <div class="card" style="margin-top: 20px;">
+        <div class="card-header" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: white; display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-weight: 700;">🔄 إصدار وتحديثات النظام</div>
+            <span style="background: rgba(255,255,255,0.25); padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                الإصدار الحالي: v<?php echo defined('APP_VERSION') ? APP_VERSION : '1.0.0'; ?>
+            </span>
+        </div>
+        <div class="card-body">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                <div>
+                    <h4 style="margin: 0 0 6px 0; color: #1e293b; font-size: 15px;">نظام إدارة الأجهزة المنزلية</h4>
+                    <div style="font-size: 13px; color: #64748b; display: flex; gap: 12px; flex-wrap: wrap;">
+                        <span>📦 رقم الإصدار: <strong style="color: #0284c7;">v<?php echo defined('APP_VERSION') ? APP_VERSION : '1.0.0'; ?></strong></span>
+                        <span>📅 تاريخ البناء: <strong><?php echo defined('APP_BUILD_DATE') ? APP_BUILD_DATE : '2026-09-17'; ?></strong></span>
+                        <span>🗄️ هيكل قاعدة البيانات: <strong>#<?php echo defined('DB_SCHEMA_VERSION') ? DB_SCHEMA_VERSION : '1'; ?></strong></span>
+                    </div>
+                </div>
+                <div>
+                    <a href="update.php" class="btn" style="background: #0284c7; color: white; border: none; font-weight: 700; padding: 8px 18px; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; box-shadow: 0 2px 6px rgba(2,132,199,0.3);">
+                        <span>🚀</span> فتح مركز التحديثات
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
 
 <?php include '../../includes/footer.php'; ?>

@@ -341,3 +341,12 @@ function generateTransferNumber() {
     return $prefix . str_pad($newNum, 5, '0', STR_PAD_LEFT);
 }
 
+
+
+// Automatic Offline License Enforcement on Every Request
+if (file_exists(__DIR__ . '/license.php')) {
+    require_once __DIR__ . '/license.php';
+    if (function_exists('enforceLicense')) {
+        enforceLicense();
+    }
+}

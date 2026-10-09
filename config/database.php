@@ -1,19 +1,40 @@
-<?php
+﻿<?php
 /**
  * Database Configuration
- * نظام إدارة محل أجهزة منزلية
+ * Store Management System
  */
 
 // Database credentials
-define('DB_HOST', 'localhost');
+define('DB_HOST', '127.0.0.1');
 define('DB_NAME', 'store_management');
 define('DB_USER', 'root');
 define('DB_PASS', '');
 define('DB_CHARSET', 'utf8mb4');
 
+// Auto-detect MySQL port from ports.ini (for portable installation)
+// Falls back to 3306 if not found (for regular XAMPP)
+function getConfiguredMySQLPort() {
+    $possiblePaths = [
+        __DIR__ . '/ports.ini',
+        __DIR__ . '/../../config/ports.ini',
+        dirname(__DIR__, 3) . '/config/ports.ini'
+    ];
+    foreach ($possiblePaths as $path) {
+        if (!empty($path) && file_exists($path)) {
+            $content = @file_get_contents($path);
+            if ($content && preg_match('/mysql_port\s*=\s*(\d+)/', $content, $matches)) {
+                return (int)$matches[1];
+            }
+        }
+    }
+    return 3306;
+}
+
+define('DB_PORT', getConfiguredMySQLPort());
+
 // Create PDO connection
 try {
-    $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
+    $dsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
     $options = [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -24,7 +45,7 @@ try {
     $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
     
 } catch (PDOException $e) {
-    die("خطأ في الاتصال بقاعدة البيانات: " . $e->getMessage());
+    die("Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø§ØªØµØ§Ù„ Ø¨Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª: " . $e->getMessage());
 }
 
 /**

@@ -801,3 +801,19 @@ INSERT INTO `warehouses` (`id`, `name`, `code`, `location`, `phone`, `manager_na
 INSERT INTO `warehouses` (`id`, `name`, `code`, `location`, `phone`, `manager_name`, `is_default`, `is_active`, `notes`, `created_at`, `updated_at`) VALUES ('5', 'مخزن فيصل', 'WH-02', '15 شارع الهرم', '04029012', 'امين مخزن 2', '0', '1', '', '2026-09-06 05:42:30', '2026-09-06 05:53:22');
 
 SET FOREIGN_KEY_CHECKS=1;
+
+
+-- ========================================================
+-- Schema Migrations Tracking Table
+-- ========================================================
+CREATE TABLE IF NOT EXISTS `schema_migrations` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `migration_number` INT NOT NULL,
+    `migration_file` VARCHAR(255) NOT NULL,
+    `description` VARCHAR(500) DEFAULT NULL,
+    `applied_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `unique_migration` (`migration_number`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `schema_migrations` (`migration_number`, `migration_file`, `description`) 
+VALUES (1, '001_baseline.sql', 'الإصدار الأساسي لقاعدة البيانات v1.0.0');

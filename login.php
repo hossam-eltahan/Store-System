@@ -7,6 +7,8 @@
 require_once 'config/database.php';
 require_once 'config/settings.php';
 require_once 'config/auth.php';
+require_once 'config/license.php';
+enforceLicense();
 
 // If already logged in, redirect to dashboard
 if (isLoggedIn()) {

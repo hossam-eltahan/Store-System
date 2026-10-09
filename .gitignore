@@ -20,3 +20,9 @@ Thumbs.db
 # Temp files
 *.tmp
 *.bak
+
+# Update runtime & temp files
+data/updates/*.zip
+data/updates/backups/
+data/updates/temp/
+
