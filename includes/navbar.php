@@ -159,12 +159,9 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
                     <div>
                         <div style="font-weight: 700; font-size: 0.95em;"><?php echo htmlspecialchars($currentUser['full_name'] ?? ''); ?></div>
                         <div style="font-size: 0.75em; opacity: 0.7;">
-                            <?php echo $currentUser['role'] === 'admin' ? '👑 مدير' : '👤 موظف'; ?>
                             <?php 
-                            $userWhId = getCurrentWarehouseId();
-                            if ($userWhId) {
-                                echo ' • 🏢 ' . htmlspecialchars(getWarehouseName($userWhId));
-                            }
+                            $roleNames = ['admin' => '👑 مدير النظام', 'cashier' => '☕ كاشير', 'barista' => '🍹 باريستا', 'employee' => '👤 موظف'];
+                            echo $roleNames[$currentUser['role']] ?? '👤 مستخدم'; 
                             ?>
                         </div>
                     </div>
@@ -206,6 +203,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
     <!-- Sidebar Menu -->
     <nav class="sidebar-nav">
         <ul class="sidebar-menu">
+            <!-- الرئيسية -->
             <?php if (hasPermission('dashboard.view')): ?>
             <li>
                 <a href="<?php echo BASE_URL; ?>index.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' && strpos($_SERVER['PHP_SELF'], 'modules') === false ? 'active' : ''; ?>">
@@ -214,131 +212,90 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
                 </a>
             </li>
             <?php endif; ?>
-            
-            <?php if (hasPermission('products.view')): ?>
+
+            <!-- كاشير الكافيه POS -->
+            <?php if (hasPermission('pos.view')): ?>
             <li>
-                <a href="<?php echo BASE_URL; ?>modules/products/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'products') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">📦</span>
-                    <span class="sidebar-text">الأصناف</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('categories.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/categories/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'categories') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">🏷️</span>
-                    <span class="sidebar-text">فئات الأصناف</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            <?php if (hasPermission('warehouses.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/warehouses/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'warehouses') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">🏢</span>
-                    <span class="sidebar-text">المخازن</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('suppliers.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/suppliers/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'suppliers') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">🚚</span>
-                    <span class="sidebar-text">الموردين</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('customers.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/customers/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'customers') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">👥</span>
-                    <span class="sidebar-text">العملاء</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('invoices.sale.create') || hasPermission('invoices.purchase.create') || hasPermission('invoices.sale.view')): ?>
-            <li class="sidebar-divider"></li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('invoices.sale.create')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/invoices/sale.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'sale.php' ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">🧾</span>
-                    <span class="sidebar-text">فاتورة بيع</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('invoices.purchase.create')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/invoices/purchase.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'purchase.php' ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">📥</span>
-                    <span class="sidebar-text">فاتورة شراء</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('invoices.sale.view') || hasPermission('invoices.purchase.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/invoices/list.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'list.php' && strpos($_SERVER['PHP_SELF'], 'invoices') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">📋</span>
-                    <span class="sidebar-text">الفواتير</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('installments.view') || hasPermission('installments.create') || hasPermission('payments.customer') || hasPermission('payments.supplier')): ?>
-            <li class="sidebar-divider"></li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('installments.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/installments/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'installments') !== false && basename($_SERVER['PHP_SELF']) != 'create.php' ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">💰</span>
-                    <span class="sidebar-text">الأقساط</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('installments.create')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/installments/create.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'create.php' && strpos($_SERVER['PHP_SELF'], 'installments') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">➕</span>
-                    <span class="sidebar-text">إنشاء قسط</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('payments.customer')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/payments/pay_customer.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'pay_customer.php' ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">💵</span>
-                    <span class="sidebar-text">تحصيل</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('payments.supplier')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/payments/pay_supplier.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'pay_supplier.php' ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">💸</span>
-                    <span class="sidebar-text">دفع</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('payments.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/payments/index.php" class="sidebar-link <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' && strpos($_SERVER['PHP_SELF'], 'payments') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">📒</span>
-                    <span class="sidebar-text">سجل المدفوعات</span>
+                <a href="<?php echo BASE_URL; ?>modules/pos/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'pos') !== false ? 'active' : ''; ?>" style="background: rgba(234, 88, 12, 0.1); border-right: 3px solid #ea580c; font-weight: 700;">
+                    <span class="sidebar-icon">⚡</span>
+                    <span class="sidebar-text" style="color: #ea580c;">كاشير الكافيه POS</span>
                 </a>
             </li>
             <?php endif; ?>
 
+            <!-- صالة البلايستيشن -->
+            <?php if (hasPermission('gaming.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/gaming/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'gaming') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🎮</span>
+                    <span class="sidebar-text">صالة البلايستيشن</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <!-- صالة البلياردو -->
+            <?php if (hasPermission('billiards.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/billiards/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'billiards') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🎱</span>
+                    <span class="sidebar-text">طاولات البلياردو</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <!-- طاولات الصالة -->
+            <?php if (hasPermission('tables.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/tables/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'tables') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🪑</span>
+                    <span class="sidebar-text">طاولات الصالة</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <!-- الورديات والشيفتات -->
+            <?php if (hasPermission('shifts.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/shifts/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'shifts') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">⏱️</span>
+                    <span class="sidebar-text">الورديات والخزينة</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <li class="sidebar-divider"></li>
+
+            <!-- المنيو والأصناف -->
+            <?php if (hasPermission('products.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/products/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'products') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">☕</span>
+                    <span class="sidebar-text">المنيو والأصناف</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <!-- فئات المنيو -->
+            <?php if (hasPermission('categories.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/categories/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'categories') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🏷️</span>
+                    <span class="sidebar-text">أقسام المنيو</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <!-- مخزون الخامات والوصفات -->
+            <?php if (hasPermission('recipes.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/recipes/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'recipes') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🥛</span>
+                    <span class="sidebar-text">الخامات والمقادير</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <!-- المصروفات -->
             <?php if (hasPermission('expenses.view') || hasPermission('expenses.add')): ?>
             <li>
                 <a href="<?php echo BASE_URL; ?>modules/expenses/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'expenses') !== false ? 'active' : ''; ?>">
@@ -347,46 +304,40 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
                 </a>
             </li>
             <?php endif; ?>
-            
-            <?php if (hasPermission('returns.view') || hasPermission('reports.view') || hasPermission('reports.statement') || hasPermission('settings.manage') || hasPermission('users.manage')): ?>
-            <li class="sidebar-divider"></li>
-            <?php endif; ?>
-            
-            <?php if (hasPermission('returns.view')): ?>
+
+            <!-- الموردين ومشتريات الخامات -->
+            <?php if (hasPermission('suppliers.view')): ?>
             <li>
-                <a href="<?php echo BASE_URL; ?>modules/returns/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'returns') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">🔄</span>
-                    <span class="sidebar-text">المرتجعات</span>
+                <a href="<?php echo BASE_URL; ?>modules/suppliers/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'suppliers') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🚚</span>
+                    <span class="sidebar-text">الموردين والمشتريات</span>
                 </a>
             </li>
             <?php endif; ?>
-            
-            <?php if (isAdmin()): ?>
+
+            <!-- العملاء -->
+            <?php if (hasPermission('customers.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/customers/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'customers') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">👥</span>
+                    <span class="sidebar-text">العملاء</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <li class="sidebar-divider"></li>
+
+            <!-- التقارير -->
+            <?php if (isAdmin() || hasPermission('reports.view')): ?>
             <li>
                 <a href="<?php echo BASE_URL; ?>modules/reports/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'reports') !== false ? 'active' : ''; ?>">
                     <span class="sidebar-icon">📊</span>
-                    <span class="sidebar-text">التقارير</span>
+                    <span class="sidebar-text">التقارير والأرباح</span>
                 </a>
             </li>
-            <?php else: ?>
-                <?php if (hasPermission('reports.view')): ?>
-                <li>
-                    <a href="<?php echo BASE_URL; ?>modules/reports/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'reports') !== false && (!isset($_GET['type']) || $_GET['type'] !== 'statement') ? 'active' : ''; ?>">
-                        <span class="sidebar-icon">📊</span>
-                        <span class="sidebar-text">تقاريري ونشاطي</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-                <?php if (hasPermission('reports.statement')): ?>
-                <li>
-                    <a href="<?php echo BASE_URL; ?>modules/reports/index.php?type=statement" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'reports') !== false && (isset($_GET['type']) && $_GET['type'] === 'statement') ? 'active' : ''; ?>">
-                        <span class="sidebar-icon">🧾</span>
-                        <span class="sidebar-text">كشف حساب</span>
-                    </a>
-                </li>
-                <?php endif; ?>
             <?php endif; ?>
-            
+
+            <!-- الإعدادات -->
             <?php if (hasPermission('settings.manage')): ?>
             <li>
                 <a href="<?php echo BASE_URL; ?>modules/settings/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'settings') !== false ? 'active' : ''; ?>">
@@ -395,7 +346,8 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
                 </a>
             </li>
             <?php endif; ?>
-            
+
+            <!-- المستخدمين -->
             <?php if (hasPermission('users.manage')): ?>
             <li>
                 <a href="<?php echo BASE_URL; ?>modules/users/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'users') !== false ? 'active' : ''; ?>">
@@ -404,7 +356,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
                 </a>
             </li>
             <?php endif; ?>
-            
+
             <li>
                 <a href="<?php echo BASE_URL; ?>modules/about/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'about') !== false ? 'active' : ''; ?>">
                     <span class="sidebar-icon">ℹ️</span>

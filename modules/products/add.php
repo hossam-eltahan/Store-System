@@ -1,7 +1,7 @@
 <?php
 /**
- * Add Product
- * نظام إدارة محل أجهزة منزلية
+ * Add Product / Menu Item
+ * نظام كافيه عروسة النيل
  */
 
 require_once '../../config/database.php';
@@ -10,9 +10,9 @@ require_once '../../config/categories.php';
 require_once '../../config/auth.php';
 requirePermission('products.add');
 
-$pageTitle = 'إضافة صنف جديد';
+$pageTitle = 'إضافة صنف جديد للمنيو';
 
-// Generate auto product code
+// Auto-generate code
 function generateProductCode() {
     $lastProduct = getRow("SELECT code FROM products WHERE code LIKE 'PRD-%' ORDER BY id DESC LIMIT 1");
     if ($lastProduct) {
@@ -21,195 +21,291 @@ function generateProductCode() {
     } else {
         $newNumber = 1;
     }
-    return 'PRD-' . str_pad($newNumber, 5, '0', STR_PAD_LEFT);
+    return 'PRD-' . str_pad($newNumber, 4, '0', STR_PAD_LEFT);
 }
 
 $autoCode = generateProductCode();
+$categories = getRows("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC");
 
-// Get existing units for datalist
-$existingUnits = getRows("SELECT DISTINCT unit FROM products ORDER BY unit");
-$categories = getCategoriesForSelect();
-
-// Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $code = sanitize($_POST['code']);
-    $name = sanitize($_POST['name']);
-    $unit = sanitize($_POST['unit']);
-    $price = floatval($_POST['price']);
-    $wholesalePrice = !empty($_POST['wholesale_price']) ? floatval($_POST['wholesale_price']) : null;
-    $costPrice = !empty($_POST['cost_price']) ? floatval($_POST['cost_price']) : null;
-    $stockQuantity = intval($_POST['stock_quantity']);
-    $initialWarehouseId = (int)($_POST['warehouse_id'] ?? getCurrentWarehouseId());
-    $minStockLevel = intval($_POST['min_stock_level']);
-    $description = sanitize($_POST['description'] ?? '');
+    $code = sanitize(trim($_POST['code'] ?? ''));
+    $name = sanitize(trim($_POST['name'] ?? ''));
+    $unit = sanitize(trim($_POST['unit'] ?? 'طلب'));
+    $price = floatval($_POST['price'] ?? 0);
+    $costPrice = floatval($_POST['cost_price'] ?? 0);
     $categoryId = !empty($_POST['category_id']) ? (int)$_POST['category_id'] : null;
+    $prepTime = intval($_POST['preparation_time_min'] ?? 5);
+    $isAvailable = isset($_POST['is_available']) ? 1 : 0;
+    $hasVariants = isset($_POST['has_variants']) ? 1 : 0;
+    $description = sanitize(trim($_POST['description'] ?? ''));
 
-    // Check if code exists
-    $existing = getRow("SELECT id FROM products WHERE code = ?", [$code]);
-    if ($existing) {
-        setError('كود الصنف موجود مسبقاً');
+    if (empty($code)) {
+        $code = generateProductCode();
     }
 
-    // Check if exact name exists
-    $existingName = getRow("SELECT id FROM products WHERE name = ?", [$name]);
-    if ($existingName) {
-        setError('يوجد صنف بنفس الاسم بالضبط، يمكنك تعديل الاسم قليلاً');
-    }
-
-    if (!isset($_SESSION['error'])) {
-        // Handle image upload
-        $imagePath = null;
-        if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-            $imagePath = uploadImage($_FILES['image'], 'products');
-            if (!$imagePath) {
-                setError('فشل رفع الصورة');
+    if (empty($name)) {
+        setError('يرجى كتابة اسم الصنف');
+    } else {
+        // Check uniqueness
+        $existing = getRow("SELECT id FROM products WHERE code = ?", [$code]);
+        if ($existing) {
+            setError('كود الصنف مسجل مسبقاً، يرجى اختيار كود آخر');
+        } else {
+            // Handle image upload
+            $imagePath = null;
+            if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
+                $imagePath = uploadImage($_FILES['image'], 'products');
             }
-        }
 
-        if (!isset($_SESSION['error'])) {
-            $id = insert(
-                "INSERT INTO products (category_id, code, name, unit, price, wholesale_price, cost_price, stock_quantity, min_stock_level, description, image)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [$categoryId, $code, $name, $unit, $price, $wholesalePrice, $costPrice, $stockQuantity, $minStockLevel, $description, $imagePath]
-            );
+            // If variants enabled, check variant inputs
+            $variants = [];
+            if ($hasVariants && isset($_POST['variant_names']) && is_array($_POST['variant_names'])) {
+                $varNames = $_POST['variant_names'];
+                $varPrices = $_POST['variant_prices'] ?? [];
+                $defaultIndex = intval($_POST['default_variant'] ?? 0);
 
-            if ($id) {
-                // Initialize stock across all warehouses
-                $allWhs = getAllWarehouses(false);
-                foreach ($allWhs as $wh) {
-                    $qty = ((int)$wh['id'] === $initialWarehouseId) ? $stockQuantity : 0;
-                    insert(
-                        "INSERT INTO warehouse_stock (warehouse_id, product_id, quantity, min_stock_level) VALUES (?, ?, ?, ?)
-                         ON DUPLICATE KEY UPDATE quantity = VALUES(quantity)",
-                        [$wh['id'], $id, $qty, $minStockLevel]
-                    );
+                foreach ($varNames as $idx => $vName) {
+                    $vNameClean = trim($vName);
+                    if ($vNameClean !== '') {
+                        $vPrice = floatval($varPrices[$idx] ?? 0);
+                        $isDef = ($idx === $defaultIndex) ? 1 : 0;
+                        $variants[] = [
+                            'name' => $vNameClean,
+                            'price' => $vPrice,
+                            'is_default' => $isDef
+                        ];
+                    }
                 }
-                syncProductTotalStock($id);
 
-                logActivity('إضافة منتج', "تم إضافة المنتج: $name (كود: $code)");
-                setSuccess('تم إضافة الصنف بنجاح');
+                if (empty($variants)) {
+                    $hasVariants = 0;
+                } else {
+                    // Update base price from default variant
+                    foreach ($variants as $v) {
+                        if ($v['is_default']) {
+                            $price = $v['price'];
+                            break;
+                        }
+                    }
+                }
+            }
+
+            $productId = insert("
+                INSERT INTO products (category_id, code, name, unit, price, cost_price, is_available, has_variants, preparation_time_min, description, image, stock_quantity)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 999)
+            ", [$categoryId, $code, $name, $unit, $price, $costPrice, $isAvailable, $hasVariants, $prepTime, $description, $imagePath]);
+
+            if ($productId) {
+                // Insert variants if any
+                if ($hasVariants && !empty($variants)) {
+                    foreach ($variants as $idx => $v) {
+                        insert("
+                            INSERT INTO product_variants (product_id, variant_name, final_price, is_default, display_order)
+                            VALUES (?, ?, ?, ?, ?)
+                        ", [$productId, $v['name'], $v['price'], $v['is_default'], $idx + 1]);
+                    }
+                }
+
+                // Add to warehouse_stock table for compatibility
+                insert("
+                    INSERT INTO warehouse_stock (warehouse_id, product_id, quantity, min_stock_level)
+                    VALUES (1, ?, 999, 5)
+                    ON DUPLICATE KEY UPDATE quantity = 999
+                ", [$productId]);
+
+                logActivity('إضافة صنف', "تم إضافة صنف جديد للمنيو: $name (كود: $code)");
+                setSuccess('تم إضافة الصنف للمنيو بنجاح!');
                 redirect('index.php');
             } else {
-                setError('حدث خطأ أثناء الحفظ');
+                setError('حدث خطأ أثناء حفظ الصنف في قاعدة البيانات');
             }
         }
     }
 }
-
-$warehouses = getAllWarehouses(true);
-$userWarehouseId = getCurrentWarehouseId();
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
 ?>
 
-<div class="container">
-    <div class="card">
-        <div class="card-header">➕ إضافة صنف جديد</div>
-        <div class="card-body">
-            <form method="POST" enctype="multipart/form-data">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label required">كود الصنف</label>
-                        <input type="text" name="code" class="form-control" value="<?php echo $autoCode; ?>" required readonly style="background-color: #f0f0f0;">
-                        <small>كود تلقائي فريد للصنف</small>
-                    </div>
+<div class="container" style="max-width: 900px; padding: 25px 15px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+        <div>
+            <h2 style="font-weight: 800; color: #1e293b; margin: 0;">➕ إضافة صنف جديد للمنيو</h2>
+            <p style="color: #64748b; margin: 5px 0 0;">أدخل بيانات الصنف، الأسعار، وتحديد ما إذا كان يحتوي على أحجام متعددة</p>
+        </div>
+        <a href="index.php" class="btn btn-secondary">العودة للمنيو</a>
+    </div>
 
-                    <div class="form-group">
-                        <label class="form-label required">اسم الصنف</label>
-                        <input type="text" name="name" class="form-control" placeholder="مثال: مقشات" required>
+    <form method="POST" enctype="multipart/form-data">
+        <!-- Main Info Card -->
+        <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 20px;">
+            <div class="card-header" style="background: #f8fafc; font-weight: 700; border-bottom: 1px solid #e2e8f0;">
+                📝 المعلومات الأساسية
+            </div>
+            <div class="card-body" style="padding: 25px;">
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" style="font-weight: 600;">كود الصنف *</label>
+                        <input type="text" name="code" class="form-control" value="<?php echo htmlspecialchars($_POST['code'] ?? $autoCode); ?>" required>
                     </div>
-
-
-                    <div class="form-group">
-                        <label class="form-label">الفئة</label>
-                        <select name="category_id" class="form-control">
-                            <option value="">بدون فئة</option>
-                            <?php foreach ($categories as $category): ?>
-                            <option value="<?php echo $category['id']; ?>"><?php echo htmlspecialchars($category['display_name']); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label required">الوحدة</label>
-                        <input type="text" name="unit" class="form-control" list="unitsList" placeholder="اختر أو اكتب وحدة جديدة" required>
-                        <datalist id="unitsList">
-                            <option value="قطعة">
-                            <option value="طقم">
-                            <option value="عبوة">
-                            <option value="كرتونة">
-                            <option value="كيلو">
-                            <?php foreach ($existingUnits as $u): ?>
-                            <?php if (!in_array($u['unit'], ['قطعة', 'طقم', 'عبوة', 'كرتونة', 'كيلو'])): ?>
-                            <option value="<?php echo htmlspecialchars($u['unit']); ?>">
-                            <?php endif; ?>
-                            <?php endforeach; ?>
-                        </datalist>
-                        <small>يمكنك اختيار وحدة موجودة أو كتابة وحدة جديدة</small>
+                    <div class="col-md-8 mb-3">
+                        <label class="form-label" style="font-weight: 600;">اسم الصنف (كما يظهر في الكاشير) *</label>
+                        <input type="text" name="name" class="form-control" placeholder="مثال: لاتيه، كابتشينو، كانز بيبسي، مولتن كيك" value="<?php echo htmlspecialchars($_POST['name'] ?? ''); ?>" required autofocus>
                     </div>
                 </div>
 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label required">سعر البيع</label>
-                        <input type="number" step="0.01" name="price" class="form-control" placeholder="0.00" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">سعر الجملة</label>
-                        <input type="number" step="0.01" name="wholesale_price" class="form-control" placeholder="0.00">
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">سعر الشراء (التكلفة)</label>
-                        <input type="number" step="0.01" name="cost_price" class="form-control" placeholder="0.00">
-                        <small>لحساب الأرباح</small>
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label required">الكمية في المخزون الأولي</label>
-                        <input type="number" name="stock_quantity" class="form-control" value="0" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">🏢 المخزن للرصيد الأولي</label>
-                        <select name="warehouse_id" class="form-control" style="font-weight: 600;">
-                            <?php foreach ($warehouses as $wh): ?>
-                                <option value="<?php echo $wh['id']; ?>" <?php echo ((int)$wh['id'] === (int)$userWarehouseId) ? 'selected' : ''; ?>>
-                                    🏢 <?php echo htmlspecialchars($wh['name']); ?>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" style="font-weight: 600;">القسم / التصنيف *</label>
+                        <select name="category_id" class="form-select" required>
+                            <option value="">-- اختر القسم --</option>
+                            <?php foreach ($categories as $cat): ?>
+                                <option value="<?php echo $cat['id']; ?>" <?php echo (isset($_POST['category_id']) && $_POST['category_id'] == $cat['id']) ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($cat['icon'] ?? '☕'); ?> <?php echo htmlspecialchars($cat['name']); ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
-                        <small>المخزن الذي ستضاف له هذه الكمية</small>
                     </div>
-
-                    <div class="form-group">
-                        <label class="form-label required">الحد الأدنى للمخزون</label>
-                        <input type="number" name="min_stock_level" class="form-control" value="5" required>
-                        <small>سيتم التنبيه عند الوصول لهذا الحد</small>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label" style="font-weight: 600;">الوحدة</label>
+                        <input type="text" name="unit" class="form-control" value="<?php echo htmlspecialchars($_POST['unit'] ?? 'طلب'); ?>" placeholder="طلب، كوب، كانز، زجاجة">
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label" style="font-weight: 600;">وقت التحضير (دقائق)</label>
+                        <input type="number" name="preparation_time_min" class="form-control" value="<?php echo htmlspecialchars($_POST['preparation_time_min'] ?? '5'); ?>" min="1">
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">وصف الصنف</label>
-                    <textarea name="description" class="form-control" rows="3" placeholder="وصف تفصيلي للصنف..."></textarea>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" style="font-weight: 600;">سعر التكلفة التقديري (ج.م)</label>
+                        <input type="number" step="0.5" name="cost_price" class="form-control" placeholder="0.00" value="<?php echo htmlspecialchars($_POST['cost_price'] ?? ''); ?>">
+                        <small style="color: #64748b;">لحساب هامش الربح والتقارير المالية</small>
+                    </div>
+                    <div class="col-md-6 mb-3" id="singlePriceWrapper">
+                        <label class="form-label" style="font-weight: 600;">سعر البيع (ج.م) *</label>
+                        <input type="number" step="0.5" name="price" id="basePriceInput" class="form-control" placeholder="0.00" value="<?php echo htmlspecialchars($_POST['price'] ?? ''); ?>">
+                        <small style="color: #64748b;">السعر الأساسي الموحد للصنف</small>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">صورة الصنف</label>
-                    <input type="file" name="image" class="form-control" accept="image/*">
-                    <small>الحد الأقصى: 5 ميجابايت - الصيغ المدعومة: JPG, PNG, GIF</small>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" style="font-weight: 600;">صورة الصنف (اختياري)</label>
+                        <input type="file" name="image" class="form-control" accept="image/*">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" style="font-weight: 600;">ملاحظات / وصف</label>
+                        <input type="text" name="description" class="form-control" placeholder="مكونات، أو تفاصيل إضافية للبارستا">
+                    </div>
                 </div>
 
-                <div class="d-flex gap-2 mt-2">
-                    <button type="submit" class="btn btn-primary btn-lg">💾 حفظ الصنف</button>
-                    <a href="index.php" class="btn btn-secondary btn-lg">❌ إلغاء</a>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" name="is_available" id="isAvailableCheck" checked>
+                    <label class="form-check-label" for="isAvailableCheck" style="font-weight: 600;">متوفر للبيع الآن في الكاشير</label>
                 </div>
-            </form>
+            </div>
         </div>
-    </div>
+
+        <!-- Variants Section Card -->
+        <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 25px;">
+            <div class="card-header" style="background: #f8fafc; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0;">
+                <div style="font-weight: 700;">
+                    📏 أحجام وخيارات الصنف (سنجل / دبل، صغير / وسط / كبير)
+                </div>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" name="has_variants" id="hasVariantsToggle" onchange="toggleVariantsSection()">
+                    <label class="form-check-label" for="hasVariantsToggle" style="font-weight: 600;">تفعيل الأحجام المتعددة</label>
+                </div>
+            </div>
+            <div class="card-body" id="variantsBody" style="display: none; padding: 25px;">
+                <p style="color: #64748b; font-size: 13px; margin-bottom: 15px;">
+                    أضف الأحجام المختلفة للصنف وأسعار كل حجم. عند فتح الكاشير سيطلب من الكاشير اختيار الحجم المطلوب تلقائياً.
+                </p>
+
+                <div class="table-responsive">
+                    <table class="table" id="variantsTable">
+                        <thead>
+                            <tr style="background: #f1f5f9;">
+                                <th>اسم الحجم / الخيار</th>
+                                <th>السعر (ج.م)</th>
+                                <th style="text-align: center;">الافتراضي</th>
+                                <th style="width: 50px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="variantsList">
+                            <tr>
+                                <td><input type="text" name="variant_names[]" class="form-control" placeholder="مثال: سنجل أو صغير" value="سنجل"></td>
+                                <td><input type="number" step="0.5" name="variant_prices[]" class="form-control" placeholder="0.00" value="25.00"></td>
+                                <td style="text-align: center; vertical-align: middle;">
+                                    <input type="radio" name="default_variant" value="0" checked>
+                                </td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td><input type="text" name="variant_names[]" class="form-control" placeholder="مثال: دبل أو كبير" value="دبل"></td>
+                                <td><input type="number" step="0.5" name="variant_prices[]" class="form-control" placeholder="0.00" value="35.00"></td>
+                                <td style="text-align: center; vertical-align: middle;">
+                                    <input type="radio" name="default_variant" value="1">
+                                </td>
+                                <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeVariantRow(this)">✕</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="addVariantRow()">
+                    ➕ إضافة حجم / خيار آخر
+                </button>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 15px; justify-content: flex-end;">
+            <a href="index.php" class="btn btn-secondary btn-lg" style="padding: 10px 25px;">إلغاء</a>
+            <button type="submit" class="btn btn-primary btn-lg" style="padding: 10px 35px; font-weight: 700; background: #6F4E37; border-color: #6F4E37;">
+                💾 حفظ الصنف
+            </button>
+        </div>
+    </form>
 </div>
+
+<script>
+function toggleVariantsSection() {
+    const isChecked = document.getElementById('hasVariantsToggle').checked;
+    const body = document.getElementById('variantsBody');
+    const singlePrice = document.getElementById('singlePriceWrapper');
+    const basePriceInput = document.getElementById('basePriceInput');
+
+    if (isChecked) {
+        body.style.display = 'block';
+        singlePrice.style.opacity = '0.5';
+        basePriceInput.required = false;
+    } else {
+        body.style.display = 'none';
+        singlePrice.style.opacity = '1';
+        basePriceInput.required = true;
+    }
+}
+
+function addVariantRow() {
+    const list = document.getElementById('variantsList');
+    const count = list.children.length;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+        <td><input type="text" name="variant_names[]" class="form-control" placeholder="اسم الحجم" required></td>
+        <td><input type="number" step="0.5" name="variant_prices[]" class="form-control" placeholder="0.00" required></td>
+        <td style="text-align: center; vertical-align: middle;">
+            <input type="radio" name="default_variant" value="${count}">
+        </td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeVariantRow(this)">✕</button></td>
+    `;
+    list.appendChild(tr);
+}
+
+function removeVariantRow(btn) {
+    const tr = btn.closest('tr');
+    tr.remove();
+}
+</script>
 
 <?php include '../../includes/footer.php'; ?>

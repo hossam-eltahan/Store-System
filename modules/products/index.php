@@ -1,7 +1,7 @@
 <?php
 /**
- * Products List
- * نظام إدارة محل أجهزة منزلية
+ * Products & Menu Management (إدارة منيو وأصناف الكافيه)
+ * نظام كافيه عروسة النيل
  */
 
 require_once '../../config/database.php';
@@ -10,41 +10,48 @@ require_once '../../config/auth.php';
 require_once '../../config/categories.php';
 requirePermission('products.view');
 
-$pageTitle = 'إدارة الأصناف';
+$pageTitle = 'منيو وقائمة أصناف الكافيه';
+
+// Handle quick toggle availability
+if (isset($_GET['toggle_availability']) && hasPermission('products.edit')) {
+    $id = (int)$_GET['toggle_availability'];
+    $prod = getRow("SELECT id, is_available FROM products WHERE id = ?", [$id]);
+    if ($prod) {
+        $newStatus = $prod['is_available'] ? 0 : 1;
+        execute("UPDATE products SET is_available = ? WHERE id = ?", [$newStatus, $id]);
+        setSuccess('تم تغيير حالة توفر الصنف بنجاح');
+    }
+    redirect('index.php' . (isset($_GET['category_id']) ? '?category_id=' . (int)$_GET['category_id'] : ''));
+}
 
 // Handle delete
 if (isset($_GET['delete'])) {
     requirePermission('products.delete');
-    $id = $_GET['delete'];
+    $id = (int)$_GET['delete'];
     $product = getRow("SELECT * FROM products WHERE id = ?", [$id]);
 
     if ($product) {
-        // Delete image if exists
-        if ($product['image']) {
-            deleteImage($product['image']);
+        if ($product['image'] && file_exists('../../' . $product['image'])) {
+            @unlink('../../' . $product['image']);
         }
 
         execute("DELETE FROM products WHERE id = ?", [$id]);
-        logActivity('حذف منتج', "تم حذف المنتج: {$product['name']}");
-        setSuccess('تم حذف الصنف بنجاح');
+        logActivity('حذف صنف', "تم حذف الصنف: {$product['name']}");
+        setSuccess('تم حذف الصنف من المنيو بنجاح');
     }
 
     redirect('index.php');
 }
 
 // Filters
-$search = $_GET['search'] ?? '';
-$filter = $_GET['filter'] ?? '';
-$filterWarehouse = (int)($_GET['warehouse_id'] ?? 0);
+$search = trim($_GET['search'] ?? '');
 $filterCategory = (int)($_GET['category_id'] ?? 0);
-
-$warehouses = getAllWarehouses(false);
-$categories = getCategoriesForSelect(false);
+$filterStatus = $_GET['status'] ?? '';
 
 $where = [];
 $params = [];
 
-if ($search) {
+if ($search !== '') {
     $where[] = "(p.code LIKE ? OR p.name LIKE ? OR p.description LIKE ?)";
     $searchTerm = "%$search%";
     $params[] = $searchTerm;
@@ -57,402 +64,281 @@ if ($filterCategory > 0) {
     $params[] = $filterCategory;
 }
 
-if ($filterWarehouse > 0) {
-    $where[] = "ws.warehouse_id = ?";
-    $params[] = $filterWarehouse;
+if ($filterStatus === 'available') {
+    $where[] = "p.is_available = 1";
+} elseif ($filterStatus === 'unavailable') {
+    $where[] = "p.is_available = 0";
 }
 
-if ($filter === 'low_stock') {
-    if ($filterWarehouse > 0) {
-        $where[] = "COALESCE(ws.quantity, 0) <= p.min_stock_level";
-    } else {
-        $where[] = "p.stock_quantity <= p.min_stock_level";
-    }
-}
 $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 // Pagination
-$perPage = 10; // Items per page to fit screen
+$perPage = 25;
 $page = max(1, intval($_GET['page'] ?? 1));
 $offset = ($page - 1) * $perPage;
 
-// Get total count
-if ($filterWarehouse > 0) {
-    $countSql = "SELECT COUNT(*) as count FROM products p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN warehouse_stock ws ON ws.product_id = p.id $whereClause";
-    $totalProducts = getRow($countSql, $params)['count'];
-} else {
-    $totalProducts = getRow("SELECT COUNT(*) as count FROM products p LEFT JOIN categories c ON c.id = p.category_id $whereClause", $params)['count'];
-}
+$totalCountRow = getRow("SELECT COUNT(*) as count FROM products p $whereClause", $params);
+$totalProducts = (int)($totalCountRow['count'] ?? 0);
 $totalPages = ceil($totalProducts / $perPage);
 
-// Get paginated products
-if ($filterWarehouse > 0) {
-    $products = getRows(
-        "SELECT p.*, c.name as category_name, COALESCE(ws.quantity, 0) as filtered_wh_stock
-         FROM products p
-         LEFT JOIN categories c ON c.id = p.category_id
-         LEFT JOIN warehouse_stock ws ON ws.product_id = p.id AND ws.warehouse_id = $filterWarehouse
-         $whereClause ORDER BY p.name LIMIT $perPage OFFSET $offset",
-        $params
-    );
-} else {
-    $products = getRows(
-        "SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id $whereClause ORDER BY p.name LIMIT $perPage OFFSET $offset",
-        $params
-    );
-}
-// Get stock breakdown per warehouse for products
-$whStocksRaw = getRows("SELECT ws.product_id, ws.quantity, w.name as warehouse_name FROM warehouse_stock ws JOIN warehouses w ON ws.warehouse_id = w.id WHERE w.is_active = 1");
-$stocksByProduct = [];
-foreach ($whStocksRaw as $sr) {
-    $stocksByProduct[$sr['product_id']][] = $sr;
-}
+// Fetch products with category details and variants count
+$products = getRows("
+    SELECT p.*, c.name as category_name, c.icon as category_icon, c.color as category_color,
+           (SELECT COUNT(*) FROM product_variants pv WHERE pv.product_id = p.id) as variants_count,
+           (SELECT MIN(final_price) FROM product_variants pv WHERE pv.product_id = p.id) as min_variant_price,
+           (SELECT MAX(final_price) FROM product_variants pv WHERE pv.product_id = p.id) as max_variant_price
+    FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+    $whereClause
+    ORDER BY p.category_id ASC, p.display_order ASC, p.id DESC
+    LIMIT $perPage OFFSET $offset
+", $params);
+
+$allCategories = getRows("
+    SELECT c.*, COUNT(p.id) as products_count 
+    FROM categories c 
+    LEFT JOIN products p ON p.category_id = c.id 
+    GROUP BY c.id 
+    ORDER BY c.sort_order ASC, c.name ASC
+");
+
+$totalAll = getRow("SELECT COUNT(*) as cnt FROM products")['cnt'] ?? 0;
+$totalAvail = getRow("SELECT COUNT(*) as cnt FROM products WHERE is_available = 1")['cnt'] ?? 0;
+$totalVariants = getRow("SELECT COUNT(*) as cnt FROM product_variants")['cnt'] ?? 0;
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
 ?>
 
-<div class="container">
-    <div class="card">
-        <div class="card-header d-flex justify-between align-center">
-            <span>📦 إدارة الأصناف</span>
-            <?php if (hasPermission('products.add')): ?>
-            <a href="add.php" class="btn btn-primary">+ إضافة صنف جديد</a>
-            <?php endif; ?>
+<div class="container-fluid" style="padding: 15px 25px;">
+    <!-- Top Bar -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+        <div>
+            <h2 style="font-weight: 800; color: #1e293b; margin: 0; display: flex; align-items: center; gap: 10px;">
+                ☕ منيو وقائمة أصناف الكافيه
+            </h2>
+            <p style="color: #64748b; margin: 4px 0 0;">إدارة المنتجات والمشروبات، الأسعار، الأحجام والإضافات الخاصة بكافيه عروسة النيل</p>
         </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="modifiers.php" class="btn btn-outline-secondary" style="border-radius: 8px;">
+                🍯 الإضافات والصوصات
+            </a>
+            <a href="../categories/index.php" class="btn btn-outline-secondary" style="border-radius: 8px;">
+                🏷️ إدارة الأقسام
+            </a>
+            <a href="add.php" class="btn btn-primary" style="border-radius: 8px; font-weight: 700; background: #6F4E37; border-color: #6F4E37;">
+                ➕ إضافة صنف جديد للمنيو
+            </a>
+        </div>
+    </div>
 
-        <div class="card-body">
-            <!-- Search and Filter -->
-            <form method="GET" class="mb-2" id="productFilterForm">
-                <div class="form-row">
-                    <div class="form-group" style="flex: 2;">
-                        <input type="text" name="search" id="productSearch" class="form-control" placeholder="🔍 بحث بالكود أو الاسم..." value="<?php echo htmlspecialchars($search); ?>">
-                    </div>
+    <!-- Quick Stats Cards -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 25px;">
+        <div style="background: white; border-radius: 12px; padding: 18px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 15px;">
+            <div style="width: 48px; height: 48px; border-radius: 10px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 24px;">📋</div>
+            <div>
+                <div style="font-size: 13px; color: #64748b; font-weight: 600;">إجمالي الأصناف</div>
+                <div style="font-size: 22px; font-weight: 800; color: #1e293b;"><?php echo number_format($totalAll); ?></div>
+            </div>
+        </div>
+        <div style="background: white; border-radius: 12px; padding: 18px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 15px;">
+            <div style="width: 48px; height: 48px; border-radius: 10px; background: #dcfce7; color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 24px;">✅</div>
+            <div>
+                <div style="font-size: 13px; color: #64748b; font-weight: 600;">أصناف متوفرة للبيع</div>
+                <div style="font-size: 22px; font-weight: 800; color: #1e293b;"><?php echo number_format($totalAvail); ?></div>
+            </div>
+        </div>
+        <div style="background: white; border-radius: 12px; padding: 18px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 15px;">
+            <div style="width: 48px; height: 48px; border-radius: 10px; background: #e0e7ff; color: #4f46e5; display: flex; align-items: center; justify-content: center; font-size: 24px;">📏</div>
+            <div>
+                <div style="font-size: 13px; color: #64748b; font-weight: 600;">أحجام وخيارات مسجلة</div>
+                <div style="font-size: 22px; font-weight: 800; color: #1e293b;"><?php echo number_format($totalVariants); ?></div>
+            </div>
+        </div>
+        <div style="background: white; border-radius: 12px; padding: 18px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 15px;">
+            <div style="width: 48px; height: 48px; border-radius: 10px; background: #f1f5f9; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 24px;">🏷️</div>
+            <div>
+                <div style="font-size: 13px; color: #64748b; font-weight: 600;">أقسام المنيو</div>
+                <div style="font-size: 22px; font-weight: 800; color: #1e293b;"><?php echo count($allCategories); ?></div>
+            </div>
+        </div>
+    </div>
 
-                    <div class="form-group">
-                        <select name="filter" id="productFilter" class="form-control">
-                            <option value="">كل الأصناف</option>
-                            <option value="low_stock" <?php echo $filter === 'low_stock' ? 'selected' : ''; ?>>مخزون منخفض</option>
-                        </select>
-                    </div>
+    <!-- Category Filter Tabs (Horizontal Scrollable) -->
+    <div style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 15px; margin-bottom: 15px;">
+        <a href="index.php<?php echo $search ? '?search=' . urlencode($search) : ''; ?>" 
+           class="badge" 
+           style="text-decoration: none; padding: 10px 16px; font-size: 14px; border-radius: 20px; font-weight: 700; transition: all 0.2s; <?php echo ($filterCategory === 0) ? 'background: #6F4E37; color: white;' : 'background: #f1f5f9; color: #475569;'; ?>">
+           ✨ الكل (<?php echo $totalAll; ?>)
+        </a>
+        <?php foreach ($allCategories as $c): ?>
+            <a href="index.php?category_id=<?php echo $c['id']; ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?>" 
+               class="badge" 
+               style="text-decoration: none; padding: 10px 16px; font-size: 14px; border-radius: 20px; font-weight: 700; transition: all 0.2s; white-space: nowrap; <?php echo ($filterCategory == $c['id']) ? 'background: #6F4E37; color: white;' : 'background: #f1f5f9; color: #475569;'; ?>">
+               <?php echo htmlspecialchars($c['icon'] ?? '☕'); ?> <?php echo htmlspecialchars($c['name']); ?> (<?php echo $c['products_count']; ?>)
+            </a>
+        <?php endforeach; ?>
+    </div>
 
-                                        <div class="form-group">
-                        <select name="category_id" id="categoryFilter" class="form-control">
-                            <option value="">كل الفئات</option>
-                            <?php foreach ($categories as $category): ?>
-                                <option value="<?php echo $category['id']; ?>" <?php echo $filterCategory == $category['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($category['display_name']); ?></option>
-                            <?php endforeach; ?>
-                        </select>
+    <!-- Filters & Search Form -->
+    <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.04); margin-bottom: 20px;">
+        <div class="card-body" style="padding: 16px;">
+            <form method="GET" style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center;">
+                <?php if ($filterCategory > 0): ?>
+                    <input type="hidden" name="category_id" value="<?php echo $filterCategory; ?>">
+                <?php endif; ?>
+                <div style="flex: 1; min-width: 250px;">
+                    <div class="input-group">
+                        <span class="input-group-text" style="background: #f8fafc; border-radius: 8px 0 0 8px;">🔍</span>
+                        <input type="text" name="search" class="form-control" placeholder="بحث بالاسم أو الكود أو الوصف..." value="<?php echo htmlspecialchars($search); ?>" style="border-radius: 0 8px 8px 0;">
                     </div>
-<div class="form-group">
-                        <select name="warehouse_id" id="warehouseFilter" class="form-control">
-                            <option value="">كل المخازن</option>
-                            <?php foreach ($warehouses as $wh): ?>
-                                <option value="<?php echo $wh['id']; ?>" <?php echo $filterWarehouse == $wh['id'] ? 'selected' : ''; ?>>
-                                    🏢 <?php echo htmlspecialchars($wh['name']); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <button type="submit" class="btn btn-primary">بحث</button>
-                        <?php if ($search || $filter || $filterWarehouse || $filterCategory): ?>
-                        <a href="index.php" class="btn btn-secondary">✕ إلغاء</a>
-                        <?php endif; ?>
-                    </div>
+                </div>
+                <div style="width: 180px;">
+                    <select name="status" class="form-select" style="border-radius: 8px;">
+                        <option value="">كل الحالات</option>
+                        <option value="available" <?php echo $filterStatus === 'available' ? 'selected' : ''; ?>>متوفر فقط</option>
+                        <option value="unavailable" <?php echo $filterStatus === 'unavailable' ? 'selected' : ''; ?>>غير متوفر</option>
+                    </select>
+                </div>
+                <div>
+                    <button type="submit" class="btn btn-secondary" style="border-radius: 8px;">تصفية</button>
+                    <?php if ($search || $filterCategory || $filterStatus): ?>
+                        <a href="index.php" class="btn btn-outline-danger" style="border-radius: 8px;">إلغاء الفلاتر</a>
+                    <?php endif; ?>
                 </div>
             </form>
+        </div>
+    </div>
 
-            <!-- Products Count with Pagination -->
-            <div class="search-results-count">
-                <span>📊 إجمالي الأصناف: <strong><?php echo $totalProducts; ?></strong></span>
-                <div class="pagination" style="display: flex; align-items: center; gap: 8px;">
-                    <?php if ($page > 1): ?>
-                    <a href="?page=<?php echo $page - 1; ?>&search=<?php echo urlencode($search); ?>&filter=<?php echo urlencode($filter); ?>" class="btn btn-secondary btn-sm">← السابق</a>
-                    <?php endif; ?>
-                    <span class="badge badge-info">صفحة <?php echo $page; ?> من <?php echo max(1, $totalPages); ?></span>
-                    <?php if ($page < $totalPages): ?>
-                    <a href="?page=<?php echo $page + 1; ?>&search=<?php echo urlencode($search); ?>&filter=<?php echo urlencode($filter); ?>" class="btn btn-secondary btn-sm">التالي →</a>
-                    <?php endif; ?>
-                </div>
-                <?php if ($filter === 'low_stock'): ?>
-                <span class="badge badge-warning">⚠️ مخزون منخفض</span>
-                <?php endif; ?>
-            </div>
-
-            <!-- Products Table -->
-            <div class="table-container">
-                <table class="table">
-                    <thead>
+    <!-- Products Table -->
+    <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+        <div class="card-body" style="padding: 0;">
+            <div class="table-responsive">
+                <table class="table table-hover" style="margin: 0;">
+                    <thead style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
                         <tr>
-                            <th>الكود</th>
-                            <th>الصورة</th>
-                            <th>الاسم</th>
-                            <th>الوحدة</th>
+                            <th style="padding: 14px 20px;">الصنف</th>
+                            <th>القسم</th>
                             <th>السعر</th>
-                            <th>المخزون</th>
-                            <th>الحالة</th>
-                            <th>إجراءات</th>
+                            <th>الأحجام / الخيارات</th>
+                            <th>الحالة في الكاشير</th>
+                            <th style="text-align: left; padding-left: 20px;">الإجراءات</th>
                         </tr>
                     </thead>
-                    <tbody id="productsTableBody">
+                    <tbody>
                         <?php if (empty($products)): ?>
-                        <tr>
-                            <td colspan="8" class="text-center">لا توجد أصناف</td>
-                        </tr>
+                            <tr>
+                                <td colspan="6" style="text-align: center; padding: 50px; color: #94a3b8;">
+                                    <div style="font-size: 32px; margin-bottom: 10px;">🔍</div>
+                                    <div>لا توجد أصناف تطابق معايير البحث.</div>
+                                </td>
+                            </tr>
                         <?php else: ?>
-                        <?php foreach ($products as $product): ?>
-                        <tr>
-                            <td><strong><?php echo $product['code']; ?></strong></td>
-                            <td>
-                                <?php if ($product['image']): ?>
-                                    <img src="../../assets/uploads/<?php echo $product['image']; ?>"
-                                         alt="<?php echo $product['name']; ?>"
-                                         style="width: 50px; height: 50px; object-fit: cover; border-radius: 5px;">
-                                <?php else: ?>
-                                    <div style="width: 50px; height: 50px; background: #f0f0f0; border-radius: 5px; display: flex; align-items: center; justify-content: center;">
-                                        📦
-                                    </div>
-                                <?php endif; ?>
-                            </td>
-                            <td><strong><?php echo $product['name']; ?></strong><?php if (!empty($product['category_name'])): ?><small style="display:block;color:#64748b;margin-top:3px;">🏷️ <?php echo htmlspecialchars($product['category_name']); ?></small><?php endif; ?></td>
-                            <td><?php echo $product['unit']; ?></td>
-                            <td><?php echo formatCurrency($product['price']); ?></td>
-                            <td>
-                                <div>
-                                    <strong class="<?php echo $product['stock_quantity'] <= $product['min_stock_level'] ? 'text-danger' : 'text-success'; ?>" style="font-size: 1.1em;">
-                                        <?php echo $product['stock_quantity']; ?>
-                                    </strong>
-                                    <?php if ($filterWarehouse > 0 && isset($product['filtered_wh_stock'])): ?>
-                                        <small style="display: block; color: #0284c7; font-weight: 600;">بالمخزن المحدد: <?php echo $product['filtered_wh_stock']; ?></small>
-                                    <?php endif; ?>
-                                </div>
-                                <?php if (!empty($stocksByProduct[$product['id']])): ?>
-                                    <div style="display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px;">
-                                        <?php foreach ($stocksByProduct[$product['id']] as $stk): ?>
-                                            <span style="font-size: 10px; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; border: 1px solid #cbd5e1; white-space: nowrap;">
-                                                <?php echo htmlspecialchars($stk['warehouse_name']); ?>: <strong><?php echo $stk['quantity']; ?></strong>
+                            <?php foreach ($products as $prod): ?>
+                                <tr style="vertical-align: middle;">
+                                    <td style="padding: 14px 20px;">
+                                        <div style="display: flex; align-items: center; gap: 12px;">
+                                            <div style="width: 44px; height: 44px; border-radius: 8px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; font-size: 20px; overflow: hidden; flex-shrink: 0;">
+                                                <?php if (!empty($prod['image']) && file_exists('../../' . $prod['image'])): ?>
+                                                    <img src="../../<?php echo htmlspecialchars($prod['image']); ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                                                <?php else: ?>
+                                                    <?php echo htmlspecialchars($prod['category_icon'] ?? '☕'); ?>
+                                                <?php endif; ?>
+                                            </div>
+                                            <div>
+                                                <div style="font-weight: 700; color: #1e293b; font-size: 15px;">
+                                                    <?php echo htmlspecialchars($prod['name']); ?>
+                                                </div>
+                                                <div style="font-size: 12px; color: #94a3b8;">
+                                                    كود: <?php echo htmlspecialchars($prod['code']); ?> 
+                                                    <?php if ($prod['unit']): ?>• الوحدة: <?php echo htmlspecialchars($prod['unit']); ?><?php endif; ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge" style="background: #f1f5f9; color: #334155; padding: 6px 12px; border-radius: 6px; font-weight: 600;">
+                                            <?php echo htmlspecialchars($prod['category_icon'] ?? ''); ?> <?php echo htmlspecialchars($prod['category_name'] ?? 'بدون قسم'); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <?php if ($prod['variants_count'] > 0): ?>
+                                            <div style="font-weight: 800; color: #059669; font-size: 15px;">
+                                                <?php if ($prod['min_variant_price'] == $prod['max_variant_price']): ?>
+                                                    <?php echo formatCurrency($prod['min_variant_price']); ?>
+                                                <?php else: ?>
+                                                    <?php echo formatCurrency($prod['min_variant_price']); ?> - <?php echo formatCurrency($prod['max_variant_price']); ?>
+                                                <?php endif; ?>
+                                            </div>
+                                            <small style="color: #64748b; font-size: 11px;">(حسب الحجم)</small>
+                                        <?php else: ?>
+                                            <div style="font-weight: 800; color: #059669; font-size: 15px;">
+                                                <?php echo formatCurrency($prod['price']); ?>
+                                            </div>
+                                            <?php if ($prod['cost_price'] > 0): ?>
+                                                <small style="color: #94a3b8; font-size: 11px;">التكلفة: <?php echo formatCurrency($prod['cost_price']); ?></small>
+                                            <?php endif; ?>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($prod['variants_count'] > 0): ?>
+                                            <span class="badge" style="background: #ede9fe; color: #6d28d9; padding: 5px 10px; border-radius: 6px; font-weight: 600;">
+                                                📏 <?php echo $prod['variants_count']; ?> أحجام
                                             </span>
-                                        <?php endforeach; ?>
-                                    </div>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <?php if ($product['stock_quantity'] <= 0): ?>
-                                    <span class="badge badge-danger">نفذ</span>
-                                <?php elseif ($product['stock_quantity'] <= $product['min_stock_level']): ?>
-                                    <span class="badge badge-warning">منخفض</span>
-                                <?php else: ?>
-                                    <span class="badge badge-success">متوفر</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <?php if (hasPermission('products.edit')): ?>
-                                <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-primary">✏️ تعديل</a>
-                                <?php endif; ?>
-                                <?php if (hasPermission('products.delete')): ?>
-                                <button type="button" class="btn btn-danger btn-delete"
-                                        data-name="<?php echo htmlspecialchars($product['name']); ?>"
-                                        data-url="index.php?delete=<?php echo $product['id']; ?>">🗑️ حذف</button>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
+                                        <?php else: ?>
+                                            <span style="color: #94a3b8; font-size: 13px;">حجم موحد</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if (hasPermission('products.edit')): ?>
+                                            <a href="?toggle_availability=<?php echo $prod['id']; ?><?php echo $filterCategory ? '&category_id=' . $filterCategory : ''; ?>" 
+                                               class="badge" 
+                                               style="text-decoration: none; padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; <?php echo $prod['is_available'] ? 'background: #dcfce7; color: #166534;' : 'background: #fee2e2; color: #991b1b;'; ?>"
+                                               title="اضغط لتغيير الحالة">
+                                                <?php echo $prod['is_available'] ? '🟢 متوفر' : '🔴 غير متوفر'; ?>
+                                            </a>
+                                        <?php else: ?>
+                                            <span class="badge" style="<?php echo $prod['is_available'] ? 'background: #dcfce7; color: #166534;' : 'background: #fee2e2; color: #991b1b;'; ?>">
+                                                <?php echo $prod['is_available'] ? 'متوفر' : 'غير متوفر'; ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="text-align: left; padding-left: 20px;">
+                                        <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                                            <a href="edit.php?id=<?php echo $prod['id']; ?>" class="btn btn-sm btn-outline-primary" title="تعديل الصنف والأسعار">
+                                                ✏️ تعديل
+                                            </a>
+                                            <a href="delete.php?id=<?php echo $prod['id']; ?>" class="btn btn-sm btn-outline-danger" title="حذف الصنف">
+                                                🗑️
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
                         <?php endif; ?>
                     </tbody>
                 </table>
             </div>
+
+            <!-- Pagination -->
+            <?php if ($totalPages > 1): ?>
+                <div style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e2e8f0;">
+                    <div style="color: #64748b; font-size: 13px;">
+                        عرض صفحة <?php echo $page; ?> من إجمالي <?php echo $totalPages; ?> (<?php echo $totalProducts; ?> صنف)
+                    </div>
+                    <ul class="pagination mb-0">
+                        <?php for ($i = 1; $i <= $totalPages; $i++): ?>
+                            <li class="page-item <?php echo ($i === $page) ? 'active' : ''; ?>">
+                                <a class="page-link" href="?page=<?php echo $i; ?><?php echo $filterCategory ? '&category_id=' . $filterCategory : ''; ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?>">
+                                    <?php echo $i; ?>
+                                </a>
+                            </li>
+                        <?php endfor; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>
-
-<!-- Delete Confirmation Modal -->
-<div id="deleteModal" class="modal-overlay" style="display: none;">
-    <div class="modal-box">
-        <div class="modal-header">
-            <span style="font-size: 32px;">⚠️</span>
-            <h3>تأكيد الحذف</h3>
-        </div>
-        <div class="modal-body">
-            <p>هل أنت متأكد من حذف الصنف:</p>
-            <p id="deleteProductName" style="font-weight: bold; font-size: 1.2em; color: #dc2626;"></p>
-            <p style="color: #666; font-size: 0.9em;">⚠️ هذا الإجراء لا يمكن التراجع عنه!</p>
-        </div>
-        <div class="modal-footer">
-            <a id="confirmDeleteBtn" href="#" class="btn btn-danger">🗑️ نعم، احذف</a>
-            <button type="button" class="btn btn-secondary" id="cancelDeleteBtn">❌ إلغاء</button>
-        </div>
-    </div>
-</div>
-
-<style>
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.6);
-    z-index: 9999;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    animation: fadeIn 0.2s ease;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-.modal-box {
-    background: white;
-    border-radius: 15px;
-    padding: 30px;
-    max-width: 400px;
-    width: 90%;
-    text-align: center;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    animation: slideDown 0.3s ease;
-}
-
-@keyframes slideDown {
-    from { transform: translateY(-50px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
-}
-
-.modal-header {
-    margin-bottom: 20px;
-}
-
-.modal-header h3 {
-    margin: 10px 0 0 0;
-    color: #333;
-}
-
-.modal-body {
-    margin-bottom: 25px;
-}
-
-.modal-body p {
-    margin: 10px 0;
-}
-
-.modal-footer {
-    display: flex;
-    gap: 10px;
-    justify-content: center;
-}
-
-.modal-footer .btn {
-    min-width: 120px;
-}
-
-/* Pagination */
-.pagination-container {
-    margin-top: var(--spacing-sm);
-}
-
-.pagination {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--spacing-sm);
-}
-
-.pagination-info {
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-}
-
-.results-info {
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
-}
-
-.mt-1 {
-    margin-top: var(--spacing-sm);
-}
-
-.mb-1 {
-    margin-bottom: var(--spacing-sm);
-}
-</style>
-
-<script>
-// البحث الفوري - Live Search
-document.addEventListener('DOMContentLoaded', function() {
-    var searchInput = document.getElementById('productSearch');
-    var filterSelect = document.getElementById('productFilter');
-    var filterForm = document.getElementById('productFilterForm');
-    var tableBody = document.getElementById('productsTableBody');
-
-    // Auto-submit filter on change
-    if (filterSelect && filterForm) {
-        filterSelect.addEventListener('change', function() {
-            filterForm.submit();
-        });
-    }
-
-    // Auto-submit search after typing
-    if (searchInput && filterForm) {
-        var timeout = null;
-        searchInput.addEventListener('input', function() {
-            clearTimeout(timeout);
-            timeout = setTimeout(function() {
-                filterForm.submit();
-            }, 500);
-        });
-    }
-
-    // Delete Modal
-    var modal = document.getElementById('deleteModal');
-    var confirmBtn = document.getElementById('confirmDeleteBtn');
-    var cancelBtn = document.getElementById('cancelDeleteBtn');
-    var productNameSpan = document.getElementById('deleteProductName');
-
-    // Attach click handlers to all delete buttons
-    var deleteButtons = document.querySelectorAll('.btn-delete');
-    for (var j = 0; j < deleteButtons.length; j++) {
-        deleteButtons[j].onclick = function(e) {
-            e.preventDefault();
-            var productName = this.getAttribute('data-name');
-            var deleteUrl = this.getAttribute('data-url');
-
-            productNameSpan.textContent = productName;
-            confirmBtn.href = deleteUrl;
-            modal.style.display = 'flex';
-        };
-    }
-
-    // Cancel button closes modal
-    if (cancelBtn) {
-        cancelBtn.onclick = function() {
-            modal.style.display = 'none';
-        };
-    }
-
-    // Click outside modal closes it
-    if (modal) {
-        modal.onclick = function(e) {
-            if (e.target === modal) {
-                modal.style.display = 'none';
-            }
-        };
-    }
-
-    // Escape key closes modal
-    document.onkeydown = function(e) {
-        if (e.key === 'Escape' && modal && modal.style.display === 'flex') {
-            modal.style.display = 'none';
-        }
-    };
-});
-</script>
 
 <?php include '../../includes/footer.php'; ?>

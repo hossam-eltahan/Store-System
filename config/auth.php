@@ -99,47 +99,74 @@ function getAllPermissions() {
                 'expenses.categories' => 'إدارة تصنيفات المصروفات',
             ]
         ],
-        'installments' => [
-            'label' => 'الأقساط',
-            'icon' => '📅',
+        'pos' => [
+            'label' => 'كاشير الكافيه',
+            'icon' => '☕',
             'permissions' => [
-                'installments.view' => 'عرض الأقساط',
-                'installments.create' => 'إنشاء قسط',
-                'installments.pay' => 'تسجيل سداد قسط',
+                'pos.view' => 'عرض شاشة الكاشير',
+                'pos.create_order' => 'إنشاء وحفظ الطلبات',
+                'pos.discount' => 'تطبيق خصم على الفاتورة',
+                'pos.void_item' => 'إلغاء أوردر أو صنف',
             ]
         ],
-        'returns' => [
-            'label' => 'المرتجعات',
-            'icon' => '🔄',
+        'gaming' => [
+            'label' => 'صالة البلايستيشن',
+            'icon' => '🎮',
             'permissions' => [
-                'returns.view' => 'عرض المرتجعات',
-                'returns.create_customer' => 'إنشاء مرتجع عميل',
-                'returns.create_supplier' => 'إنشاء مرتجع مورد',
+                'gaming.view' => 'عرض صالة وأجهزة البلايستيشن',
+                'gaming.manage' => 'بدء وإيقاف وإنهاء جلسات اللعب',
+                'gaming.devices' => 'إدارة وضبط أسعار الأجهزة',
+            ]
+        ],
+        'billiards' => [
+            'label' => 'صالة البلياردو',
+            'icon' => '🎱',
+            'permissions' => [
+                'billiards.view' => 'عرض طاولات البلياردو',
+                'billiards.manage' => 'بدء وحساب وإنهاء الجلسات',
+                'billiards.tables' => 'إدارة وضبط أسعار الطاولات',
+            ]
+        ],
+        'tables' => [
+            'label' => 'طاولات الصالة',
+            'icon' => '🪑',
+            'permissions' => [
+                'tables.view' => 'عرض طاولات الجلوس',
+                'tables.manage' => 'فتح وإدارة جلسات الطاولات',
+            ]
+        ],
+        'shifts' => [
+            'label' => 'الورديات والخزينة',
+            'icon' => '⏱️',
+            'permissions' => [
+                'shifts.view' => 'عرض الورديات وحركات النقدية',
+                'shifts.open_close' => 'فتح وتقفيل الوردية',
+                'shifts.cash_movement' => 'تسجيل إيداع أو سحب نقدي',
+            ]
+        ],
+        'recipes' => [
+            'label' => 'مخزون الخامات والوصفات',
+            'icon' => '🥛',
+            'permissions' => [
+                'recipes.view' => 'عرض خامات ومخزون البوفيه',
+                'recipes.manage' => 'إدارة الوصفات والمقادير',
+                'recipes.stock_adjust' => 'تسوية وجرد الخامات',
             ]
         ],
         'reports' => [
-            'label' => 'التقارير',
+            'label' => 'التقارير والأرباح',
             'icon' => '📊',
             'permissions' => [
-                'reports.view' => 'عرض تقارير ونشاط المستخدم',
-                'reports.statement' => 'عرض كشف الحساب',
+                'reports.view' => 'عرض تقارير المبيعات والأرباح',
+                'reports.statement' => 'عرض كشوف الحسابات',
             ]
         ],
         'settings' => [
             'label' => 'الإعدادات',
             'icon' => '⚙️',
             'permissions' => [
-                'settings.manage' => 'إعدادات النظام',
+                'settings.manage' => 'إعدادات النظام والكافيه',
                 'settings.backup' => 'النسخ الاحتياطي',
-            ]
-        ],
-        'warehouses' => [
-            'label' => 'المخازن',
-            'icon' => '🏢',
-            'permissions' => [
-                'warehouses.view' => 'عرض المخازن والأرصدة',
-                'warehouses.manage' => 'إدارة المخازن (إضافة/تعديل)',
-                'warehouses.transfer' => 'تحويل مخزون بين المخازن',
             ]
         ],
         'users' => [
