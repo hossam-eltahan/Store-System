@@ -22,7 +22,6 @@ $filterPayMethod = $_GET['pay_method'] ?? '';
 $filterStatus = $_GET['filter_status'] ?? '';
 $filterSubType = $_GET['sub_type'] ?? '';
 $filterUserId = $_GET['user_id'] ?? '';
-$filterWarehouse = $_GET['warehouse_id'] ?? '';
 $filterExpenseCat = !empty($_GET['category_id']) ? intval($_GET['category_id']) : '';
 $userSubView = $_GET['user_view'] ?? 'overview';
 
@@ -31,15 +30,10 @@ $allReportTypes = [
     'orders' => '☕ مبيعات المنيو والطلبات',
     'gaming' => '🎮 إيرادات البلايستيشن',
     'billiards' => '🎱 إيرادات البلياردو',
-    'shifts' => '⏱️ تقارير تقفيل الشيفتات',
-    'sales' => '💰 فواتير المبيعات العامة',
-    'purchases' => '🛒 المشتريات والموردين',
-    'profit' => '📈 الأرباح وصافي الدخل',
-    'expenses' => '💸 المصروفات والتكاليف',
     'payments' => '💵 التحصيلات والمدفوعات',
-    'customers' => '👥 حسابات العملاء',
-    'suppliers' => '🚚 حسابات الموردين',
-    'stock' => '📦 المخزون الجردي',
+    'shifts' => '⏱️ تقارير تقفيل الشيفتات',
+    'expenses' => '💸 المصروفات والتكاليف',
+    'profit' => '📈 الأرباح وصافي الدخل',
     'statement' => '🧾 كشف حساب',
     'users' => '👤 تقارير ونشاط المستخدمين'
 ];
@@ -74,11 +68,15 @@ if (isAdmin()) {
     $filterUserId = getCurrentUserId();
 }
 
+// Fallback for stale bookmarks pointing to removed report tabs
+if (!isset($typeNames[$reportType])) {
+    $reportType = 'daily';
+}
+
 // Fetch lists for JS Autocomplete and user filtering
 $customersList = getRows("SELECT id, name, phone, balance FROM customers ORDER BY name ASC");
 $suppliersList = getRows("SELECT id, name, phone, balance FROM suppliers ORDER BY name ASC");
 $usersList = getRows("SELECT id, username, full_name, role FROM users ORDER BY (role='admin') DESC, full_name ASC");
-$warehousesList = getAllWarehouses();
 $expenseCategoriesList = getExpenseCategories(false);
 
 $columns = [];
@@ -93,17 +91,26 @@ switch ($reportType) {
     case 'daily':
         $activeFilters = ['date'];
         
-        $dateCondOrd = ($dateFrom && $dateTo) ? "AND DATE(o.created_at) BETWEEN '$dateFrom' AND '$dateTo'" : "";
-        $dateCondGam = ($dateFrom && $dateTo) ? "AND DATE(gs.started_at) BETWEEN '$dateFrom' AND '$dateTo'" : "";
-        $dateCondBil = ($dateFrom && $dateTo) ? "AND DATE(bs.started_at) BETWEEN '$dateFrom' AND '$dateTo'" : "";
-        $dateCondExp = ($dateFrom && $dateTo) ? "AND date BETWEEN '$dateFrom' AND '$dateTo'" : "";
+        $dateParams = [];
+        $dateCondOrd = "";
+        $dateCondGam = "";
+        $dateCondBil = "";
+        $dateCondExp = "";
+        if ($dateFrom && $dateTo) {
+            $dateCondOrd = "AND DATE(o.created_at) BETWEEN ? AND ?";
+            $dateCondGam = "AND DATE(gs.started_at) BETWEEN ? AND ?";
+            $dateCondBil = "AND DATE(bs.started_at) BETWEEN ? AND ?";
+            $dateCondExp = "AND date BETWEEN ? AND ?";
+            $dateParams = [$dateFrom, $dateTo];
+        }
 
-        $ordersRow = getRow("SELECT COUNT(*) as c, COALESCE(SUM(total_amount), 0) as total, COALESCE(SUM(paid_amount), 0) as paid FROM orders o WHERE status != 'cancelled' {$dateCondOrd}");
-        $gamingRow = getRow("SELECT COUNT(*) as c, COALESCE(SUM(gaming_charge), 0) as gaming_rev, COALESCE(SUM(total_amount), 0) as total_rev FROM gaming_sessions gs WHERE status = 'completed' {$dateCondGam}");
-        $billiardRow = getRow("SELECT COUNT(*) as c, COALESCE(SUM(gaming_charge), 0) as billiard_rev, COALESCE(SUM(total_amount), 0) as total_rev FROM billiard_sessions bs WHERE status = 'completed' {$dateCondBil}");
-        $expensesRow = getRow("SELECT COUNT(*) as c, COALESCE(SUM(amount), 0) as total FROM expenses WHERE 1=1 {$dateCondExp}");
+        $ordersRow = getRow("SELECT COUNT(*) as c, COALESCE(SUM(total_amount), 0) as total, COALESCE(SUM(paid_amount), 0) as paid FROM orders o WHERE status != 'cancelled' {$dateCondOrd}", $dateParams);
+        $gamingRow = getRow("SELECT COUNT(*) as c, COALESCE(SUM(gaming_charge), 0) as gaming_rev, COALESCE(SUM(total_amount), 0) as total_rev FROM gaming_sessions gs WHERE status = 'completed' {$dateCondGam}", $dateParams);
+        $billiardRow = getRow("SELECT COUNT(*) as c, COALESCE(SUM(gaming_charge), 0) as billiard_rev, COALESCE(SUM(total_amount), 0) as total_rev FROM billiard_sessions bs WHERE status = 'completed' {$dateCondBil}", $dateParams);
+        $expensesRow = getRow("SELECT COUNT(*) as c, COALESCE(SUM(amount), 0) as total FROM expenses WHERE 1=1 {$dateCondExp}", $dateParams);
 
         $cafeRev = floatval($ordersRow['paid'] ?? 0);
+        $cafePending = floatval($ordersRow['total'] ?? 0) - $cafeRev;
         $psRev = floatval($gamingRow['gaming_rev'] ?? 0);
         $bilRev = floatval($billiardRow['billiard_rev'] ?? 0);
         $totalIncome = $cafeRev + $psRev + $bilRev;
@@ -115,6 +122,7 @@ switch ($reportType) {
             ['title'=>'🎮 إيرادات البلايستيشن', 'value'=>formatCurrency($psRev), 'color'=>'info', 'icon'=>'fa-gamepad'],
             ['title'=>'🎱 إيرادات البلياردو', 'value'=>formatCurrency($bilRev), 'color'=>'success', 'icon'=>'fa-circle'],
             ['title'=>'📈 إجمالي الإيرادات الشاملة', 'value'=>formatCurrency($totalIncome), 'color'=>'success', 'icon'=>'fa-money-bill-wave'],
+            ['title'=>'⏳ مبالغ معلقة (غير محصلة)', 'value'=>formatCurrency($cafePending), 'color'=>'warning', 'icon'=>'fa-clock'],
             ['title'=>'💸 المصروفات التشغيلية', 'value'=>formatCurrency($totalExpense), 'color'=>'danger', 'icon'=>'fa-file-invoice-dollar'],
             ['title'=>'💎 صافي الربح الفعلي', 'value'=>formatCurrency($netProfit), 'color'=>($netProfit >= 0 ? 'success' : 'danger'), 'icon'=>($netProfit >= 0 ? 'fa-chart-line' : 'fa-arrow-down')],
             ['title'=>'عدد طلبات المنيو', 'value'=>$ordersRow['c'] . ' طلب', 'color'=>'secondary', 'icon'=>'fa-receipt'],
@@ -129,6 +137,7 @@ switch ($reportType) {
             'created_at' => 'الوقت والتاريخ',
             'order_number' => 'رقم الطلب',
             'order_type_lbl' => 'النوع',
+            'customer_name' => 'العميل',
             'items_summary' => 'الأصناف المطلوبة',
             'total_amount_lbl' => 'الإجمالي',
             'paid_amount_lbl' => 'المدفوع',
@@ -141,9 +150,9 @@ switch ($reportType) {
 
         $rawOrders = getRows("
             SELECT o.*, u.full_name as cashier_name,
-                   (SELECT GROUP_CONCAT(CONCAT(oi.item_name, ' (x', oi.quantity, ')') SEPARATOR '، ') FROM order_items oi WHERE oi.order_id = o.id) as items_summary
+                   (SELECT GROUP_CONCAT(CONCAT(oi.product_name, ' (x', oi.quantity, ')') SEPARATOR '، ') FROM order_items oi WHERE oi.order_id = o.id) as items_summary
             FROM orders o
-            LEFT JOIN users u ON u.id = o.user_id
+            LEFT JOIN users u ON u.id = o.created_by
             WHERE {$w}
             ORDER BY o.id DESC
         ", $p);
@@ -193,9 +202,9 @@ switch ($reportType) {
         if ($dateFrom && $dateTo) { $w .= " AND DATE(gs.started_at) BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
 
         $rawGaming = getRows("
-            SELECT gs.*, d.name as device_name, d.device_type, u.full_name as cashier_name
+            SELECT gs.*, d.display_name as device_name, d.device_type, u.full_name as cashier_name
             FROM gaming_sessions gs
-            JOIN ps_devices d ON d.id = gs.device_id
+            JOIN gaming_devices d ON d.id = gs.device_id
             LEFT JOIN users u ON u.id = gs.closed_by
             WHERE {$w}
             ORDER BY gs.id DESC
@@ -207,7 +216,7 @@ switch ($reportType) {
             $totCafeCharge += $g['cafe_orders_total'];
             $totNetGaming += $g['total_amount'];
 
-            $g['play_mode_lbl'] = ($g['play_mode'] === 'multi') ? '<span class="badge badge-warning">مالتي (Multi)</span>' : '<span class="badge badge-primary">سنجل (Single)</span>';
+            $g['play_mode_lbl'] = ($g['session_type'] === 'multi') ? '<span class="badge badge-warning">مالتي (Multi)</span>' : '<span class="badge badge-primary">سنجل (Single)</span>';
             $g['gaming_charge_lbl'] = formatCurrency($g['gaming_charge']);
             $g['cafe_orders_lbl'] = formatCurrency($g['cafe_orders_total']);
             $g['total_amount_lbl'] = '<strong style="color:#059669;">' . formatCurrency($g['total_amount']) . '</strong>';
@@ -240,7 +249,7 @@ switch ($reportType) {
         if ($dateFrom && $dateTo) { $w .= " AND DATE(bs.started_at) BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
 
         $rawBil = getRows("
-            SELECT bs.*, t.name as table_name, u.full_name as cashier_name
+            SELECT bs.*, t.display_name as table_name, u.full_name as cashier_name
             FROM billiard_sessions bs
             JOIN billiard_tables t ON t.id = bs.table_id
             LEFT JOIN users u ON u.id = bs.closed_by
@@ -330,121 +339,69 @@ switch ($reportType) {
         ];
         break;
 
-    case 'sales':
-        $activeFilters = ['date', 'warehouse', 'entity_customer', 'pay_method'];
-        $columns = [
-            'date' => 'التاريخ', 
-            'invoice_number' => 'رقم الفاتورة', 
-            'warehouse_name' => 'المخزن',
-            'customer_name' => 'اسم العميل',
-            'customer_phone' => 'التليفون',
-            'payment_method' => 'طريقة الدفع', 
-            'total_amount' => 'إجمالي الفاتورة', 
-            'paid_amount' => 'المدفوع', 
-            'remaining_amount' => 'المتبقي'
-        ];
-        
-        $w = "i.type='sale'"; 
-        $p = [];
-        if ($dateFrom && $dateTo) { $w .= " AND i.date BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
-        if ($filterWarehouse) { $w .= " AND i.warehouse_id=?"; $p[] = $filterWarehouse; }
-        if ($filterEntity) { $w .= " AND i.customer_id=?"; $p[] = $filterEntity; }
-        if ($filterPayMethod) { $w .= " AND i.payment_method=?"; $p[] = $filterPayMethod; }
-        
-        $data = getRows("SELECT i.*, COALESCE(w.name, 'المخزن الرئيسي') as warehouse_name, COALESCE(c.name, i.customer_name) as customer_name, COALESCE(c.phone, i.customer_phone) as customer_phone FROM invoices i LEFT JOIN customers c ON i.customer_id=c.id LEFT JOIN warehouses w ON i.warehouse_id=w.id WHERE {$w} ORDER BY i.date DESC, i.id DESC", $p);
-        
-        $totalS = 0; $totalP = 0; $totalR = 0;
-        foreach($data as $row) { $totalS += $row['total_amount']; $totalP += $row['paid_amount']; $totalR += $row['remaining_amount']; }
-        
-        $summaryCards = [
-            ['title'=>'إجمالي المبيعات', 'value'=>formatCurrency($totalS), 'color'=>'primary', 'icon'=>'fa-chart-line'],
-            ['title'=>'المدفوع (كاش/تحويل)', 'value'=>formatCurrency($totalP), 'color'=>'success', 'icon'=>'fa-money-bill'],
-            ['title'=>'المتبقي (آجل/ديون)', 'value'=>formatCurrency($totalR), 'color'=>'warning', 'icon'=>'fa-clock'],
-            ['title'=>'عدد الفواتير', 'value'=>count($data), 'color'=>'secondary', 'icon'=>'fa-file-invoice']
-        ];
-        break;
-
-    case 'purchases':
-        $activeFilters = ['date', 'warehouse', 'entity_supplier', 'pay_method'];
-        $columns = [
-            'date' => 'التاريخ', 
-            'invoice_number' => 'رقم الفاتورة', 
-            'warehouse_name' => 'المخزن',
-            'supplier_name' => 'اسم المورد',
-            'supplier_phone' => 'التليفون',
-            'payment_method' => 'طريقة الدفع', 
-            'total_amount' => 'إجمالي الفاتورة', 
-            'paid_amount' => 'المدفوع', 
-            'remaining_amount' => 'المتبقي'
-        ];
-        
-        $w = "i.type='purchase'"; 
-        $p = [];
-        if ($dateFrom && $dateTo) { $w .= " AND i.date BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
-        if ($filterWarehouse) { $w .= " AND i.warehouse_id=?"; $p[] = $filterWarehouse; }
-        if ($filterEntity) { $w .= " AND i.supplier_id=?"; $p[] = $filterEntity; }
-        if ($filterPayMethod) { $w .= " AND i.payment_method=?"; $p[] = $filterPayMethod; }
-        
-        $data = getRows("SELECT i.*, COALESCE(w.name, 'المخزن الرئيسي') as warehouse_name, s.name as supplier_name, s.phone as supplier_phone FROM invoices i LEFT JOIN suppliers s ON i.supplier_id=s.id LEFT JOIN warehouses w ON i.warehouse_id=w.id WHERE {$w} ORDER BY i.date DESC, i.id DESC", $p);
-        
-        $totalP = 0; $totalPaid = 0; $totalR = 0;
-        foreach($data as $row) { $totalP += $row['total_amount']; $totalPaid += $row['paid_amount']; $totalR += $row['remaining_amount']; }
-        
-        $summaryCards = [
-            ['title'=>'إجمالي المشتريات', 'value'=>formatCurrency($totalP), 'color'=>'primary', 'icon'=>'fa-shopping-cart'],
-            ['title'=>'المدفوع للموردين', 'value'=>formatCurrency($totalPaid), 'color'=>'success', 'icon'=>'fa-money-bill-wave'],
-            ['title'=>'المتبقي للموردين', 'value'=>formatCurrency($totalR), 'color'=>'danger', 'icon'=>'fa-clock'],
-            ['title'=>'عدد الفواتير', 'value'=>count($data), 'color'=>'secondary', 'icon'=>'fa-file-invoice']
-        ];
-        break;
-
     case 'profit':
-        $activeFilters = ['date', 'warehouse'];
+        // Café P&L: real income streams (paid cafe orders + session time charges) minus operating expenses
+        $activeFilters = ['date'];
         $columns = [
-            'date' => 'التاريخ', 
-            'invoice_number' => 'رقم الفاتورة', 
-            'warehouse_name' => 'المخزن',
-            'product_name' => 'اسم المنتج',
-            'quantity' => 'الكمية', 
-            'cost_price' => 'التكلفة', 
-            'sale_price' => 'سعر البيع',
-            'profit' => 'هامش ربح الصنف'
+            'date' => 'التاريخ',
+            'cafe_lbl' => 'دخل الكافيه والمنيو',
+            'ps_lbl' => 'دخل البلايستيشن',
+            'bil_lbl' => 'دخل البلياردو',
+            'income_lbl' => 'إجمالي الدخل',
+            'expenses_lbl' => 'المصروفات',
+            'net_lbl' => 'صافي اليوم'
         ];
-        
-        $w = "i.type='sale'"; $p = [];
-        if ($dateFrom && $dateTo) { $w .= " AND i.date BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
-        if ($filterWarehouse) { $w .= " AND i.warehouse_id=?"; $p[] = $filterWarehouse; }
-        
-        $data = getRows("SELECT i.invoice_number, i.date, COALESCE(w.name, 'المخزن الرئيسي') as warehouse_name, ii.quantity, ii.unit_price as sale_price, p.name as product_name, COALESCE(p.cost_price,0) as cost_price, (ii.unit_price - COALESCE(p.cost_price,0)) * ii.quantity as profit FROM invoice_items ii JOIN invoices i ON ii.invoice_id=i.id JOIN products p ON ii.product_id=p.id LEFT JOIN warehouses w ON i.warehouse_id=w.id WHERE {$w} ORDER BY i.date DESC, i.id DESC", $p);
-        
-        $grossProfit = 0; $totalRev = 0; $totalCost = 0;
-        foreach($data as $row) { 
-            $grossProfit += $row['profit']; 
-            $totalRev += $row['sale_price'] * $row['quantity']; 
-            $totalCost += $row['cost_price'] * $row['quantity']; 
+
+        $dp = [];
+        $dateOrd = ""; $dateGam = ""; $dateBil = ""; $dateExp = "";
+        if ($dateFrom && $dateTo) {
+            $dateOrd = "AND DATE(o.created_at) BETWEEN ? AND ?";
+            $dateGam = "AND DATE(gs.started_at) BETWEEN ? AND ?";
+            $dateBil = "AND DATE(bs.started_at) BETWEEN ? AND ?";
+            $dateExp = "AND date BETWEEN ? AND ?";
+            $dp = [$dateFrom, $dateTo];
         }
 
-        // Calculate operating expenses for the exact same filtered period
-        $expCond = "1=1"; $expParams = [];
-        if ($dateFrom && $dateTo) { 
-            $expCond .= " AND date BETWEEN ? AND ?"; 
-            $expParams[] = $dateFrom; 
-            $expParams[] = $dateTo; 
-        }
-        $expRow = getRow("SELECT COALESCE(SUM(amount), 0) as total_exp, COUNT(*) as cnt FROM expenses WHERE {$expCond}", $expParams);
-        $totalExpenses = floatval($expRow['total_exp'] ?? 0);
+        $cafeByDay = getRows("SELECT DATE(o.created_at) as d, COALESCE(SUM(o.paid_amount), 0) as v FROM orders o WHERE o.status != 'cancelled' {$dateOrd} GROUP BY d", $dp);
+        $psByDay = getRows("SELECT DATE(gs.started_at) as d, COALESCE(SUM(gs.gaming_charge), 0) as v FROM gaming_sessions gs WHERE gs.status = 'completed' {$dateGam} GROUP BY d", $dp);
+        $bilByDay = getRows("SELECT DATE(bs.started_at) as d, COALESCE(SUM(bs.gaming_charge), 0) as v FROM billiard_sessions bs WHERE bs.status = 'completed' {$dateBil} GROUP BY d", $dp);
+        $expByDay = getRows("SELECT date as d, COALESCE(SUM(amount), 0) as v FROM expenses WHERE 1=1 {$dateExp} GROUP BY date", $dp);
 
-        // Net Real Profit = Gross Profit from sales minus Operating Expenses
-        $netRealProfit = $grossProfit - $totalExpenses;
-        $netMargin = ($totalRev > 0) ? ($netRealProfit / $totalRev) * 100 : 0;
-        
+        $byDay = [];
+        foreach ($cafeByDay as $r) { $byDay[$r['d']]['cafe'] = floatval($r['v']); }
+        foreach ($psByDay as $r) { $byDay[$r['d']]['ps'] = floatval($r['v']); }
+        foreach ($bilByDay as $r) { $byDay[$r['d']]['bil'] = floatval($r['v']); }
+        foreach ($expByDay as $r) { $byDay[$r['d']]['exp'] = floatval($r['v']); }
+        krsort($byDay);
+
+        $totCafe = 0; $totPs = 0; $totBil = 0; $totExp = 0;
+        foreach ($byDay as $d => $v) {
+            $cafe = $v['cafe'] ?? 0; $ps = $v['ps'] ?? 0; $bil = $v['bil'] ?? 0; $exp = $v['exp'] ?? 0;
+            $income = $cafe + $ps + $bil;
+            $net = $income - $exp;
+            $totCafe += $cafe; $totPs += $ps; $totBil += $bil; $totExp += $exp;
+            $data[] = [
+                'date' => $d,
+                'cafe_lbl' => formatCurrency($cafe),
+                'ps_lbl' => formatCurrency($ps),
+                'bil_lbl' => formatCurrency($bil),
+                'income_lbl' => '<strong>' . formatCurrency($income) . '</strong>',
+                'expenses_lbl' => formatCurrency($exp),
+                'net_lbl' => '<strong style="color:' . ($net >= 0 ? '#059669' : '#dc2626') . ';">' . formatCurrency($net) . '</strong>'
+            ];
+        }
+
+        $totalIncome = $totCafe + $totPs + $totBil;
+        $netProfitReal = $totalIncome - $totExp;
+        $netMargin = ($totalIncome > 0) ? ($netProfitReal / $totalIncome) * 100 : 0;
+
         $summaryCards = [
-            ['title'=>'إجمالي الإيراد (المبيعات)', 'value'=>formatCurrency($totalRev), 'color'=>'primary', 'icon'=>'fa-chart-line'],
-            ['title'=>'تكلفة البضاعة المباعة', 'value'=>formatCurrency($totalCost), 'color'=>'warning', 'icon'=>'fa-box'],
-            ['title'=>'مجمل ربح البضاعة', 'value'=>formatCurrency($grossProfit), 'color'=>'info', 'icon'=>'fa-coins'],
-            ['title'=>'المصروفات والتكاليف التشغيلية', 'value'=>formatCurrency($totalExpenses), 'color'=>'danger', 'icon'=>'fa-file-invoice-dollar'],
-            ['title'=>'صافي الربح الفعلي النهائي', 'value'=>formatCurrency($netRealProfit), 'color'=>($netRealProfit >= 0 ? 'success' : 'danger'), 'icon'=>($netRealProfit >= 0 ? 'fa-smile' : 'fa-frown')],
-            ['title'=>'نسبة هامش صافي الربح', 'value'=>number_format($netMargin, 1) . '%', 'color'=>($netMargin >= 0 ? 'info' : 'danger'), 'icon'=>'fa-percent']
+            ['title'=>'☕ دخل الكافيه والمنيو (محصل)', 'value'=>formatCurrency($totCafe), 'color'=>'primary', 'icon'=>'fa-coffee'],
+            ['title'=>'🎮 دخل البلايستيشن', 'value'=>formatCurrency($totPs), 'color'=>'info', 'icon'=>'fa-gamepad'],
+            ['title'=>'🎱 دخل البلياردو', 'value'=>formatCurrency($totBil), 'color'=>'success', 'icon'=>'fa-circle'],
+            ['title'=>'💰 إجمالي الدخل', 'value'=>formatCurrency($totalIncome), 'color'=>'success', 'icon'=>'fa-money-bill-wave'],
+            ['title'=>'💸 المصروفات التشغيلية', 'value'=>formatCurrency($totExp), 'color'=>'danger', 'icon'=>'fa-file-invoice-dollar'],
+            ['title'=>'💎 صافي الربح (' . number_format($netMargin, 1) . '%)', 'value'=>formatCurrency($netProfitReal), 'color'=>($netProfitReal >= 0 ? 'success' : 'danger'), 'icon'=>'fa-chart-line']
         ];
         break;
 
@@ -488,235 +445,56 @@ switch ($reportType) {
         ];
         break;
 
-    case 'returns':
-        $activeFilters = ['date', 'sub_type_entity'];
-        $columns = [
-            'return_date' => 'التاريخ', 
-            'return_number' => 'رقم المرتجع', 
-            'type_label' => 'الجهة',
-            'entity_name' => 'الاسم',
-            'total_amount' => 'إجمالي المرتجع', 
-            'cash_refund' => 'المبلغ النفي المسترد', 
-            'deducted_from_balance' => 'مخصوم من الحساب'
-        ];
-        
-        $w = "1=1"; $p = [];
-        if ($dateFrom && $dateTo) { $w .= " AND return_date BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
-        if ($filterSubType) { $w .= " AND r.type=?"; $p[] = $filterSubType; }
-        
-        $raw = getRows("SELECT r.*, CASE WHEN r.type='customer' THEN c.name ELSE s.name END as entity_name FROM returns r LEFT JOIN customers c ON r.customer_id=c.id LEFT JOIN suppliers s ON r.supplier_id=s.id WHERE {$w} ORDER BY r.return_date DESC, r.id DESC", $p);
-        
-        $totalValue = 0; $totalCash = 0; $totalDed = 0;
-        foreach($raw as $row) { 
-            $row['type_label'] = $row['type'] == 'customer' ? 'مرتجع عميل' : 'مرتجع مورد';
-            $data[] = $row;
-            $totalValue += $row['total_amount']; $totalCash += $row['cash_refund']; $totalDed += $row['deducted_from_balance']; 
-        }
-        
-        $summaryCards = [
-            ['title'=>'إجمالي قيمة المرتجعات', 'value'=>formatCurrency($totalValue), 'color'=>'danger', 'icon'=>'fa-undo'],
-            ['title'=>'مبالغ مستردة نقداً', 'value'=>formatCurrency($totalCash), 'color'=>'warning', 'icon'=>'fa-money-bill'],
-            ['title'=>'مبالغ مخصومة من الحساب', 'value'=>formatCurrency($totalDed), 'color'=>'info', 'icon'=>'fa-balance-scale'],
-            ['title'=>'عدد العمليات', 'value'=>count($data), 'color'=>'secondary', 'icon'=>'fa-list']
-        ];
-        break;
-
-    case 'installments':
-        $activeFilters = ['sub_type_entity', 'status_inst'];
-        $columns = [
-            'created_at' => 'تاريخ الخطة', 
-            'entity_name' => 'اسم العميل / المورد', 
-            'type_label' => 'نوع الجهة',
-            'number_of_installments' => 'عدد الأقساط', 
-            'total_amount' => 'إجمالي المبلغ', 
-            'paid_amount' => 'المدفوع', 
-            'remaining_amount' => 'المتبقي', 
-            'status_label' => 'الحالة'
-        ];
-        
-        $w = "1=1"; $p = [];
-        if ($filterSubType) { $w .= " AND ip.type=?"; $p[] = $filterSubType; }
-        if ($filterStatus) { $w .= " AND ip.status=?"; $p[] = $filterStatus; }
-        
-        $raw = getRows("SELECT ip.* FROM installment_plans ip WHERE {$w} ORDER BY ip.created_at DESC", $p);
-        
-        $totalAmt = 0; $totalPaid = 0; $totalRem = 0; $active = 0;
-        foreach($raw as $row) { 
-            $row['type_label'] = $row['type'] == 'customer' ? 'عميل' : 'مورد';
-            $row['status_label'] = $row['status'] == 'active' ? '<span class="badge badge-warning">نشط</span>' : '<span class="badge badge-success">مكتمل</span>';
-            $row['created_at'] = date('Y-m-d', strtotime($row['created_at']));
-            $data[] = $row;
-            $totalAmt += $row['total_amount']; $totalPaid += $row['paid_amount']; $totalRem += $row['remaining_amount'];
-            if($row['status']=='active') $active++;
-        }
-        
-        $summaryCards = [
-            ['title'=>'إجمالي خطط التقسيط', 'value'=>formatCurrency($totalAmt), 'color'=>'primary', 'icon'=>'fa-calendar-alt'],
-            ['title'=>'المدفوع من الأقساط', 'value'=>formatCurrency($totalPaid), 'color'=>'success', 'icon'=>'fa-check-circle'],
-            ['title'=>'المتبقي للتحصيل', 'value'=>formatCurrency($totalRem), 'color'=>'danger', 'icon'=>'fa-clock'],
-            ['title'=>'الخطط النشطة', 'value'=>$active, 'color'=>'info', 'icon'=>'fa-tasks']
-        ];
-        break;
-
     case 'payments':
-        $activeFilters = ['date', 'sub_type_entity', 'pay_method_bank'];
+        // Real collections from payment_records (POS + session closings)
+        $activeFilters = ['date', 'pay_method'];
         $columns = [
-            'payment_date' => 'التاريخ', 
-            'payment_number' => 'رقم الإيصال', 
-            'entity_name' => 'الاسم',
-            'type_label' => 'نوع الحركة', 
-            'payment_method' => 'طريقة الدفع', 
-            'amount' => 'المبلغ',
-            'notes' => 'ملاحظات / البيان'
+            'created_at' => 'التاريخ والوقت',
+            'payment_number' => 'رقم الإيصال',
+            'source_lbl' => 'المصدر',
+            'amount_lbl' => 'المبلغ',
+            'method_lbl' => 'طريقة الدفع',
+            'cashier' => 'الكاشير'
         ];
-        
-        $w = "1=1"; $p = [];
-        if ($dateFrom && $dateTo) { $w .= " AND payment_date BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
-        if ($filterSubType) { $w .= " AND type=?"; $p[] = $filterSubType; }
-        if ($filterPayMethod) { $w .= " AND payment_method=?"; $p[] = $filterPayMethod; }
-        
-        $raw = getRows("SELECT * FROM payments WHERE {$w} ORDER BY payment_date DESC, id DESC", $p);
-        
-        $collected = 0; $paidOut = 0;
-        foreach($raw as $row) {
-            $row['type_label'] = $row['type'] == 'customer' ? '<span class="text-success">قبض (تحصيل عميل)</span>' : '<span class="text-danger">صرف (دفع لمورد)</span>';
-            $data[] = $row;
-            if($row['type'] == 'customer') $collected += $row['amount']; else $paidOut += $row['amount'];
-        }
-        
-        $summaryCards = [
-            ['title'=>'إجمالي المقبوضات (دخل)', 'value'=>formatCurrency($collected), 'color'=>'success', 'icon'=>'fa-hand-holding-usd'],
-            ['title'=>'إجمالي المدفوعات (خرج)', 'value'=>formatCurrency($paidOut), 'color'=>'danger', 'icon'=>'fa-money-bill-wave'],
-            ['title'=>'صافي حركة الخزينة', 'value'=>formatCurrency($collected - $paidOut), 'color'=>'primary', 'icon'=>'fa-balance-scale'],
-            ['title'=>'عدد الإيصالات', 'value'=>count($data), 'color'=>'secondary', 'icon'=>'fa-receipt']
-        ];
-        break;
 
-    case 'customers':
-        $activeFilters = ['status_balance'];
-        $columns = [
-            'name' => 'اسم العميل', 
-            'phone' => 'رقم التليفون', 
-            'address' => 'العنوان', 
-            'balance_label' => 'الرصيد الكلي الحالي'
-        ];
-        
-        $raw = getRows("SELECT * FROM customers ORDER BY balance ASC");
-        
-        $debts = 0; $credits = 0;
-        foreach($raw as $row) {
-            if ($filterStatus == 'debt' && $row['balance'] >= 0) continue;
-            if ($filterStatus == 'credit' && $row['balance'] <= 0) continue;
-            if ($filterStatus == 'zero' && $row['balance'] != 0) continue;
-            
-            $txt = $row['balance'] < 0 ? 'مدين (عليه دين)' : ($row['balance'] > 0 ? 'دائن (له رصيد)' : 'خالص (متزن)');
-            $row['balance_label'] = "<span class='" . ($row['balance'] < 0 ? 'text-danger' : ($row['balance'] > 0 ? 'text-success' : '')) . "'>" . formatCurrency(abs($row['balance'])) . " [$txt]</span>";
-            $data[] = $row;
-        }
-        
-        foreach($raw as $row) {
-            if($row['balance'] < 0) $debts += abs($row['balance']);
-            elseif($row['balance'] > 0) $credits += $row['balance'];
-        }
-        
-        $summaryCards = [
-            ['title'=>'إجمالي ديون العملاء (لنا)', 'value'=>formatCurrency($debts), 'color'=>'success', 'icon'=>'fa-arrow-down'],
-            ['title'=>'أرصدة دائنة للعملاء (لهم)', 'value'=>formatCurrency($credits), 'color'=>'danger', 'icon'=>'fa-arrow-up'],
-            ['title'=>'إجمالي المسجلين', 'value'=>count($raw), 'color'=>'primary', 'icon'=>'fa-users'],
-            ['title'=>'العملاء المعروضين', 'value'=>count($data), 'color'=>'secondary', 'icon'=>'fa-filter']
-        ];
-        break;
+        $w = "pr.payment_type = 'payment'"; $p = [];
+        if ($dateFrom && $dateTo) { $w .= " AND DATE(pr.created_at) BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
+        if ($filterPayMethod) { $w .= " AND pr.payment_method = ?"; $p[] = $filterPayMethod; }
 
-    case 'suppliers':
-        $activeFilters = ['status_supplier_balance'];
-        $columns = [
-            'name' => 'اسم المورد', 
-            'phone' => 'رقم التليفون', 
-            'address' => 'العنوان', 
-            'balance_label' => 'الرصيد الكلي الحالي'
-        ];
-        
-        $raw = getRows("SELECT * FROM suppliers ORDER BY balance ASC");
-        
-        $debts = 0; $credits = 0;
-        foreach($raw as $row) {
-            if ($filterStatus == 'owe' && $row['balance'] >= 0) continue;
-            if ($filterStatus == 'credit' && $row['balance'] <= 0) continue;
-            if ($filterStatus == 'zero' && $row['balance'] != 0) continue;
-            
-            $txt = $row['balance'] < 0 ? 'دائن (له مستحقات)' : ($row['balance'] > 0 ? 'مدين (عليه رصيد)' : 'خالص (متزن)');
-            $row['balance_label'] = "<span class='" . ($row['balance'] < 0 ? 'text-danger' : ($row['balance'] > 0 ? 'text-success' : '')) . "'>" . formatCurrency(abs($row['balance'])) . " [$txt]</span>";
-            $data[] = $row;
-        }
-        
-        foreach($raw as $row) {
-            if($row['balance'] < 0) $debts += abs($row['balance']);
-            elseif($row['balance'] > 0) $credits += $row['balance'];
-        }
-        
-        $summaryCards = [
-            ['title'=>'مستحقات الموردين (علينا)', 'value'=>formatCurrency($debts), 'color'=>'danger', 'icon'=>'fa-hand-holding-usd'],
-            ['title'=>'أرصدة مدائنة للموردين (لنا)', 'value'=>formatCurrency($credits), 'color'=>'success', 'icon'=>'fa-coins'],
-            ['title'=>'إجمالي المسجلين', 'value'=>count($raw), 'color'=>'primary', 'icon'=>'fa-truck'],
-            ['title'=>'الموردين المعروضين', 'value'=>count($data), 'color'=>'secondary', 'icon'=>'fa-filter']
-        ];
-        break;
+        $raw = getRows("SELECT pr.*, u.full_name as cashier_name FROM payment_records pr LEFT JOIN users u ON u.id = pr.created_by WHERE {$w} ORDER BY pr.id DESC", $p);
 
-    case 'stock':
-        $activeFilters = ['warehouse', 'status_stock'];
-        $selectedWhName = $filterWarehouse ? getWarehouseName($filterWarehouse) : '';
-        $qtyColTitle = $selectedWhName ? "الكمية ($selectedWhName)" : 'الكمية (إجمالي كل المخازن)';
-        $columns = [
-            'code' => 'كود الصنف', 
-            'name' => 'اسم المنتج', 
-            'stock_quantity' => $qtyColTitle,
-            'cost_price_lbl' => 'سعر التكلفة', 
-            'price_lbl' => 'سعر البيع', 
-            'stock_value' => 'إجمالي التكلفة', 
-            'status_label' => 'حالة المخزون'
+        $sourceMap = [
+            'order' => 'طلب كافيه',
+            'gaming_session' => 'جلسة بلايستيشن',
+            'billiard_session' => 'جلسة بلياردو',
+            'table_session' => 'طاولة صالة'
         ];
-        
-        if ($filterWarehouse) {
-            $raw = getRows("
-                SELECT p.id, p.code, p.name, p.min_stock_level, p.cost_price, p.price,
-                       COALESCE(ws.quantity, 0) as stock_quantity
-                FROM products p
-                LEFT JOIN warehouse_stock ws ON p.id = ws.product_id AND ws.warehouse_id = ?
-                ORDER BY stock_quantity ASC
-            ", [$filterWarehouse]);
-        } else {
-            $raw = getRows("SELECT * FROM products ORDER BY stock_quantity ASC");
-        }
-        
-        $totalCost = 0; $totalSale = 0; $items = 0;
-        foreach($raw as $row) {
-            $status = $row['stock_quantity'] == 0 ? 'out' : ($row['stock_quantity'] <= $row['min_stock_level'] ? 'low' : 'ok');
-            if ($filterStatus && $filterStatus != $status) continue;
-            
-            $cPrice = floatval($row['cost_price'] ?? $row['price'] * 0.7);
-            
-            $lbl = $status == 'out' ? "<span class='badge badge-danger'>نفد تماماً</span>" : ($status == 'low' ? "<span class='badge badge-warning'>منخفض جداً</span>" : "<span class='badge badge-success'>متوفر</span>");
-            $row['status_label'] = $lbl;
-            $row['cost_price_lbl'] = formatCurrency($cPrice);
-            $row['price_lbl'] = formatCurrency($row['price']);
-            $row['stock_value'] = formatCurrency($row['stock_quantity'] * $cPrice);
-            
+        $methodMap = [
+            'cash' => '💵 كاش',
+            'card' => '💳 فيزا',
+            'instapay' => '⚡ إنستاباي',
+            'vodafone_cash' => '📱 فودافون كاش',
+            'wallet' => '👛 محفظة',
+            'other' => 'أخرى'
+        ];
+
+        $totalCollected = 0; $cashCollected = 0; $nonCash = 0;
+        foreach ($raw as $row) {
+            $row['source_lbl'] = ($sourceMap[$row['source_type']] ?? $row['source_type']) . ' #' . $row['source_id'];
+            $row['amount_lbl'] = formatCurrency($row['amount']);
+            $row['method_lbl'] = $methodMap[$row['payment_method']] ?? $row['payment_method'];
+            $row['cashier'] = htmlspecialchars($row['cashier_name'] ?? 'النظام');
             $data[] = $row;
+            $totalCollected += $row['amount'];
+            if ($row['payment_method'] === 'cash') { $cashCollected += $row['amount']; }
+            else { $nonCash += $row['amount']; }
         }
-        
-        foreach($raw as $row) {
-            $cPrice = floatval($row['cost_price'] ?? $row['price'] * 0.7);
-            $totalCost += ($row['stock_quantity'] * $cPrice);
-            $totalSale += ($row['stock_quantity'] * $row['price']);
-            $items += $row['stock_quantity'];
-        }
-        
-        $whTitleSuffix = $selectedWhName ? " ($selectedWhName)" : " (إجمالي شامل)";
+
         $summaryCards = [
-            ['title'=>'قيمة المخزون (بالتكلفة)' . $whTitleSuffix, 'value'=>formatCurrency($totalCost), 'color'=>'primary', 'icon'=>'fa-boxes'],
-            ['title'=>'قيمة المخزون (بالبيع)' . $whTitleSuffix, 'value'=>formatCurrency($totalSale), 'color'=>'success', 'icon'=>'fa-tags'],
-            ['title'=>'إجمالي القطع' . $whTitleSuffix, 'value'=>$items . ' قطعة', 'color'=>'info', 'icon'=>'fa-layer-group'],
-            ['title'=>'إجمالي الأصناف', 'value'=>count($raw), 'color'=>'secondary', 'icon'=>'fa-list-ol']
+            ['title'=>'إجمالي المحصل', 'value'=>formatCurrency($totalCollected), 'color'=>'success', 'icon'=>'fa-hand-holding-usd'],
+            ['title'=>'💵 كاش', 'value'=>formatCurrency($cashCollected), 'color'=>'primary', 'icon'=>'fa-money-bill-wave'],
+            ['title'=>'💳 إلكتروني (فيزا/محافظ)', 'value'=>formatCurrency($nonCash), 'color'=>'info', 'icon'=>'fa-credit-card'],
+            ['title'=>'عدد الإيصالات', 'value'=>count($data) . ' إيصال', 'color'=>'secondary', 'icon'=>'fa-receipt']
         ];
         break;
 
@@ -1289,9 +1067,6 @@ include '../../includes/navbar.php';
         <?php elseif($reportType === 'users'): ?>
             <p style="margin:3px 0; font-weight:bold; font-size:15px;">تقرير مقارنة وأداء جميع مستخدمي النظام</p>
         <?php endif; ?>
-        <?php if(in_array('warehouse', $activeFilters) && $filterWarehouse): ?>
-            <p style="margin:2px 0; font-weight:bold; font-size:14px;">🏢 المخزن: <?php echo htmlspecialchars(getWarehouseName($filterWarehouse)); ?></p>
-        <?php endif; ?>
         <?php if(in_array('date', $activeFilters) && ($dateFrom || $dateTo)): ?>
             <p style="margin:0;">عن الفترة من: <?php echo $dateFrom ?: 'البداية'; ?> إلى: <?php echo $dateTo ?: 'اليوم'; ?></p>
         <?php else: ?>
@@ -1337,20 +1112,6 @@ include '../../includes/navbar.php';
                 </div>
             <?php endif; ?>
 
-            <?php if(in_array('warehouse', $activeFilters)): ?>
-                <div class="filter-group">
-                    <label>🏢 المخزن</label>
-                    <select name="warehouse_id" class="form-control" onchange="this.form.submit()">
-                        <option value="">-- كل المخازن (إجمالي شامل) --</option>
-                        <?php foreach ($warehousesList as $wh): ?>
-                            <option value="<?php echo $wh['id']; ?>" <?php echo ($filterWarehouse == $wh['id']) ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($wh['name']); ?> (<?php echo htmlspecialchars($wh['code']); ?>)
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-            <?php endif; ?>
-
             <?php if(in_array('date', $activeFilters)): ?>
                 <div class="filter-group"><label>من تاريخ</label><input type="date" name="date_from" class="form-control" value="<?php echo $dateFrom; ?>"></div>
                 <div class="filter-group"><label>إلى تاريخ</label><input type="date" name="date_to" class="form-control" value="<?php echo $dateTo; ?>"></div>
@@ -1370,7 +1131,7 @@ include '../../includes/navbar.php';
             <?php endif; ?>
 
             <?php if(in_array('pay_method', $activeFilters)): ?>
-                <div class="filter-group"><label>طريقة الدفع</label><select name="pay_method" class="form-control"><option value="">الكل</option><option value="كاش" <?php echo $filterPayMethod=='كاش'?'selected':''; ?>>كاش</option><option value="نقدي" <?php echo $filterPayMethod=='نقدي'?'selected':''; ?>>نقدي</option><option value="آجل" <?php echo $filterPayMethod=='آجل'?'selected':''; ?>>آجل</option><option value="تحويل" <?php echo $filterPayMethod=='تحويل'?'selected':''; ?>>تحويل</option><option value="تحويل بنكي" <?php echo $filterPayMethod=='تحويل بنكي'?'selected':''; ?>>تحويل بنكي</option><option value="فودافون كاش" <?php echo $filterPayMethod=='فودافون كاش'?'selected':''; ?>>فودافون كاش</option></select></div>
+                <div class="filter-group"><label>طريقة الدفع</label><select name="pay_method" class="form-control" onchange="this.form.submit()"><option value="">الكل</option><option value="cash" <?php echo $filterPayMethod=='cash'?'selected':''; ?>>💵 كاش</option><option value="card" <?php echo $filterPayMethod=='card'?'selected':''; ?>>💳 فيزا</option><option value="instapay" <?php echo $filterPayMethod=='instapay'?'selected':''; ?>>⚡ إنستاباي</option><option value="vodafone_cash" <?php echo $filterPayMethod=='vodafone_cash'?'selected':''; ?>>📱 فودافون كاش</option><option value="wallet" <?php echo $filterPayMethod=='wallet'?'selected':''; ?>>👛 محفظة</option><option value="other" <?php echo $filterPayMethod=='other'?'selected':''; ?>>أخرى</option></select></div>
             <?php endif; ?>
 
             <?php if(in_array('expense_category', $activeFilters)): ?>
@@ -1385,22 +1146,6 @@ include '../../includes/navbar.php';
                         <?php endforeach; ?>
                     </select>
                 </div>
-            <?php endif; ?>
-
-            <?php if(in_array('status_inst', $activeFilters)): ?>
-                <div class="filter-group"><label>حالة الأقساط</label><select name="filter_status" class="form-control"><option value="">الكل</option><option value="active" <?php echo $filterStatus=='active'?'selected':''; ?>>نشط</option><option value="completed" <?php echo $filterStatus=='completed'?'selected':''; ?>>مكتمل</option></select></div>
-            <?php endif; ?>
-
-            <?php if(in_array('status_balance', $activeFilters)): ?>
-                <div class="filter-group"><label>حالة رصيد العملاء</label><select name="filter_status" class="form-control"><option value="">الكل</option><option value="debt" <?php echo $filterStatus=='debt'?'selected':''; ?>>عليهم ديون</option><option value="credit" <?php echo $filterStatus=='credit'?'selected':''; ?>>لهم أموال</option><option value="zero" <?php echo $filterStatus=='zero'?'selected':''; ?>>متزن (خالص)</option></select></div>
-            <?php endif; ?>
-            
-            <?php if(in_array('status_supplier_balance', $activeFilters)): ?>
-                <div class="filter-group"><label>حالة رصيد الموردين</label><select name="filter_status" class="form-control"><option value="">الكل</option><option value="owe" <?php echo $filterStatus=='owe'?'selected':''; ?>>لهم مستحقات (علينا)</option><option value="credit" <?php echo $filterStatus=='credit'?'selected':''; ?>>لنا أرصدة مدائنة</option><option value="zero" <?php echo $filterStatus=='zero'?'selected':''; ?>>متزن (خالص)</option></select></div>
-            <?php endif; ?>
-
-            <?php if(in_array('status_stock', $activeFilters)): ?>
-                <div class="filter-group"><label>حالة المخزون</label><select name="filter_status" class="form-control"><option value="">الكل</option><option value="out" <?php echo $filterStatus=='out'?'selected':''; ?>>نفد تماماً</option><option value="low" <?php echo $filterStatus=='low'?'selected':''; ?>>منخفض جداً</option><option value="ok" <?php echo $filterStatus=='ok'?'selected':''; ?>>متوفر بكثرة</option></select></div>
             <?php endif; ?>
 
             <div class="filter-group" style="flex:0 0 auto; display:flex; gap:8px;">
