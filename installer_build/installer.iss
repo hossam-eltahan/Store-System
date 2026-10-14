@@ -42,7 +42,7 @@ Source: "portable\php\*"; DestDir: "{app}\php"; Flags: ignoreversion recursesubd
 Source: "portable\data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Application files
-Source: "portable\htdocs\Store-System\*"; DestDir: "{app}\htdocs\Store-System"; Excludes: "tools\*,config\.dev_license,config\license.dat"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "portable\htdocs\Store-System\*"; DestDir: "{app}\htdocs\Store-System"; Excludes: "tools\*,config\.dev_license,config\license.dat,backups\*.sql,assets\uploads\*,data\updates\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Scripts and launcher
 Source: "portable\scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -59,6 +59,7 @@ Name: "{app}\logs"
 Name: "{app}\htdocs\Store-System\backups"
 Name: "{app}\htdocs\Store-System\assets\uploads\products"
 Name: "{app}\htdocs\Store-System\assets\uploads\avatars"
+Name: "{app}\htdocs\Store-System\assets\uploads\logo"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "wscript.exe"; Parameters: """{app}\{#MyAppExeName}"""; WorkingDir: "{app}"
