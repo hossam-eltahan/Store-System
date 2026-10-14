@@ -69,8 +69,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$warehouses = getAllWarehouses(true);
-
 include '../../includes/header.php';
 include '../../includes/navbar.php';
 ?>
@@ -137,18 +135,6 @@ include '../../includes/navbar.php';
                             <option value="employee" <?php echo ($_POST['role'] ?? '') === 'employee' ? 'selected' : ''; ?>>👤 موظف</option>
                             <option value="admin" <?php echo ($_POST['role'] ?? '') === 'admin' ? 'selected' : ''; ?>>👑 مدير</option>
                         </select>
-                    </div>
-
-                    <div class="form-group" style="margin-bottom: 15px;">
-                        <label class="form-label" style="font-weight: 600; margin-bottom: 5px; display: block;">🏢 المخزن الافتراضي للمستخدم *</label>
-                        <select name="default_warehouse_id" class="form-control" required style="font-weight: 600;">
-                            <?php foreach ($warehouses as $wh): ?>
-                                <option value="<?php echo $wh['id']; ?>" <?php echo ((int)($_POST['default_warehouse_id'] ?? 0) === (int)$wh['id'] || (!isset($_POST['default_warehouse_id']) && (int)$wh['is_default'] === 1)) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($wh['name']); ?> <?php echo ((int)$wh['is_default'] === 1) ? '(الافتراضي)' : ''; ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <small style="color: #6b7280;">المخزن الذي سيتم اختياره تلقائياً عند قيام هذا المستخدم بإنشاء الفواتير</small>
                     </div>
                 </div>
             </div>
