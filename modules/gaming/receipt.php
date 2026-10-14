@@ -82,35 +82,32 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ÙØ§ØªÙˆØ±Ø© Ø¨Ù„Ø§ÙŠØ³ØªÙŠØ´Ù† - <?php echo htmlspecialchars($session['device_name']); ?></title>
+    <title>إيصال PlayStation - <?php echo htmlspecialchars($session['device_name']); ?></title>
     <style>
         @page { size: 80mm auto; margin: 0; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Cairo', 'Courier New', monospace, sans-serif; -webkit-print-color-adjust: exact; }
-        body { width: 80mm; max-width: 80mm; margin: 0 auto; padding: 8px 10px; background: #fff; color: #000; font-size: 11.5px; line-height: 1.35; }
+        body { width: 80mm; max-width: 80mm; margin: 0 auto; padding: 8px 10px; background: #fff; color: #000; font-size: 12px; line-height: 1.4; direction: rtl; }
         .text-center { text-align: center; }
         .text-left { text-align: left; }
-        .text-right { text-align: right; }
         .fw-bold { font-weight: 700; }
         .divider { border-top: 1px dashed #000; margin: 6px 0; }
-        .double-divider { border-top: 2px solid #000; margin: 6px 0; }
         .header { margin-bottom: 8px; text-align: center; }
-        .header h1 { font-size: 17px; font-weight: 900; }
-        .badge { display: inline-block; padding: 3px 8px; background: #000; color: #fff; font-size: 12px; font-weight: bold; border-radius: 4px; margin: 4px 0; }
+        .header h1 { font-size: 17px; font-weight: 900; margin-bottom: 3px; }
+        .header p { font-size: 11px; color: #222; }
         .meta-table { width: 100%; font-size: 11px; margin-bottom: 6px; }
         .meta-table td { padding: 2px 0; }
-        .items-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+        .items-table { width: 100%; border-collapse: collapse; font-size: 12px; }
         .items-table th { border-bottom: 1px solid #000; padding: 4px 2px; font-size: 11px; }
         .items-table td { padding: 4px 2px; }
         .totals-table { width: 100%; margin-top: 6px; font-size: 12px; }
         .totals-table td { padding: 2px 0; }
-        .grand-total { font-size: 12.5px; font-weight: 900; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 0 !important; white-space: nowrap; }
+        .grand-total { font-size: 15px; font-weight: 900; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 0 !important; }
         .no-print { background: #f1f5f9; padding: 10px; text-align: center; margin-bottom: 10px; }
         .btn-print { background: #ea580c; color: #fff; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; }
         @media print { .no-print { display: none !important; } body { padding: 0; } }
     </style>
 </head>
 <body>
-
     <div class="no-print">
         <button class="btn-print" onclick="window.print()">طباعة</button>
         <button class="btn-print" style="background:#475569;" onclick="if(window.self===window.top){window.close();}else if(window.parent&&typeof window.parent.closeReceiptModal==='function'){window.parent.closeReceiptModal();}">إغلاق</button>
@@ -118,110 +115,114 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
 
     <div class="header">
         <h1><?php echo htmlspecialchars($storeName); ?></h1>
-        <div class="badge">ðŸŽ® ÙØ§ØªÙˆØ±Ø© Ø£Ù„Ø¹Ø§Ø¨ Ø¨Ù„Ø§ÙŠØ³ØªÙŠØ´Ù†</div>
-        <?php if ($storePhone): ?><p style="font-size:11px;">Ù‡Ø§ØªÙ: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
+        <?php if ($storeAddress): ?><p><?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>
+        <?php if ($storePhone): ?><p>هاتف: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
+        <?php if ($receiptFooter): ?><p style="margin-top:3px;"><?php echo htmlspecialchars($receiptFooter); ?></p><?php endif; ?>
     </div>
 
-    <div class="divider"></div>
+    <div style="border-top:1px dashed #000;margin:6px 0;"></div>
 
     <table class="meta-table">
         <tr>
-            <td class="fw-bold">Ø§Ù„Ø¬Ù‡Ø§Ø²:</td>
+            <td class="fw-bold">الجهاز:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($session['device_name']); ?></td>
         </tr>
         <tr>
-            <td>Ù†ÙˆØ¹ Ø§Ù„Ù„Ø¹Ø¨:</td>
-            <td class="text-left fw-bold"><?php echo $session['session_type'] === 'multi' ? 'Ø¬Ù…Ø§Ø¹ÙŠ (Ù…Ø§Ù„ØªÙŠ)' : 'ÙØ±Ø¯ÙŠ (Ø³Ù†Ø¬Ù„)'; ?></td>
+            <td>نوع الجلسة:</td>
+            <td class="text-left"><?php echo $session['session_type'] === 'multi' ? 'جماعي (مالتي)' : 'فردي (سنجل)'; ?></td>
         </tr>
         <tr>
-            <td>ÙˆÙ‚Øª Ø§Ù„Ø¨Ø¯Ø¡:</td>
+            <td>وقت البدء:</td>
             <td class="text-left"><?php echo date('Y-m-d h:i A', strtotime($session['started_at'])); ?></td>
         </tr>
         <tr>
-            <td>ÙˆÙ‚Øª Ø§Ù„Ø§Ù†ØªÙ‡Ø§Ø¡:</td>
+            <td>وقت الإنهاء:</td>
             <td class="text-left"><?php echo $endedAtLabel; ?></td>
         </tr>
         <tr>
-            <td>Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ù…Ø¯Ø© Ø§Ù„Ù„Ø¹Ø¨:</td>
-            <td class="text-left fw-bold"><?php echo $durationFormatted; ?></td>
+            <td>المدة:</td>
+            <td class="text-left fw-bold"><?php echo htmlspecialchars($durationFormatted); ?></td>
         </tr>
         <tr>
-            <td>Ø³Ø¹Ø± Ø§Ù„Ø³Ø§Ø¹Ø© Ø§Ù„Ù…Ø·Ø¨Ù‚:</td>
-            <td class="text-left"><?php echo number_format($session['applied_rate'], 2); ?> Ø¬.Ù… / Ø³Ø§Ø¹Ø©</td>
+            <td>السعر/ساعة:</td>
+            <td class="text-left"><?php echo number_format($session['applied_rate'], 2); ?> ج.م</td>
         </tr>
         <?php if (!empty($session['customer_name'])): ?>
         <tr>
-            <td>Ø§Ù„Ø¹Ù…ÙŠÙ„:</td>
+            <td>العميل:</td>
             <td class="text-left"><?php echo htmlspecialchars($session['customer_name']); ?></td>
         </tr>
         <?php endif; ?>
     </table>
 
-    <div class="double-divider"></div>
+    <div style="border-top:2px solid #000;margin:6px 0;"></div>
 
     <?php if (!empty($allOrderItems)): ?>
-    <div class="divider"></div>
-    <div style="font-size:11px; font-weight:bold; margin-bottom:4px;">ØªÙØ§ØµÙŠÙ„ Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙƒØ§ÙÙŠÙ‡ Ø§Ù„Ù…Ø¶Ø§ÙØ©:</div>
+    <div style="font-size:12px; font-weight:bold; margin-bottom:5px; text-align:center;">طلبات كافيه</div>
     <table class="items-table">
-        <?php foreach ($allOrderItems as $it): ?>
-        <tr>
-            <td>â€¢ <?php echo htmlspecialchars($it['product_name']); ?> <?php echo $it['variant_name'] ? "({$it['variant_name']})" : ""; ?></td>
-            <td class="text-center">x<?php echo $it['quantity']; ?></td>
-            <td class="text-left"><?php echo number_format($it['line_total'], 2); ?> Ø¬.Ù…</td>
-        </tr>
-        <?php endforeach; ?>
+        <thead>
+            <tr>
+                <th class="text-right">الصنف</th>
+                <th class="text-center">العدد</th>
+                <th class="text-left">الإجمالي</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($allOrderItems as $it): ?>
+            <tr>
+                <td class="text-right"><?php echo htmlspecialchars($it['product_name']); ?></td>
+                <td class="text-center">x<?php echo $it['quantity']; ?></td>
+                <td class="text-left"><?php echo number_format($it['line_total'], 2); ?> ج.م</td>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
     </table>
+    <div style="border-top:2px solid #000;margin:6px 0;"></div>
     <?php endif; ?>
 
-    <?php
-    $grossTotal = $gamingCharge + $cafeGrossTotal - $discountAmount;
-    $remainingTotal = $isCompleted
-        ? max(0, $sessionTotal)
-        : max(0, $grossTotal - $prepaidCafeTotal);
-    ?>
-
-    <div class="double-divider"></div>
     <table class="totals-table">
         <tr>
-            <td class="fw-bold">Ø­Ø³Ø§Ø¨ ÙˆÙ‚Øª Ø§Ù„Ù„Ø¹Ø¨:</td>
-            <td class="text-left fw-bold"><?php echo number_format($gamingCharge, 2); ?> Ø¬.Ù…</td>
+            <td>حساب الوقت:</td>
+            <td class="text-left"><?php echo number_format($gamingCharge, 2); ?> ج.م</td>
         </tr>
         <?php if ($cafeGrossTotal > 0): ?>
         <tr>
-            <td>Ù…Ø´Ø±ÙˆØ¨Ø§Øª ÙˆØ·Ù„Ø¨Ø§Øª ÙƒØ§ÙÙŠÙ‡:</td>
-            <td class="text-left"><?php echo number_format($cafeGrossTotal, 2); ?> Ø¬.Ù…</td>
+            <td>طلبات كافيه:</td>
+            <td class="text-left"><?php echo number_format($cafeGrossTotal, 2); ?> ج.م</td>
         </tr>
         <?php endif; ?>
         <?php if ($discountAmount > 0): ?>
         <tr style="color:#dc2626;">
-            <td>Ø§Ù„Ø®ØµÙ…:</td>
-            <td class="text-left">-<?php echo number_format($discountAmount, 2); ?> Ø¬.Ù…</td>
+            <td>الخصم:</td>
+            <td class="text-left">-<?php echo number_format($discountAmount, 2); ?> ج.م</td>
         </tr>
         <?php endif; ?>
+        <?php
+            $total = $sessionTotal > 0 ? $sessionTotal : ($gamingCharge + $cafeGrossTotal - $discountAmount);
+        ?>
         <tr class="grand-total">
-            <td>Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨:</td>
-            <td class="text-left"><?php echo number_format($grossTotal, 2); ?> Ø¬.Ù…</td>
+            <td>الإجمالي:</td>
+            <td class="text-left"><?php echo number_format($total, 2); ?> ج.م</td>
         </tr>
+        <?php if ($prepaidCafeTotal > 0): ?>
         <tr>
-            <td>Ø§Ù„Ù…Ø¯ÙÙˆØ¹ Ù…Ø³Ø¨Ù‚Ø§Ù‹:</td>
-            <td class="text-left"><?php echo number_format($prepaidCafeTotal, 2); ?> Ø¬.Ù…</td>
+            <td>مدفوع مسبقاً:</td>
+            <td class="text-left"><?php echo number_format($prepaidCafeTotal, 2); ?> ج.م</td>
         </tr>
-        <tr style="font-weight:900; color:<?php echo $remainingTotal > 0 ? '#d97706' : '#059669'; ?>;">
-            <td>Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ Ù„Ù„ØªØ­ØµÙŠÙ„:</td>
-            <td class="text-left"><?php echo number_format($remainingTotal, 2); ?> Ø¬.Ù…</td>
-        </tr>
+        <?php endif; ?>
     </table>
 
-    <div class="divider"></div>
     <div style="text-align:center; font-size:11px; margin-top:6px;">
         <p><?php echo htmlspecialchars($receiptFooter); ?></p>
-        <p style="font-size:9.5px; opacity:0.7; margin-top:3px;">ÙƒØ§Ø´ÙŠØ±: <?php echo htmlspecialchars($session['closed_by_name'] ?? 'Ø§Ù„ÙƒØ§Ø´ÙŠØ±'); ?></p>
+        <p style="font-size:9.5px; opacity:0.7; margin-top:3px;">الكاشير: <?php echo htmlspecialchars($session['closed_by_name'] ?? $session['opened_by_name'] ?? 'الكاشير'); ?> | نظام كاشير عروسة النيل v2.0</p>
     </div>
 
     <script>
         if (window.self === window.top) {
             window.onload = function() {
-                setTimeout(function() { window.print(); }, 300);
+                setTimeout(function() {
+                    window.print();
+                }, 400);
             };
         }
         window.onafterprint = function() {

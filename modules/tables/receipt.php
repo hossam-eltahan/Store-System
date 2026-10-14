@@ -245,9 +245,8 @@ $receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - ن�
 <body>
 
     <div class="no-print">
-        <button class="btn-print" onclick="window.print()">PRINT</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">CLOSE</button>
-        <a href="index.php" class="btn-print" style="background:#059669; text-decoration:none; display:inline-block;">🪑 الطاولات</a>
+        <button class="btn-print" onclick="window.print()">طباعة</button>
+        <button class="btn-print" style="background:#475569;" onclick="if(window.self===window.top){window.close();}else if(window.parent&&typeof window.parent.closeReceiptModal==='function'){window.parent.closeReceiptModal();}">إغلاق</button>
     </div>
 
     <!-- رأس الفاتورة -->
