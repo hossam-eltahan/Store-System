@@ -52,228 +52,87 @@ $isKitchen = ($type === 'kitchen');
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ø¨ÙˆÙ† Ø·Ù„Ø¨ #<?php echo htmlspecialchars($order['order_number']); ?> - <?php echo $isKitchen ? 'Ø§Ù„Ù…Ø·Ø¨Ø® ÙˆØ§Ù„Ø¨Ø§Ø±' : 'Ø§Ù„Ø¹Ù…ÙŠÙ„'; ?></title>
+    <title>إيصال #<?php echo htmlspecialchars($order['order_number']); ?></title>
     <style>
-        @page {
-            size: 80mm auto;
-            margin: 0;
-        }
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Cairo', 'Courier New', monospace, sans-serif;
-            -webkit-print-color-adjust: exact;
-        }
-        body {
-            width: 80mm;
-            max-width: 80mm;
-            margin: 0 auto;
-            padding: 8px 10px;
-            background: #fff;
-            color: #000;
-            font-size: 12px;
-            line-height: 1.4;
-        }
+        @page { size: 80mm auto; margin: 0; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Cairo', 'Courier New', monospace, sans-serif; -webkit-print-color-adjust: exact; }
+        body { width: 80mm; max-width: 80mm; margin: 0 auto; padding: 8px 10px; background: #fff; color: #000; font-size: 12px; line-height: 1.4; direction: rtl; }
         .text-center { text-align: center; }
         .text-left { text-align: left; }
         .text-right { text-align: right; }
         .fw-bold { font-weight: 700; }
-        .divider {
-            border-top: 1px dashed #000;
-            margin: 6px 0;
-        }
-        .double-divider {
-            border-top: 2px solid #000;
-            margin: 6px 0;
-        }
-        .header {
-            margin-bottom: 8px;
-        }
-        .header h1 {
-            font-size: 17px;
-            font-weight: 900;
-            margin-bottom: 3px;
-        }
-        .header p {
-            font-size: 11px;
-            color: #222;
-        }
-        .badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border: 1px solid #000;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: bold;
-            margin: 4px 0;
-        }
-        .kitchen-badge {
-            background: #000;
-            color: #fff;
-            padding: 4px 10px;
-            font-size: 14px;
-            font-weight: 900;
-            border-radius: 4px;
-            display: inline-block;
-            margin-bottom: 6px;
-        }
-        .meta-table {
-            width: 100%;
-            font-size: 11px;
-            margin-bottom: 6px;
-        }
-        .meta-table td {
-            padding: 2px 0;
-        }
-        .items-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 12px;
-        }
-        .items-table th {
-            border-bottom: 1px solid #000;
-            padding: 4px 2px;
-            font-size: 11px;
-        }
-        .items-table td {
-            padding: 4px 2px;
-            vertical-align: top;
-        }
-        .item-row {
-            border-bottom: 1px dotted #ccc;
-        }
-        .variant-tag {
-            font-size: 10.5px;
-            color: #444;
-            display: block;
-        }
-        .mod-tag {
-            font-size: 10px;
-            color: #555;
-            padding-right: 8px;
-            display: block;
-        }
-        .note-tag {
-            font-size: 10px;
-            font-style: italic;
-            color: #d32f2f;
-            display: block;
-        }
-        .totals-table {
-            width: 100%;
-            margin-top: 6px;
-            font-size: 12px;
-        }
-        .totals-table td {
-            padding: 2px 0;
-        }
-        .grand-total {
-            font-size: 15px;
-            font-weight: 900;
-            border-top: 1px solid #000;
-            border-bottom: 1px solid #000;
-            padding: 4px 0 !important;
-        }
-        .footer {
-            margin-top: 10px;
-            font-size: 10.5px;
-            text-align: center;
-        }
-        .no-print {
-            background: #f1f5f9;
-            padding: 10px;
-            text-align: center;
-            border-bottom: 2px solid #cbd5e1;
-            margin-bottom: 10px;
-        }
-        .btn-print {
-            background: #2563eb;
-            color: #fff;
-            border: none;
-            padding: 6px 16px;
-            border-radius: 6px;
-            font-weight: bold;
-            cursor: pointer;
-            font-size: 13px;
-        }
-        @media print {
-            .no-print { display: none !important; }
-            body { padding: 0; }
-        }
+        .divider { border-top: 1px dashed #000; margin: 6px 0; }
+        .header { margin-bottom: 8px; text-align: center; }
+        .header h1 { font-size: 17px; font-weight: 900; margin-bottom: 3px; }
+        .header p { font-size: 11px; color: #222; }
+        .meta-table { width: 100%; font-size: 11px; margin-bottom: 6px; }
+        .meta-table td { padding: 2px 0; }
+        .items-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .items-table th { border-bottom: 1px solid #000; padding: 4px 2px; font-size: 11px; }
+        .items-table td { padding: 4px 2px; vertical-align: top; }
+        .item-row { border-bottom: 1px dotted #ccc; }
+        .variant-tag { font-size: 10.5px; color: #444; display: block; }
+        .mod-tag { font-size: 10px; color: #555; padding-right: 8px; display: block; }
+        .note-tag { font-size: 10px; font-style: italic; color: #d32f2f; display: block; }
+        .totals-table { width: 100%; margin-top: 6px; font-size: 12px; }
+        .totals-table td { padding: 2px 0; }
+        .grand-total { font-size: 15px; font-weight: 900; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 0 !important; }
+        .footer { margin-top: 10px; font-size: 10.5px; text-align: center; }
+        .no-print { background: #f1f5f9; padding: 10px; text-align: center; border-bottom: 2px solid #cbd5e1; margin-bottom: 10px; }
+        .btn-print { background: #2563eb; color: #fff; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px; }
+        @media print { .no-print { display: none !important; } body { padding: 0; } }
     </style>
 </head>
 <body>
-
     <div class="no-print">
         <button class="btn-print" onclick="window.print()">PRINT</button>
         <button class="btn-print" style="background:#475569;" onclick="window.close()">CLOSE</button>
-        <?php if (!$isKitchen): ?>
-            <a href="receipt.php?id=<?php echo $orderId; ?>&type=kitchen" style="text-decoration:none; margin-right:8px;" class="btn-print" style="background:#e11d48;">ðŸ‘¨â€ðŸ³ Ø¨ÙˆÙ† Ø§Ù„Ø¨Ø§Ø±/Ø§Ù„Ù…Ø·Ø¨Ø®</a>
-        <?php else: ?>
-            <a href="receipt.php?id=<?php echo $orderId; ?>&type=customer" style="text-decoration:none; margin-right:8px;" class="btn-print" style="background:#059669;">ðŸ§¾ Ø¨ÙˆÙ† Ø§Ù„Ø¹Ù…ÙŠÙ„</a>
-        <?php endif; ?>
     </div>
 
     <div class="header text-center">
-        <?php if ($isKitchen): ?>
-            <div class="kitchen-badge">KITCHEN ORDER</div>
-        <?php else: ?>
-            <h1><?php echo htmlspecialchars($storeName); ?></h1>
-            <?php if ($storeAddress): ?><p><?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>
-            <?php if ($storePhone): ?><p>Phone: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
-            <?php if ($receiptHeader): ?><p style="margin-top:3px;"><?php echo htmlspecialchars($receiptHeader); ?></p><?php endif; ?>
-        <?php endif; ?>
+        <h1><?php echo htmlspecialchars($storeName); ?></h1>
+        <?php if ($storeAddress): ?><p><?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>
+        <?php if ($storePhone): ?><p>Phone: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
+        <?php if ($receiptHeader): ?><p style="margin-top:3px;"><?php echo htmlspecialchars($receiptHeader); ?></p><?php endif; ?>
     </div>
 
     <div class="divider"></div>
 
     <table class="meta-table">
         <tr>
-            <td class="fw-bold">Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨:</td>
+            <td class="fw-bold">Order No:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($order['order_number']); ?></td>
         </tr>
         <tr>
-            <td>Ø§Ù„ØªØ§Ø±ÙŠØ® ÙˆØ§Ù„ÙˆÙ‚Øª:</td>
+            <td>Date/Time:</td>
             <td class="text-left"><?php echo date('Y-m-d h:i A', strtotime($order['created_at'])); ?></td>
         </tr>
         <tr>
-            <td>Ø§Ù„ÙƒØ§Ø´ÙŠØ±:</td>
-            <td class="text-left"><?php echo htmlspecialchars($order['cashier_name'] ?? 'Ø§Ù„ÙƒØ§Ø´ÙŠØ±'); ?></td>
+            <td>Cashier:</td>
+            <td class="text-left"><?php echo htmlspecialchars($order['cashier_name'] ?? 'Cashier'); ?></td>
         </tr>
         <tr>
-            <td>Ù†ÙˆØ¹ Ø§Ù„Ø·Ù„Ø¨:</td>
-            <td class="text-left fw-bold">
-                <?php 
-                $types = [
-                    'takeaway' => 'ØªÙŠÙƒ Ø£ÙˆØ§ÙŠ (Takeaway) ðŸ›ï¸',
-                    'dine_in' => 'ØµØ§Ù„Ø© (Ø·Ø§ÙˆÙ„Ø©) ðŸª‘' . ($order['table_name'] ? ' - ' . $order['table_name'] : ''),
-                    'gaming_ps' => 'Ø¨Ù„Ø§ÙŠØ³ØªÙŠØ´Ù† ðŸŽ®' . ($order['ps_name'] ? ' - ' . $order['ps_name'] : ''),
-                    'gaming_billiard' => 'Ø¨Ù„ÙŠØ§Ø±Ø¯Ùˆ ðŸŽ±' . ($order['billiard_name'] ? ' - ' . $order['billiard_name'] : ''),
-                ];
-                echo $types[$order['order_type']] ?? $order['order_type'];
-                ?>
-            </td>
+            <td>Order Type:</td>
+            <td class="text-left fw-bold"><?php echo htmlspecialchars($order['order_type']); ?></td>
         </tr>
-        <?php if (!empty($order['customer_name'])): ?>
+        <?php if (!empty($order['notes'])): ?>
         <tr>
-            <td>Ø§Ù„Ø¹Ù…ÙŠÙ„:</td>
-            <td class="text-left"><?php echo htmlspecialchars($order['customer_name']); ?></td>
+            <td>Notes:</td>
+            <td class="text-left"><?php echo htmlspecialchars($order['notes']); ?></td>
         </tr>
         <?php endif; ?>
     </table>
 
-    <div class="double-divider"></div>
+    <div class="divider"></div>
 
+    <?php if (!empty($items)): ?>
     <table class="items-table">
         <thead>
             <tr>
-                <th style="width: 50%;" class="text-right">Ø§Ù„ØµÙ†Ù</th>
-                <th style="width: 15%;" class="text-center">Ø§Ù„Ø¹Ø¯Ø¯</th>
-                <?php if (!$isKitchen): ?>
-                <th style="width: 15%;" class="text-center">Ø§Ù„Ø³Ø¹Ø±</th>
-                <th style="width: 20%;" class="text-left">Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</th>
-                <?php endif; ?>
+                <th class="text-right">Item</th>
+                <th class="text-center">Qty</th>
+                <th class="text-center">Price</th>
+                <th class="text-left">Total</th>
             </tr>
         </thead>
         <tbody>
@@ -286,88 +145,68 @@ $isKitchen = ($type === 'kitchen');
                     <?php endif; ?>
                     <?php if (!empty($item['modifiers'])): ?>
                         <?php foreach ($item['modifiers'] as $mod): ?>
-                            <span class="mod-tag">+ <?php echo htmlspecialchars($mod['modifier_name']); ?><?php echo !$isKitchen ? ' (' . number_format($mod['modifier_price'], 2) . ')' : ''; ?></span>
+                            <span class="mod-tag">+ <?php echo htmlspecialchars($mod['modifier_name']); ?> (<?php echo number_format($mod['modifier_price'], 2); ?>)</span>
                         <?php endforeach; ?>
                     <?php endif; ?>
                     <?php if (!empty($item['item_notes'])): ?>
-                        <span class="note-tag">âš ï¸ Ù…Ù„Ø§Ø­Ø¸Ø©: <?php echo htmlspecialchars($item['item_notes']); ?></span>
+                        <span class="note-tag">! <?php echo htmlspecialchars($item['item_notes']); ?></span>
                     <?php endif; ?>
                 </td>
                 <td class="text-center fw-bold" style="font-size: 13px;">x<?php echo $item['quantity']; ?></td>
-                <?php if (!$isKitchen): ?>
                 <td class="text-center"><?php echo number_format($item['unit_price'], 2); ?></td>
                 <td class="text-left fw-bold"><?php echo number_format($item['line_total'], 2); ?></td>
-                <?php endif; ?>
             </tr>
             <?php endforeach; ?>
         </tbody>
     </table>
+    <?php else: ?>
+    <div style="text-align:center; padding:10px; font-size:12px; color:#666;">No items on this order.</div>
+    <?php endif; ?>
 
-    <?php if (!$isKitchen): ?>
-    <div class="double-divider"></div>
+    <div class="divider"></div>
     <table class="totals-table">
         <tr>
-            <td>Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹ Ø§Ù„ÙØ±Ø¹ÙŠ:</td>
-            <td class="text-left"><?php echo number_format($order['subtotal'], 2); ?> Ø¬.Ù…</td>
+            <td>Subtotal:</td>
+            <td class="text-left"><?php echo number_format($order['subtotal'] ?? 0, 2); ?> JOD</td>
         </tr>
-        <?php if ($order['discount_amount'] > 0): ?>
-        <tr style="color: #dc2626;">
-            <td>Ø§Ù„Ø®ØµÙ…:</td>
-            <td class="text-left">-<?php echo number_format($order['discount_amount'], 2); ?> Ø¬.Ù…</td>
+        <?php if (!empty($order['discount_amount']) && $order['discount_amount'] > 0): ?>
+        <tr style="color:#dc2626;">
+            <td>Discount:</td>
+            <td class="text-left">-<?php echo number_format($order['discount_amount'], 2); ?> JOD</td>
         </tr>
         <?php endif; ?>
-        <?php if ((float)$order['tax_amount'] > 0): ?>
+        <?php if (!empty($order['tax_amount']) && $order['tax_amount'] > 0): ?>
         <tr>
-            <td>Ø§Ù„Ø¶Ø±ÙŠØ¨Ø© ÙˆØ§Ù„Ø®Ø¯Ù…Ø©:</td>
-            <td class="text-left"><?php echo number_format($order['tax_amount'], 2); ?> Ø¬.Ù…</td>
+            <td>Tax:</td>
+            <td class="text-left"><?php echo number_format($order['tax_amount'], 2); ?> JOD</td>
         </tr>
         <?php endif; ?>
         <tr class="grand-total">
-            <td>Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨:</td>
-            <td class="text-left"><?php echo number_format($order['total_amount'], 2); ?> Ø¬.Ù…</td>
+            <td>Total:</td>
+            <td class="text-left"><?php echo number_format($order['total_amount'], 2); ?> JOD</td>
         </tr>
         <tr>
-            <td>Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯ÙØ¹:</td>
-            <td class="text-left fw-bold">
-                <?php 
-                $methods = ['cash' => 'Ù†Ù‚Ø¯Ø§Ù‹ (ÙƒØ§Ø´)', 'card' => 'ÙÙŠØ²Ø§ / Ø¨Ø·Ø§Ù‚Ø©', 'vodafone_cash' => 'ÙÙˆØ¯Ø§ÙÙˆÙ† ÙƒØ§Ø´', 'instapay' => 'Ø¥Ù†Ø³ØªØ§Ø¨Ø§ÙŠ (InstaPay)'];
-                echo $methods[$order['payment_method']] ?? $order['payment_method'];
-                ?>
-            </td>
+            <td>Paid:</td>
+            <td class="text-left"><?php echo number_format($order['paid_amount'] ?? $order['total_amount'], 2); ?> JOD</td>
         </tr>
         <tr>
-            <td>Ø§Ù„Ù…Ø¯ÙÙˆØ¹:</td>
-            <td class="text-left"><?php echo number_format($order['paid_amount'], 2); ?> Ø¬.Ù…</td>
+            <td>Payment Method:</td>
+            <td class="text-left fw-bold"><?php $methods = ['cash' => 'Cash', 'card' => 'Card', 'instapay' => 'InstaPay', 'vodafone_cash' => 'Vodafone Cash']; $pm = $order['payment_method'] ?? 'cash'; echo $methods[$pm] ?? $pm; ?></td>
         </tr>
-        <?php if ($order['total_amount'] > $order['paid_amount']): ?>
-        <tr style="color:#d97706; font-weight:bold;">
-            <td>Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ (Ù…Ø¹Ù„Ù‚):</td>
-            <td class="text-left"><?php echo number_format($order['total_amount'] - $order['paid_amount'], 2); ?> Ø¬.Ù…</td>
-        </tr>
-        <?php endif; ?>
     </table>
-    <?php endif; ?>
-
-    <?php if (!empty($order['notes'])): ?>
-    <div class="divider"></div>
-    <div style="font-size:11px;">
-        <span class="fw-bold">Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„Ø·Ù„Ø¨:</span> <?php echo htmlspecialchars($order['notes']); ?>
-    </div>
-    <?php endif; ?>
 
     <div class="footer">
         <div class="divider"></div>
         <p><?php echo htmlspecialchars($receiptFooter); ?></p>
-        <p style="font-size:9.5px; opacity:0.7; margin-top:4px;">Ù†Ø¸Ø§Ù… ÙƒØ§Ø´ÙŠØ± Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„ v2.0</p>
+        <p style="font-size:9.5px; opacity:0.7; margin-top:4px;">POS v2.0</p>
     </div>
 
     <script>
-        // Ø·Ø¨Ø§Ø¹Ø© ØªÙ„Ù‚Ø§Ø¦ÙŠØ© Ø¹Ù†Ø¯ Ø§Ù„ÙØªØ­
         if (window.self === window.top) {
             window.onload = function() {
                 setTimeout(function() {
                     window.print();
-                }, 300);
+                }, 400);
             };
         }
         window.onafterprint = function() {

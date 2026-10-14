@@ -75,7 +75,7 @@ $endedAtLabel = !empty($session['ended_at'])
 $minutes = $isCompleted ? (int)($session['billable_minutes'] ?? 0) : $billableMinutes;
 $hours = floor($minutes / 60);
 $remMinutes = $minutes % 60;
-$durationFormatted = ($hours > 0 ? "$hours Ø³Ø§Ø¹Ø© Ùˆ " : "") . "$remMinutes Ø¯Ù‚ÙŠÙ‚Ø©";
+$durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
