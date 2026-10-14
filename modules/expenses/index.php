@@ -73,7 +73,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $description = sanitize(trim($_POST['description'] ?? ''));
         $paidTo = sanitize(trim($_POST['paid_to'] ?? ''));
 
-        if ($id > 0 && $amount > 0 && !empty($description)) {
+        if ($categoryId <= 0 || $amount <= 0 || empty($description)) {
+            setError('يرجى التأكد من ملء جميع الحقول المطلوبة بشكل صحيح.');
+        } else {
             execute("
                 UPDATE expenses 
                 SET category_id = ?, amount = ?, date = ?, description = ?, paid_to = ?
@@ -109,13 +111,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Fetch categories
 $categories = getRows("SELECT * FROM expense_categories WHERE is_active = 1 ORDER BY id ASC");
 
-// Filters
+// Filters & Search
+$search = trim($_GET['search'] ?? '');
 $filterCategory = (int)($_GET['category_id'] ?? 0);
 $filterDateFrom = $_GET['date_from'] ?? date('Y-m-01');
 $filterDateTo = $_GET['date_to'] ?? date('Y-m-d');
 
+// Pagination
+$page = max(1, (int)($_GET['page'] ?? 1));
+$perPage = 10;
+
 $where = ["e.date BETWEEN ? AND ?"];
 $params = [$filterDateFrom, $filterDateTo];
+
+if ($search !== '') {
+    $where[] = "(e.description LIKE ? OR e.paid_to LIKE ?)";
+    $params[] = "%$search%";
+    $params[] = "%$search%";
+}
 
 if ($filterCategory > 0) {
     $where[] = "e.category_id = ?";
@@ -124,7 +137,13 @@ if ($filterCategory > 0) {
 
 $whereClause = 'WHERE ' . implode(' AND ', $where);
 
-// Expenses query
+// Total count for pagination (all filtered rows)
+$totalExpenses = (int) (getRow("SELECT COUNT(*) as cnt FROM expenses e $whereClause", $params)['cnt'] ?? 0);
+$totalPages = max(1, (int) ceil($totalExpenses / $perPage));
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
+// Expenses query (current page only)
 $expenses = getRows("
     SELECT e.*, c.name as category_name, u.full_name as user_name, s.shift_number
     FROM expenses e
@@ -133,36 +152,47 @@ $expenses = getRows("
     LEFT JOIN shifts s ON s.id = e.shift_id
     $whereClause
     ORDER BY e.date DESC, e.id DESC
+    LIMIT $perPage OFFSET $offset
 ", $params);
 
 // Stats
 $todayExpenses = getRow("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE date = CURDATE()")['total'] ?? 0;
 $shiftExpenses = $activeShiftId ? (getRow("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE shift_id = ?", [$activeShiftId])['total'] ?? 0) : 0;
-$monthExpenses = getRow("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")['total'] ?? 0;
-$filteredTotal = array_sum(array_column($expenses, 'amount'));
+$monthExpenses = getRow("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())")['total'] ?? 0;
+// Sum over the whole filtered set (independent of pagination) for accurate "total of period"
+$filteredTotal = (float) (getRow("SELECT COALESCE(SUM(amount), 0) as total FROM expenses e $whereClause", $params)['total'] ?? 0);
+
+// Pagination base query (preserve filters across page links)
+$paginationBaseQuery = ($search !== '' ? '&search=' . urlencode($search) : '')
+    . ($filterCategory > 0 ? '&category_id=' . $filterCategory : '')
+    . '&date_from=' . urlencode($filterDateFrom)
+    . '&date_to=' . urlencode($filterDateTo);
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
 ?>
 
 <div class="container-fluid" style="padding: 15px 25px;">
-    <!-- Top Bar -->
+    <!-- Page Header -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
         <div>
-            <h2 style="font-weight: 800; color: #1e293b; margin: 0; display: flex; align-items: center; gap: 10px;">
-                💸 المصروفات والتكاليف التشغيلية
+            <h2 style="font-weight: 800; color: #1e293b; margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span>💸</span> إدارة المصروفات والتكاليف التشغيلية
             </h2>
-            <p style="color: #64748b; margin: 4px 0 0;">تسجيل ومتابعة مصاريف الكافيه وصيانة الأجهزة والعمالة مع ربط الدرج بالشيفت المفتوح</p>
+            <p style="color: #64748b; margin: 5px 0 0;">تسجيل ومتابعة جميع مصاريف الكافيه والخامات والصيانة مع الربط بدرج الكاشير</p>
         </div>
-        <div>
-            <button class="btn btn-primary" onclick="openAddModal()" style="border-radius: 8px; font-weight: 700; background: #6F4E37; border-color: #6F4E37;">
+        <div style="display: flex; gap: 10px;">
+            <a href="../../index.php" class="btn btn-secondary" style="border-radius: 8px;">🏠 الرئيسية</a>
+            <?php if (hasPermission('expenses.add')): ?>
+            <button class="btn btn-primary" onclick="openAddModal()" style="border-radius: 8px; font-weight: 700; background: #ea580c; border-color: #ea580c;">
                 ➕ تسجيل مصروف جديد
             </button>
+            <?php endif; ?>
         </div>
     </div>
 
-    <!-- Stats Cards -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 25px;">
+    <!-- Quick Stats Cards -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 20px;">
         <div style="background: white; border-radius: 12px; padding: 18px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 15px;">
             <div style="width: 48px; height: 48px; border-radius: 10px; background: #fee2e2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 24px;">📅</div>
             <div>
@@ -193,19 +223,23 @@ include '../../includes/navbar.php';
         </div>
     </div>
 
-    <!-- Filter Form -->
+    <!-- Filter & Search Form -->
     <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.04); margin-bottom: 20px;">
         <div class="card-body" style="padding: 16px;">
             <form method="GET" style="display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end;">
-                <div style="flex: 1; min-width: 180px;">
+                <div style="flex: 1; min-width: 220px;">
+                    <label class="form-label" style="font-size: 13px; font-weight: 600;">بحث سريع</label>
+                    <input type="text" name="search" class="form-control" placeholder="🔍 بحث في البيان أو اسم المستلم..." value="<?php echo htmlspecialchars($search); ?>">
+                </div>
+                <div style="width: 170px;">
                     <label class="form-label" style="font-size: 13px; font-weight: 600;">من تاريخ</label>
                     <input type="date" name="date_from" class="form-control" value="<?php echo htmlspecialchars($filterDateFrom); ?>">
                 </div>
-                <div style="flex: 1; min-width: 180px;">
+                <div style="width: 170px;">
                     <label class="form-label" style="font-size: 13px; font-weight: 600;">إلى تاريخ</label>
                     <input type="date" name="date_to" class="form-control" value="<?php echo htmlspecialchars($filterDateTo); ?>">
                 </div>
-                <div style="flex: 1; min-width: 200px;">
+                <div style="width: 190px;">
                     <label class="form-label" style="font-size: 13px; font-weight: 600;">بند المصروف</label>
                     <select name="category_id" class="form-select">
                         <option value="">كل البنود</option>
@@ -244,7 +278,7 @@ include '../../includes/navbar.php';
                         <?php if (empty($expenses)): ?>
                             <tr>
                                 <td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;">
-                                    لا توجد مصروفات مسجلة خلال هذه الفترة.
+                                    لا توجد مصروفات مسجلة تطابق معايير البحث.
                                 </td>
                             </tr>
                         <?php else: ?>
@@ -276,14 +310,12 @@ include '../../includes/navbar.php';
                                         <div style="color: #94a3b8;"><?php echo htmlspecialchars($e['user_name'] ?? ''); ?></div>
                                     </td>
                                     <td style="text-align: left; padding-left: 20px;">
-                                        <button class="btn btn-sm btn-outline-primary" onclick='editExpense(<?php echo json_encode($e); ?>)'>
-                                            ✏️
+                                        <button class="btn btn-sm btn-outline-primary" onclick='editExpense(<?php echo json_encode($e); ?>)' style="border-radius: 6px;">
+                                            ✏️ تعديل
                                         </button>
-                                        <form method="POST" style="display: inline;" onsubmit="return confirm('هل أنت متأكد من حذف هذا المصروف؟');">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="expense_id" value="<?php echo $e['id']; ?>">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">🗑️</button>
-                                        </form>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick='confirmDeleteExpense(<?php echo $e['id']; ?>, <?php echo json_encode($e['description']); ?>, "<?php echo formatCurrency($e['amount']); ?>")' style="border-radius: 6px;">
+                                            🗑️ حذف
+                                        </button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -291,16 +323,61 @@ include '../../includes/navbar.php';
                     </tbody>
                 </table>
             </div>
+            <?php if ($totalPages > 1): ?>
+                <div style="padding: 16px 22px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 12px; background: #fafbfc;">
+                    <div style="color: #64748b; font-size: 13.5px; font-weight: 600;">
+                        عرض صفحة <span style="color: #0f172a; font-weight: 800;"><?php echo $page; ?></span> من إجمالي <span style="color: #0f172a; font-weight: 800;"><?php echo $totalPages; ?></span> (<?php echo $totalExpenses; ?> مصروف مسجل)
+                    </div>
+                    <nav aria-label="تنقل الصفحات">
+                        <ul class="pagination" style="list-style: none !important; list-style-type: none !important; margin: 0 !important; padding: 0 !important; display: flex !important; align-items: center !important; gap: 5px !important;">
+                            <!-- Previous Page -->
+                            <li class="page-item <?php echo ($page <= 1) ? 'disabled' : ''; ?>" style="list-style: none !important; margin: 0 !important; padding: 0 !important;">
+                                <a class="page-link" href="<?php echo ($page > 1) ? '?page=' . ($page - 1) . $paginationBaseQuery : '#'; ?>"
+                                   style="display: inline-flex !important; align-items: center !important; justify-content: center !important; height: 36px !important; padding: 0 14px !important; font-size: 13px !important; font-weight: 700 !important; border-radius: 8px !important; border: 1px solid #cbd5e1 !important; text-decoration: none !important; <?php echo ($page <= 1) ? 'color: #94a3b8 !important; background: #f1f5f9 !important; pointer-events: none !important;' : 'color: #334155 !important; background: #fff !important;'; ?>">
+                                    ← السابق
+                                </a>
+                            </li>
+                            <?php
+                            $startPage = max(1, $page - 3);
+                            $endPage = min($totalPages, $page + 3);
+                            if ($startPage > 1) {
+                                echo '<li style="list-style: none !important;"><a class="page-link" href="?page=1' . $paginationBaseQuery . '" style="display: inline-flex !important; align-items: center !important; justify-content: center !important; min-width: 36px !important; height: 36px !important; padding: 0 10px !important; font-weight: 700 !important; border-radius: 8px !important; border: 1px solid #cbd5e1 !important; text-decoration: none !important; background: #fff !important; color: #334155 !important;">1</a></li>';
+                                if ($startPage > 2) {
+                                    echo '<li style="list-style: none !important; color: #94a3b8; padding: 0 4px;">…</li>';
+                                }
+                            }
+                            for ($i = $startPage; $i <= $endPage; $i++) {
+                                $isActive = ($i == $page);
+                                echo '<li style="list-style: none !important;"><a class="page-link" href="?page=' . $i . $paginationBaseQuery . '" style="display: inline-flex !important; align-items: center !important; justify-content: center !important; min-width: 36px !important; height: 36px !important; padding: 0 10px !important; font-weight: ' . ($isActive ? '800' : '700') . ' !important; border-radius: 8px !important; text-decoration: none !important; border: 1px solid ' . ($isActive ? '#ea580c' : '#cbd5e1') . ' !important; background: ' . ($isActive ? '#ea580c' : '#fff') . ' !important; color: ' . ($isActive ? '#fff' : '#334155') . ' !important;">' . $i . '</a></li>';
+                            }
+                            if ($endPage < $totalPages) {
+                                if ($endPage < $totalPages - 1) {
+                                    echo '<li style="list-style: none !important; color: #94a3b8; padding: 0 4px;">…</li>';
+                                }
+                                echo '<li style="list-style: none !important;"><a class="page-link" href="?page=' . $totalPages . $paginationBaseQuery . '" style="display: inline-flex !important; align-items: center !important; justify-content: center !important; min-width: 36px !important; height: 36px !important; padding: 0 10px !important; font-weight: 700 !important; border-radius: 8px !important; border: 1px solid #cbd5e1 !important; text-decoration: none !important; background: #fff !important; color: #334155 !important;">' . $totalPages . '</a></li>';
+                            }
+                            ?>
+                            <!-- Next Page -->
+                            <li class="page-item <?php echo ($page >= $totalPages) ? 'disabled' : ''; ?>" style="list-style: none !important; margin: 0 !important; padding: 0 !important;">
+                                <a class="page-link" href="<?php echo ($page < $totalPages) ? '?page=' . ($page + 1) . $paginationBaseQuery : '#'; ?>"
+                                   style="display: inline-flex !important; align-items: center !important; justify-content: center !important; height: 36px !important; padding: 0 14px !important; font-size: 13px !important; font-weight: 700 !important; border-radius: 8px !important; border: 1px solid #cbd5e1 !important; text-decoration: none !important; <?php echo ($page >= $totalPages) ? 'color: #94a3b8 !important; background: #f1f5f9 !important; pointer-events: none !important;' : 'color: #334155 !important; background: #fff !important;'; ?>">
+                                    التالي →
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>
 
-<!-- Modal: Add Expense -->
-<div class="modal" id="expenseModal" tabindex="-1" style="display: none; background: rgba(0,0,0,0.5);">
+<!-- Modal 1: Add/Edit Expense -->
+<div class="modal" id="expenseModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content" style="border-radius: 12px; border: none;">
+        <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="expModalTitle" style="font-weight: 700;">➕ تسجيل مصروف جديد</h5>
+                <h5 class="modal-title" id="expModalTitle">➕ تسجيل مصروف جديد</h5>
                 <button type="button" class="btn-close" onclick="closeModal()"></button>
             </div>
             <form method="POST">
@@ -338,12 +415,14 @@ include '../../includes/navbar.php';
                     </div>
 
                     <?php if ($activeShiftId): ?>
-                        <div class="form-check form-switch mt-3 p-3" style="background: #f8fafc; border-radius: 8px;" id="deductShiftWrapper">
-                            <input class="form-check-input" type="checkbox" name="deduct_from_shift" id="deductShiftCheck" checked>
-                            <label class="form-check-label" for="deductShiftCheck" style="font-weight: 700; color: #b45309;">
-                                خصم المبلغ مباشرة من نقدية درج الشيفت المفتوح (<?php echo htmlspecialchars($activeShift['shift_number']); ?>)
-                            </label>
-                            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">
+                        <div class="p-3" style="background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;" id="deductShiftWrapper">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" name="deduct_from_shift" id="deductShiftCheck" checked style="width: 18px; height: 18px; cursor: pointer;">
+                                <label for="deductShiftCheck" style="font-weight: 700; color: #b45309; margin: 0; cursor: pointer;">
+                                    خصم المبلغ مباشرة من نقدية درج الشيفت المفتوح (<?php echo htmlspecialchars($activeShift['shift_number']); ?>)
+                                </label>
+                            </div>
+                            <div style="font-size: 12px; color: #64748b; margin-top: 6px; padding-right: 26px;">
                                 سيتم خصم هذا المبلغ من النقدية المتوقعة عند إغلاق الشيفت وتسجيل حركة نقدية خارجة.
                             </div>
                         </div>
@@ -351,7 +430,38 @@ include '../../includes/navbar.php';
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal()">إلغاء</button>
-                    <button type="submit" class="btn btn-primary" style="background: #6F4E37; border-color: #6F4E37;">💾 حفظ المصروف</button>
+                    <button type="submit" class="btn btn-primary" style="background: #ea580c; border-color: #ea580c;">💾 حفظ المصروف</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 2: Delete Confirmation Modal -->
+<div class="modal" id="deleteExpenseModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+        <div class="modal-content">
+            <div class="modal-header" style="background: #fee2e2; border-bottom: 1px solid #fecaca;">
+                <h5 class="modal-title" style="color: #991b1b;">⚠️ تأكيد حذف المصروف</h5>
+                <button type="button" class="btn-close" onclick="closeDeleteModal()"></button>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="expense_id" id="deleteExpId" value="">
+                <div class="modal-body" style="text-align: center; padding: 25px;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">🗑️</div>
+                    <div style="font-size: 15px; color: #1e293b; margin-bottom: 8px;">
+                        هل أنت متأكد من حذف هذا المصروف؟
+                    </div>
+                    <div id="deleteExpDesc" style="font-size: 16px; font-weight: 800; color: #dc2626; margin-bottom: 6px;"></div>
+                    <div id="deleteExpAmount" style="font-size: 18px; font-weight: 900; color: #b91c1c; margin-bottom: 10px;"></div>
+                    <div style="font-size: 12px; color: #64748b;">
+                        إذا كان المصروف مخصوماً من شيفت حالي، سيتم إعادة ضبط الرصيد تلقائياً.
+                    </div>
+                </div>
+                <div class="modal-footer" style="justify-content: center;">
+                    <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">إلغاء</button>
+                    <button type="submit" class="btn btn-danger">🗑️ نعم، احذف</button>
                 </div>
             </form>
         </div>
@@ -370,7 +480,7 @@ function openAddModal() {
     document.getElementById('expDesc').value = '';
     const deduct = document.getElementById('deductShiftWrapper');
     if (deduct) deduct.style.display = 'block';
-    document.getElementById('expenseModal').style.display = 'block';
+    document.getElementById('expenseModal').style.display = 'flex';
 }
 
 function editExpense(e) {
@@ -384,16 +494,30 @@ function editExpense(e) {
     document.getElementById('expDesc').value = e.description;
     const deduct = document.getElementById('deductShiftWrapper');
     if (deduct) deduct.style.display = 'none';
-    document.getElementById('expenseModal').style.display = 'block';
+    document.getElementById('expenseModal').style.display = 'flex';
 }
 
 function closeModal() {
     document.getElementById('expenseModal').style.display = 'none';
 }
 
+function confirmDeleteExpense(id, desc, amount) {
+    document.getElementById('deleteExpId').value = id;
+    document.getElementById('deleteExpDesc').innerText = desc;
+    document.getElementById('deleteExpAmount').innerText = amount;
+    document.getElementById('deleteExpenseModal').style.display = 'flex';
+}
+
+function closeDeleteModal() {
+    document.getElementById('deleteExpenseModal').style.display = 'none';
+}
+
 window.onclick = function(e) {
     if (e.target == document.getElementById('expenseModal')) {
         closeModal();
+    }
+    if (e.target == document.getElementById('deleteExpenseModal')) {
+        closeDeleteModal();
     }
 }
 </script>

@@ -11,7 +11,7 @@ requirePermission('products.delete');
 
 $pageTitle = 'تأكيد حذف الصنف';
 
-$id = $_GET['id'] ?? 0;
+$id = (int)($_POST['id'] ?? $_GET['id'] ?? 0);
 $product = getRow("SELECT * FROM products WHERE id = ?", [$id]);
 
 if (!$product) {

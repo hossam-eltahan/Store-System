@@ -77,7 +77,7 @@ function getAllNotifications() {
         }
     }
     
-    // 4. Tomorrow's suppliers - ALL (Only if user has suppliers.view)
+     // 4. Tomorrow's suppliers - ALL (Only if user has suppliers.view)
     if (hasPermission('suppliers.view')) {
         $tomorrowDay = getTomorrowDayName();
         $tomorrowSuppliers = getRows("SELECT id, name, phone, expected_products FROM suppliers WHERE visit_days LIKE ?", ["%$tomorrowDay%"]);
@@ -90,6 +90,54 @@ function getAllNotifications() {
                 'link' => 'modules/suppliers/index.php',
                 'priority' => 3,
                 'category' => 'suppliers'
+            ];
+        }
+    }
+    
+    // 5. Expired gaming sessions with countdown timers - ALL (Only if user has gaming.view)
+    if (hasPermission('gaming.view')) {
+        $expiredGaming = getRows("
+            SELECT gs.id, gd.display_name, gs.preset_minutes
+            FROM gaming_sessions gs
+            JOIN gaming_devices gd ON gs.device_id = gd.id
+            WHERE gs.status = 'active'
+              AND gs.time_mode = 'countdown'
+              AND TIMESTAMPDIFF(SECOND, gs.started_at, NOW()) - COALESCE(gs.total_paused_seconds, 0) >= (COALESCE(gs.preset_minutes, 0) * 60)
+            ORDER BY gs.started_at ASC
+        ");
+        foreach ($expiredGaming as $sess) {
+            $notifications[] = [
+                'type' => 'danger',
+                'icon' => '🎮',
+                'title' => 'انتهى وقت بلايستيشن',
+                'message' => 'جهاز ' . $sess['display_name'] . ' - انتهى العداد المحدد (' . $sess['preset_minutes'] . ' دقيقة)',
+                'link' => 'modules/gaming/index.php',
+                'priority' => 0,
+                'category' => 'sessions'
+            ];
+        }
+    }
+    
+    // 6. Expired billiard sessions with countdown timers - ALL (Only if user has billiards.view)
+    if (hasPermission('billiards.view')) {
+        $expiredBilliards = getRows("
+            SELECT bs.id, bt.display_name, bs.preset_minutes
+            FROM billiard_sessions bs
+            JOIN billiard_tables bt ON bs.table_id = bt.id
+            WHERE bs.status = 'active'
+              AND bs.time_mode = 'countdown'
+              AND TIMESTAMPDIFF(SECOND, bs.started_at, NOW()) - COALESCE(bs.total_paused_seconds, 0) >= (COALESCE(bs.preset_minutes, 0) * 60)
+            ORDER BY bs.started_at ASC
+        ");
+        foreach ($expiredBilliards as $sess) {
+            $notifications[] = [
+                'type' => 'danger',
+                'icon' => '🎱',
+                'title' => 'انتهى وقت البلياردو',
+                'message' => 'طاولة ' . $sess['display_name'] . ' - انتهى العداد المحدد (' . $sess['preset_minutes'] . ' دقيقة)',
+                'link' => 'modules/billiards/index.php',
+                'priority' => 0,
+                'category' => 'sessions'
             ];
         }
     }
@@ -108,7 +156,8 @@ $allNotifications = getAllNotifications();
 $counts = [
     'installments' => 0,
     'stock' => 0,
-    'suppliers' => 0
+    'suppliers' => 0,
+    'sessions' => 0
 ];
 foreach ($allNotifications as $n) {
     $cat = $n['category'] ?? 'other';
@@ -120,13 +169,15 @@ $filterCategory = $_GET['category'] ?? '';
 $categoryNames = [
     'installments' => 'الأقساط',
     'stock' => 'المخزون',
-    'suppliers' => 'الموردين'
+    'suppliers' => 'الموردين',
+    'sessions' => 'انتهاء الجلسات'
 ];
 
 // Sanitize filterCategory with permissions
 if ($filterCategory === 'installments' && !hasPermission('installments.view')) $filterCategory = '';
 if ($filterCategory === 'stock' && !hasPermission('products.view')) $filterCategory = '';
 if ($filterCategory === 'suppliers' && !hasPermission('suppliers.view')) $filterCategory = '';
+if ($filterCategory === 'sessions' && (!hasPermission('gaming.view') && !hasPermission('billiards.view'))) $filterCategory = '';
 
 if ($filterCategory && isset($counts[$filterCategory])) {
     $allNotifications = array_filter($allNotifications, function($n) use ($filterCategory) {
@@ -226,6 +277,12 @@ include '../../includes/navbar.php';
                 <a href="?category=suppliers" class="stat-box info <?php echo $filterCategory === 'suppliers' ? 'active' : ''; ?>">
                     <div class="stat-number"><?php echo $counts['suppliers']; ?></div>
                     <div class="stat-label">🚚 موردين</div>
+                </a>
+                <?php endif; ?>
+                <?php if (hasPermission('gaming.view') || hasPermission('billiards.view')): ?>
+                <a href="?category=sessions" class="stat-box danger <?php echo $filterCategory === 'sessions' ? 'active' : ''; ?>">
+                    <div class="stat-number"><?php echo $counts['sessions']; ?></div>
+                    <div class="stat-label">⏰ جلسات منتهية</div>
                 </a>
                 <?php endif; ?>
             </div>

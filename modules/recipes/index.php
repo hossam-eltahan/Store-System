@@ -13,7 +13,7 @@ $pageTitle = 'المواد الخام والوصفات (Recipes)';
 
 $currentTab = $_GET['tab'] ?? 'ingredients';
 
-// Handle Add / Edit Ingredient
+// Handle Add / Edit / Delete Ingredient & Stock
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     requirePermission('recipes.manage');
     $action = $_POST['action'];
@@ -53,6 +53,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 logActivity('إضافة مادة خام', "تم إضافة مادة خام جديدة: $name");
                 setSuccess('تم إضافة المادة الخام بنجاح');
+            }
+        }
+        redirect('index.php?tab=ingredients');
+    }
+
+    if ($action === 'delete_ingredient') {
+        $id = (int)($_POST['ingredient_id'] ?? 0);
+        if ($id > 0) {
+            $isUsedInRecipe = getRow("SELECT id FROM recipe_items WHERE ingredient_id = ? LIMIT 1", [$id]);
+            if ($isUsedInRecipe) {
+                setError('لا يمكن حذف المادة الخام لأنها مستخدمة داخل مقادير وصفات مشروبات مسجلة.');
+            } else {
+                execute("DELETE FROM ingredient_stock_movements WHERE ingredient_id = ?", [$id]);
+                execute("DELETE FROM ingredients WHERE id = ?", [$id]);
+                logActivity('حذف مادة خام', "تم حذف مادة خام رقم #$id");
+                setSuccess('تم حذف المادة الخام وسجل حركاتها بنجاح');
             }
         }
         redirect('index.php?tab=ingredients');
@@ -126,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             }
 
-            // Automatically update product cost_price!
+            // Automatically update product cost_price
             if ($calculatedCost > 0) {
                 execute("UPDATE products SET cost_price = ? WHERE id = ?", [$calculatedCost, $productId]);
             }
@@ -135,12 +151,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         redirect('index.php?tab=recipes');
     }
+
+    if ($action === 'delete_recipe') {
+        $recipeId = (int)($_POST['recipe_id'] ?? 0);
+        if ($recipeId > 0) {
+            execute("DELETE FROM recipes WHERE id = ?", [$recipeId]);
+            setSuccess('تم حذف وصفة المشروب بنجاح');
+        }
+        redirect('index.php?tab=recipes');
+    }
+}
+
+// Search and filter handling
+$search = trim($_GET['search'] ?? '');
+$filterCategory = trim($_GET['category'] ?? '');
+
+// Pagination
+$page = max(1, (int)($_GET['page'] ?? 1));
+$perPage = 10;
+$paginationBaseQuery = '&tab=' . urlencode($currentTab)
+    . ($search !== '' ? '&search=' . urlencode($search) : '')
+    . ($filterCategory !== '' ? '&category=' . urlencode($filterCategory) : '');
+
+// Reusable pagination renderer (matches the sleek style used across the system)
+$renderPagination = function ($currentPage, $totalPages, $totalItems, $baseQuery, $itemLabel = 'عنصر') {
+    if ($totalPages <= 1) return;
+    $activeStyle = 'display: inline-flex !important; align-items: center !important; justify-content: center !important; min-width: 36px !important; height: 36px !important; padding: 0 10px !important; border-radius: 8px !important; text-decoration: none !important; border: 1px solid #ea580c !important; background: #ea580c !important; color: #fff !important; font-weight: 800 !important;';
+    $normalStyle = 'display: inline-flex !important; align-items: center !important; justify-content: center !important; min-width: 36px !important; height: 36px !important; padding: 0 10px !important; border-radius: 8px !important; text-decoration: none !important; border: 1px solid #cbd5e1 !important; background: #fff !important; color: #334155 !important; font-weight: 700 !important;';
+    $arrowStyle = 'display: inline-flex !important; align-items: center !important; justify-content: center !important; height: 36px !important; padding: 0 14px !important; font-size: 13px !important; font-weight: 700 !important; border-radius: 8px !important; border: 1px solid #cbd5e1 !important; text-decoration: none !important;';
+    $startPage = max(1, $currentPage - 3);
+    $endPage = min($totalPages, $currentPage + 3);
+    ?>
+    <div style="padding: 16px 22px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 12px; background: #fafbfc;">
+        <div style="color: #64748b; font-size: 13.5px; font-weight: 600;">
+            عرض صفحة <span style="color: #0f172a; font-weight: 800;"><?php echo $currentPage; ?></span> من إجمالي <span style="color: #0f172a; font-weight: 800;"><?php echo $totalPages; ?></span> (<?php echo $totalItems; ?> <?php echo $itemLabel; ?>)
+        </div>
+        <nav aria-label="تنقل الصفحات">
+            <ul class="pagination" style="list-style: none !important; list-style-type: none !important; margin: 0 !important; padding: 0 !important; display: flex !important; align-items: center !important; gap: 5px !important;">
+                <li class="page-item <?php echo ($currentPage <= 1) ? 'disabled' : ''; ?>" style="list-style: none !important; margin: 0 !important; padding: 0 !important;">
+                    <a class="page-link" href="<?php echo ($currentPage > 1) ? '?page=' . ($currentPage - 1) . $baseQuery : '#'; ?>" style="<?php echo $arrowStyle; ?> <?php echo ($currentPage <= 1) ? 'color: #94a3b8 !important; background: #f1f5f9 !important; pointer-events: none !important;' : 'color: #334155 !important; background: #fff !important;'; ?>">← السابق</a>
+                </li>
+                <?php
+                if ($startPage > 1) {
+                    echo '<li style="list-style: none !important;"><a class="page-link" href="?page=1' . $baseQuery . '" style="' . $normalStyle . '">1</a></li>';
+                    if ($startPage > 2) echo '<li style="list-style: none !important; color: #94a3b8; padding: 0 4px;">…</li>';
+                }
+                for ($i = $startPage; $i <= $endPage; $i++) {
+                    echo '<li style="list-style: none !important;"><a class="page-link" href="?page=' . $i . $baseQuery . '" style="' . ($i == $currentPage ? $activeStyle : $normalStyle) . '">' . $i . '</a></li>';
+                }
+                if ($endPage < $totalPages) {
+                    if ($endPage < $totalPages - 1) echo '<li style="list-style: none !important; color: #94a3b8; padding: 0 4px;">…</li>';
+                    echo '<li style="list-style: none !important;"><a class="page-link" href="?page=' . $totalPages . $baseQuery . '" style="' . $normalStyle . '">' . $totalPages . '</a></li>';
+                }
+                ?>
+                <li class="page-item <?php echo ($currentPage >= $totalPages) ? 'disabled' : ''; ?>" style="list-style: none !important; margin: 0 !important; padding: 0 !important;">
+                    <a class="page-link" href="<?php echo ($currentPage < $totalPages) ? '?page=' . ($currentPage + 1) . $baseQuery : '#'; ?>" style="<?php echo $arrowStyle; ?> <?php echo ($currentPage >= $totalPages) ? 'color: #94a3b8 !important; background: #f1f5f9 !important; pointer-events: none !important;' : 'color: #334155 !important; background: #fff !important;'; ?>">التالي →</a>
+                </li>
+            </ul>
+        </nav>
+    </div>
+    <?php
+};
+
+$ingWhere = "WHERE 1=1";
+$ingParams = [];
+if ($search !== '') {
+    $ingWhere .= " AND name LIKE ?";
+    $ingParams[] = "%$search%";
+}
+if ($filterCategory !== '') {
+    $ingWhere .= " AND category = ?";
+    $ingParams[] = $filterCategory;
 }
 
 // Fetch Ingredients
-$ingredients = getRows("SELECT id, name, sku, base_unit, category, current_stock, min_stock_level, weighted_avg_cost, base_unit as unit, weighted_avg_cost as cost_per_unit FROM ingredients ORDER BY category ASC, name ASC");
+$ingredients = getRows("SELECT id, name, sku, base_unit, category, current_stock, min_stock_level, weighted_avg_cost, base_unit as unit, weighted_avg_cost as cost_per_unit FROM ingredients $ingWhere ORDER BY category ASC, name ASC", $ingParams);
+$allCategories = getRows("SELECT DISTINCT category FROM ingredients WHERE category IS NOT NULL AND category != '' ORDER BY category ASC");
+
+// Paginate ingredients for table display (full list $ingredients is kept for the recipe modal dropdown)
+$totalIngredients = count($ingredients);
+$ingTotalPages = max(1, (int) ceil($totalIngredients / $perPage));
+$ingPage = min($page, $ingTotalPages);
+$ingOffset = ($ingPage - 1) * $perPage;
+$pagedIngredients = array_slice($ingredients, $ingOffset, $perPage);
 
 // Fetch Recipes with Product & Variant info
+$recipesWhere = "";
+$recipesParams = [];
+if ($search !== '') {
+    $recipesWhere = "WHERE p.name LIKE ? OR pv.variant_name LIKE ?";
+    $recipesParams = ["%$search%", "%$search%"];
+}
+
+$recipesFrom = "FROM recipes r JOIN products p ON p.id = r.product_id LEFT JOIN product_variants pv ON pv.id = r.variant_id $recipesWhere";
+$totalRecipes = (int) (getRow("SELECT COUNT(*) as cnt $recipesFrom", $recipesParams)['cnt'] ?? 0);
+$recipesTotalPages = max(1, (int) ceil($totalRecipes / $perPage));
+$recipesPage = min($page, $recipesTotalPages);
+$recipesOffset = ($recipesPage - 1) * $perPage;
+
 $recipes = getRows("
     SELECT r.*, p.name as product_name, p.price as product_price, p.code as product_code,
            pv.variant_name, pv.final_price as variant_price,
@@ -152,20 +260,36 @@ $recipes = getRows("
     FROM recipes r
     JOIN products p ON p.id = r.product_id
     LEFT JOIN product_variants pv ON pv.id = r.variant_id
+    $recipesWhere
     ORDER BY p.name ASC
-");
+    LIMIT $perPage OFFSET $recipesOffset
+", $recipesParams);
 
 // Fetch Products for Recipe Modal
 $allProducts = getRows("SELECT id, name, code, has_variants, price FROM products ORDER BY name ASC");
 
 // Fetch Movements Log
+$movementsWhere = "";
+$movementsParams = [];
+if ($search !== '') {
+    $movementsWhere = "WHERE ing.name LIKE ? OR m.reason LIKE ?";
+    $movementsParams = ["%$search%", "%$search%"];
+}
+
+$movFrom = "FROM ingredient_stock_movements m JOIN ingredients ing ON ing.id = m.ingredient_id $movementsWhere";
+$totalMovements = (int) (getRow("SELECT COUNT(*) as cnt $movFrom", $movementsParams)['cnt'] ?? 0);
+$movTotalPages = max(1, (int) ceil($totalMovements / $perPage));
+$movPage = min($page, $movTotalPages);
+$movOffset = ($movPage - 1) * $perPage;
+
 $movements = getRows("
     SELECT m.*, ing.name as ingredient_name, ing.base_unit as ingredient_unit, u.full_name as user_name
     FROM ingredient_stock_movements m
     JOIN ingredients ing ON ing.id = m.ingredient_id
     LEFT JOIN users u ON u.id = m.created_by
-    ORDER BY m.id DESC LIMIT 50
-");
+    $movementsWhere
+    ORDER BY m.id DESC LIMIT $perPage OFFSET $movOffset
+", $movementsParams);
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -176,12 +300,15 @@ include '../../includes/navbar.php';
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
         <div>
             <h2 style="font-weight: 800; color: #1e293b; margin: 0; display: flex; align-items: center; gap: 10px;">
-                🧪 مخزون المواد الخام والوصفات (Recipes)
+                <span>🧪</span> مخزون المواد الخام والوصفات (Recipes)
             </h2>
             <p style="color: #64748b; margin: 4px 0 0;">إدارة خامات القهوة والألبان والمقادير لكل مشروب وحساب التكلفة الدقيقة للكوب</p>
         </div>
         <div style="display: flex; gap: 10px;">
-            <button class="btn btn-primary" onclick="openIngredientModal()" style="border-radius: 8px; font-weight: 700; background: #6F4E37; border-color: #6F4E37;">
+            <a href="../../index.php" class="btn btn-secondary" style="border-radius: 8px;">
+                🏠 الرئيسية
+            </a>
+            <button class="btn btn-primary" onclick="openIngredientModal()" style="border-radius: 8px; font-weight: 700; background: #ea580c; border-color: #ea580c;">
                 ➕ إضافة مادة خام جديدة
             </button>
             <button class="btn btn-outline-primary" onclick="openRecipeModal()" style="border-radius: 8px; font-weight: 700;">
@@ -191,23 +318,49 @@ include '../../includes/navbar.php';
     </div>
 
     <!-- Navigation Tabs -->
-    <ul class="nav nav-pills mb-4" style="background: white; padding: 6px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); display: inline-flex;">
-        <li class="nav-item">
-            <a class="nav-link <?php echo $currentTab === 'ingredients' ? 'active' : ''; ?>" href="?tab=ingredients" style="<?php echo $currentTab === 'ingredients' ? 'background: #6F4E37; color: white;' : 'color: #475569;'; ?> font-weight: 700; border-radius: 8px;">
+    <div style="margin-bottom: 20px;">
+        <div style="background: white; padding: 6px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); display: inline-flex; gap: 6px;">
+            <a class="nav-link" href="?tab=ingredients" style="<?php echo $currentTab === 'ingredients' ? 'background: #ea580c; color: white;' : 'color: #475569;'; ?> font-weight: 700; border-radius: 8px;">
                 📦 المواد الخام والمخزون (<?php echo count($ingredients); ?>)
             </a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link <?php echo $currentTab === 'recipes' ? 'active' : ''; ?>" href="?tab=recipes" style="<?php echo $currentTab === 'recipes' ? 'background: #6F4E37; color: white;' : 'color: #475569;'; ?> font-weight: 700; border-radius: 8px;">
-                📖 مقادير المشروبات (<?php echo count($recipes); ?>)
+            <a class="nav-link" href="?tab=recipes" style="<?php echo $currentTab === 'recipes' ? 'background: #ea580c; color: white;' : 'color: #475569;'; ?> font-weight: 700; border-radius: 8px;">
+                📖 مقادير المشروبات (<?php echo $totalRecipes; ?>)
             </a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link <?php echo $currentTab === 'movements' ? 'active' : ''; ?>" href="?tab=movements" style="<?php echo $currentTab === 'movements' ? 'background: #6F4E37; color: white;' : 'color: #475569;'; ?> font-weight: 700; border-radius: 8px;">
+            <a class="nav-link" href="?tab=movements" style="<?php echo $currentTab === 'movements' ? 'background: #ea580c; color: white;' : 'color: #475569;'; ?> font-weight: 700; border-radius: 8px;">
                 📊 سجل حركات المخزون والهالك
             </a>
-        </li>
-    </ul>
+        </div>
+    </div>
+
+    <!-- Search & Filter Bar -->
+    <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.04); margin-bottom: 20px;">
+        <div class="card-body" style="padding: 16px;">
+            <form method="GET" style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center;">
+                <input type="hidden" name="tab" value="<?php echo htmlspecialchars($currentTab); ?>">
+                <div style="flex: 1; min-width: 250px;">
+                    <input type="text" name="search" class="form-control" placeholder="🔍 بحث سريع في هذه الصفحة..." value="<?php echo htmlspecialchars($search); ?>">
+                </div>
+                <?php if ($currentTab === 'ingredients'): ?>
+                <div style="width: 200px;">
+                    <select name="category" class="form-select">
+                        <option value="">كل التصنيفات</option>
+                        <?php foreach ($allCategories as $cat): ?>
+                            <option value="<?php echo htmlspecialchars($cat['category']); ?>" <?php echo $filterCategory === $cat['category'] ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($cat['category']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <?php endif; ?>
+                <div>
+                    <button type="submit" class="btn btn-secondary" style="border-radius: 8px;">تصفية</button>
+                    <?php if ($search || $filterCategory): ?>
+                        <a href="?tab=<?php echo htmlspecialchars($currentTab); ?>" class="btn btn-outline-danger" style="border-radius: 8px;">إلغاء الفلتر</a>
+                    <?php endif; ?>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Tab 1: Ingredients & Stock -->
     <?php if ($currentTab === 'ingredients'): ?>
@@ -227,14 +380,14 @@ include '../../includes/navbar.php';
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if (empty($ingredients)): ?>
+                            <?php if (empty($pagedIngredients)): ?>
                                 <tr>
                                     <td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;">
-                                        لا توجد مواد خام مسجلة حالياً. اضغط "➕ إضافة مادة خام جديدة" لبدء تسجيل البن والحليب والمواد المستهلكة.
+                                        لا توجد مواد خام تطابق معايير البحث. اضغط "➕ إضافة مادة خام جديدة" لبدء تسجيل البن والحليب والمواد المستهلكة.
                                     </td>
                                 </tr>
                             <?php else: ?>
-                                <?php foreach ($ingredients as $ing): ?>
+                                <?php foreach ($pagedIngredients as $ing): ?>
                                     <?php 
                                         $isLow = ($ing['current_stock'] <= $ing['min_stock_level']);
                                         $isOut = ($ing['current_stock'] <= 0);
@@ -265,11 +418,14 @@ include '../../includes/navbar.php';
                                             <?php endif; ?>
                                         </td>
                                         <td style="text-align: left; padding-left: 20px;">
-                                            <button class="btn btn-sm btn-outline-success" onclick='openStockModal(<?php echo json_encode($ing); ?>)'>
+                                            <button class="btn btn-sm btn-outline-success" onclick='openStockModal(<?php echo json_encode($ing); ?>)' style="border-radius: 6px;">
                                                 📥 توريد / جرد
                                             </button>
-                                            <button class="btn btn-sm btn-outline-primary" onclick='editIngredient(<?php echo json_encode($ing); ?>)'>
+                                            <button class="btn btn-sm btn-outline-primary" onclick='editIngredient(<?php echo json_encode($ing); ?>)' style="border-radius: 6px;">
                                                 ✏️ تعديل
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" onclick='confirmDeleteIngredient(<?php echo $ing['id']; ?>, <?php echo json_encode($ing['name']); ?>)' style="border-radius: 6px;">
+                                                🗑️ حذف
                                             </button>
                                         </td>
                                     </tr>
@@ -278,6 +434,7 @@ include '../../includes/navbar.php';
                         </tbody>
                     </table>
                 </div>
+                <?php $renderPagination($ingPage, $ingTotalPages, $totalIngredients, $paginationBaseQuery, 'مادة خام'); ?>
             </div>
         </div>
     <?php endif; ?>
@@ -296,14 +453,14 @@ include '../../includes/navbar.php';
                                 <th>تكلفة الكوب المقدرة</th>
                                 <th>سعر البيع للزبون</th>
                                 <th>هامش الربح</th>
-                                <th style="text-align: left; padding-left: 20px;">الملاحظات</th>
+                                <th style="text-align: left; padding-left: 20px;">الإجراءات</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (empty($recipes)): ?>
                                 <tr>
                                     <td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;">
-                                        لم يتم تسجيل مقادير بعد. اضغط "📜 إنشاء وصفة لمشروب" لربط المشروبات بالمواد الخام وحساب تكلفة التحضير.
+                                        لم يتم تسجيل مقادير بعد تطابق البحث. اضغط "📜 إنشاء وصفة لمشروب" لربط المشروبات بالمواد الخام وحساب تكلفة التحضير.
                                     </td>
                                 </tr>
                             <?php else: ?>
@@ -340,11 +497,13 @@ include '../../includes/navbar.php';
                                         </td>
                                         <td>
                                             <span class="badge" style="background: #dcfce7; color: #166534; padding: 5px 10px; border-radius: 6px; font-weight: 700;">
-                                                +<?php echo formatCurrency($profit); ?> (<?php echo $profitMargin; ?>%)
+                                                <?php echo $profitMargin; ?>% ربح (+<?php echo formatCurrency($profit); ?>)
                                             </span>
                                         </td>
-                                        <td style="color: #64748b; font-size: 13px;">
-                                            <?php echo htmlspecialchars($rcp['notes'] ?? '—'); ?>
+                                        <td style="text-align: left; padding-left: 20px;">
+                                            <button type="button" class="btn btn-sm btn-outline-danger" onclick='confirmDeleteRecipe(<?php echo $rcp['id']; ?>, <?php echo json_encode($rcp['product_name']); ?>)' style="border-radius: 6px;">
+                                                🗑️ حذف الوصفة
+                                            </button>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -352,11 +511,12 @@ include '../../includes/navbar.php';
                         </tbody>
                     </table>
                 </div>
+                <?php $renderPagination($recipesPage, $recipesTotalPages, $totalRecipes, $paginationBaseQuery, 'وصفة'); ?>
             </div>
         </div>
     <?php endif; ?>
 
-    <!-- Tab 3: Movements Log -->
+    <!-- Tab 3: Stock Movements Log -->
     <?php if ($currentTab === 'movements'): ?>
         <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
             <div class="card-body" style="padding: 0;">
@@ -368,8 +528,8 @@ include '../../includes/navbar.php';
                                 <th>المادة الخام</th>
                                 <th>نوع الحركة</th>
                                 <th>الكمية</th>
-                                <th>الرصيد بعد الحركة</th>
-                                <th>السبب / البيان</th>
+                                <th>الرصيد بعدها</th>
+                                <th>البيان / السبب</th>
                                 <th>المسؤول</th>
                             </tr>
                         </thead>
@@ -418,17 +578,18 @@ include '../../includes/navbar.php';
                         </tbody>
                     </table>
                 </div>
+                <?php $renderPagination($movPage, $movTotalPages, $totalMovements, $paginationBaseQuery, 'حركة'); ?>
             </div>
         </div>
     <?php endif; ?>
 </div>
 
 <!-- Modal 1: Add/Edit Ingredient -->
-<div class="modal" id="ingredientModal" tabindex="-1" style="display: none; background: rgba(0,0,0,0.5);">
+<div class="modal" id="ingredientModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content" style="border-radius: 12px; border: none;">
+        <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="ingModalTitle" style="font-weight: 700;">➕ إضافة مادة خام جديدة</h5>
+                <h5 class="modal-title" id="ingModalTitle">➕ إضافة مادة خام جديدة</h5>
                 <button type="button" class="btn-close" onclick="closeModals()"></button>
             </div>
             <form method="POST">
@@ -479,7 +640,7 @@ include '../../includes/navbar.php';
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModals()">إلغاء</button>
-                    <button type="submit" class="btn btn-primary" style="background: #6F4E37; border-color: #6F4E37;">💾 حفظ المادة الخام</button>
+                    <button type="submit" class="btn btn-primary" style="background: #ea580c; border-color: #ea580c;">💾 حفظ المادة الخام</button>
                 </div>
             </form>
         </div>
@@ -487,11 +648,11 @@ include '../../includes/navbar.php';
 </div>
 
 <!-- Modal 2: Adjust Stock -->
-<div class="modal" id="stockModal" tabindex="-1" style="display: none; background: rgba(0,0,0,0.5);">
+<div class="modal" id="stockModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content" style="border-radius: 12px; border: none;">
+        <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" style="font-weight: 700;">📥 توريد / تسوية مخزون: <span id="stockIngName"></span></h5>
+                <h5 class="modal-title">📥 توريد / تسوية مخزون: <span id="stockIngName"></span></h5>
                 <button type="button" class="btn-close" onclick="closeModals()"></button>
             </div>
             <form method="POST">
@@ -525,11 +686,11 @@ include '../../includes/navbar.php';
 </div>
 
 <!-- Modal 3: Create Recipe -->
-<div class="modal" id="recipeModal" tabindex="-1" style="display: none; background: rgba(0,0,0,0.5);">
+<div class="modal" id="recipeModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content" style="border-radius: 12px; border: none;">
+        <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" style="font-weight: 700;">📜 إنشاء / تعديل مقادير مشروب (Recipe)</h5>
+                <h5 class="modal-title">📜 إنشاء / تعديل مقادير مشروب (Recipe)</h5>
                 <button type="button" class="btn-close" onclick="closeModals()"></button>
             </div>
             <form method="POST">
@@ -602,7 +763,38 @@ include '../../includes/navbar.php';
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModals()">إلغاء</button>
-                    <button type="submit" class="btn btn-primary" style="background: #6F4E37; border-color: #6F4E37;">💾 حفظ الوصفة</button>
+                    <button type="submit" class="btn btn-primary" style="background: #ea580c; border-color: #ea580c;">💾 حفظ الوصفة</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 4: Delete Confirmation Modal -->
+<div class="modal" id="deleteIngredientModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+        <div class="modal-content">
+            <div class="modal-header" style="background: #fee2e2; border-bottom: 1px solid #fecaca;">
+                <h5 class="modal-title" style="color: #991b1b;">⚠️ تأكيد الحذف</h5>
+                <button type="button" class="btn-close" onclick="closeModals()"></button>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="action" id="deleteFormAction" value="delete_ingredient">
+                <input type="hidden" name="ingredient_id" id="deleteIngId" value="">
+                <input type="hidden" name="recipe_id" id="deleteRecipeId" value="">
+                <div class="modal-body" style="text-align: center; padding: 25px;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">🗑️</div>
+                    <div style="font-size: 15px; color: #1e293b; margin-bottom: 8px;" id="deletePromptText">
+                        هل أنت متأكد من الحذف؟
+                    </div>
+                    <div id="deleteItemTitle" style="font-size: 17px; font-weight: 800; color: #dc2626; margin-bottom: 12px;"></div>
+                    <div style="font-size: 12px; color: #64748b;">
+                        لا يمكن التراجع عن هذه الخطوة.
+                    </div>
+                </div>
+                <div class="modal-footer" style="justify-content: center;">
+                    <button type="button" class="btn btn-secondary" onclick="closeModals()">إلغاء</button>
+                    <button type="submit" class="btn btn-danger">🗑️ نعم، احذف</button>
                 </div>
             </form>
         </div>
@@ -618,7 +810,7 @@ function openIngredientModal() {
     document.getElementById('ingModalMin').value = '10';
     document.getElementById('ingModalStock').value = '0';
     document.getElementById('initialStockDiv').style.display = 'block';
-    document.getElementById('ingredientModal').style.display = 'block';
+    document.getElementById('ingredientModal').style.display = 'flex';
 }
 
 function editIngredient(ing) {
@@ -630,24 +822,44 @@ function editIngredient(ing) {
     document.getElementById('ingModalCost').value = ing.weighted_avg_cost;
     document.getElementById('ingModalMin').value = ing.min_stock_level;
     document.getElementById('initialStockDiv').style.display = 'none';
-    document.getElementById('ingredientModal').style.display = 'block';
+    document.getElementById('ingredientModal').style.display = 'flex';
 }
 
 function openStockModal(ing) {
     document.getElementById('stockIngId').value = ing.id;
     document.getElementById('stockIngName').innerText = ing.name;
     document.getElementById('stockIngUnit').innerText = ing.base_unit;
-    document.getElementById('stockModal').style.display = 'block';
+    document.getElementById('stockModal').style.display = 'flex';
 }
 
 function openRecipeModal() {
-    document.getElementById('recipeModal').style.display = 'block';
+    document.getElementById('recipeModal').style.display = 'flex';
+}
+
+function confirmDeleteIngredient(id, name) {
+    document.getElementById('deleteFormAction').value = 'delete_ingredient';
+    document.getElementById('deleteIngId').value = id;
+    document.getElementById('deleteRecipeId').value = '';
+    document.getElementById('deletePromptText').innerText = 'هل أنت متأكد من حذف المادة الخام:';
+    document.getElementById('deleteItemTitle').innerText = name;
+    document.getElementById('deleteIngredientModal').style.display = 'flex';
+}
+
+function confirmDeleteRecipe(id, name) {
+    document.getElementById('deleteFormAction').value = 'delete_recipe';
+    document.getElementById('deleteIngId').value = '';
+    document.getElementById('deleteRecipeId').value = id;
+    document.getElementById('deletePromptText').innerText = 'هل أنت متأكد من حذف مقادير المشروب:';
+    document.getElementById('deleteItemTitle').innerText = name;
+    document.getElementById('deleteIngredientModal').style.display = 'flex';
 }
 
 function closeModals() {
     document.getElementById('ingredientModal').style.display = 'none';
     document.getElementById('stockModal').style.display = 'none';
     document.getElementById('recipeModal').style.display = 'none';
+    const del = document.getElementById('deleteIngredientModal');
+    if (del) del.style.display = 'none';
 }
 
 function loadProductVariants(productId) {

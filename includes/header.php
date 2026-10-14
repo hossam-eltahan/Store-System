@@ -15,11 +15,80 @@ if (!defined('SKIP_AUTH')) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $pageTitle ?? 'نظام إدارة المحل'; ?></title>
-    <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/style.css">
+    <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/style.css?v=<?php echo file_exists(__DIR__ . '/../assets/css/style.css') ? filemtime(__DIR__ . '/../assets/css/style.css') : time(); ?>">
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/print.css" media="print">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Critical Modal & Pagination Styles (Guarantee No Inline Render & No Bullets) -->
+    <style>
+    .modal, .modal-overlay {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: rgba(15, 23, 42, 0.75) !important;
+        backdrop-filter: blur(6px) !important;
+        -webkit-backdrop-filter: blur(6px) !important;
+        z-index: 99999 !important;
+        display: none !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 20px !important;
+        box-sizing: border-box !important;
+        overflow-y: auto !important;
+    }
+    .modal.show, .modal.active, .modal-overlay.show, .modal-overlay.active,
+    .modal[style*="display: flex"], .modal-overlay[style*="display: flex"],
+    .modal[style*="display: block"], .modal-overlay[style*="display: block"] {
+        display: flex !important;
+    }
+    ul.pagination, ol.pagination, .pagination {
+        list-style: none !important;
+        list-style-type: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+    }
+    ul.pagination li, ol.pagination li, .pagination li, .page-item {
+        list-style: none !important;
+        list-style-type: none !important;
+        display: inline-flex !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    ul.pagination li::before, ol.pagination li::before, .pagination li::before, .page-item::before {
+        display: none !important;
+        content: none !important;
+    }
+    .page-link {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        min-width: 36px !important;
+        height: 36px !important;
+        padding: 0 12px !important;
+        font-size: 13.5px !important;
+        font-weight: 700 !important;
+        color: #475569 !important;
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 8px !important;
+        text-decoration: none !important;
+        transition: all 0.18s ease-in-out !important;
+    }
+    .page-item.active .page-link, .page-link.active {
+        background: #ea580c !important;
+        border-color: #ea580c !important;
+        color: #ffffff !important;
+    }
+    </style>
     
     <!-- Toast Notification Styles -->
     <style>

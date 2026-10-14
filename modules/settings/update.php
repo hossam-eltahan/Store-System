@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Software Updates Page
  * صفحة تحديثات البرنامج
@@ -90,10 +90,20 @@ require_once '../../includes/header.php';
 require_once '../../includes/navbar.php';
 ?>
 
-<div class="content-wrapper">
-    <div class="page-header">
-        <h1><i class="fa-solid fa-cloud-arrow-down"></i> تحديثات البرنامج</h1>
-        <p style="color:var(--text-secondary); margin-top:5px;">إدارة تحديثات النظام والتحقق من الإصدارات الجديدة</p>
+<div class="container">
+    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div>
+            <h1 style="margin: 0;"><i class="fa-solid fa-cloud-arrow-down"></i> تحديثات البرنامج</h1>
+            <p style="color:var(--text-secondary); margin:4px 0 0;">إدارة تحديثات النظام والتحقق من الإصدارات الجديدة</p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <a href="../../index.php" class="btn btn-secondary" style="border-radius: 8px;">
+                🏠 الرئيسية
+            </a>
+            <a href="index.php" class="btn btn-secondary" style="border-radius: 8px;">
+                ⚙️ الإعدادات
+            </a>
+        </div>
     </div>
 
     <?php if ($message): ?>
@@ -328,5 +338,6 @@ if (dropZone) {
     });
 }
 </script>
+</div><!-- End container -->
 
 <?php require_once '../../includes/footer.php'; ?>

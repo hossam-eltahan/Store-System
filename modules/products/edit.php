@@ -116,8 +116,92 @@ include '../../includes/header.php';
 include '../../includes/navbar.php';
 ?>
 
-<div class="container" style="max-width: 900px; padding: 25px 15px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+<style>
+    .edit-product-page {
+        max-width: 1120px !important;
+        padding: 14px 20px !important;
+    }
+    .edit-product-page .edit-page-header {
+        margin-bottom: 14px !important;
+        padding: 10px 0;
+    }
+    .edit-product-page .edit-page-header h2 {
+        font-size: 19px;
+    }
+    .edit-product-page .edit-page-header p {
+        margin-top: 2px !important;
+        font-size: 12px;
+    }
+    .edit-product-page .edit-card {
+        margin-bottom: 12px !important;
+        border: 1px solid #e2e8f0 !important;
+        box-shadow: 0 2px 5px rgba(15, 23, 42, 0.04) !important;
+    }
+    .edit-form-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+        gap: 14px;
+        align-items: start;
+    }
+    .edit-product-page .edit-card .card-header {
+        min-height: 42px;
+        padding: 10px 14px !important;
+        font-size: 13px;
+    }
+    .edit-product-page .edit-card .card-body {
+        padding: 14px !important;
+    }
+    .edit-product-page .mb-3 {
+        margin-bottom: 8px !important;
+    }
+    .edit-product-page .form-label {
+        margin-bottom: 3px;
+        font-size: 12px;
+    }
+    .edit-product-page .form-control,
+    .edit-product-page .form-select {
+        min-height: 35px;
+        padding: 6px 9px;
+        font-size: 12.5px;
+    }
+    .edit-product-page .form-check {
+        font-size: 12px;
+    }
+    .edit-product-page #variantsBody > p {
+        margin-bottom: 8px !important;
+        font-size: 12px !important;
+    }
+    .edit-product-page #variantsTable th,
+    .edit-product-page #variantsTable td {
+        padding: 5px 7px;
+        font-size: 12px;
+    }
+    .edit-product-page .edit-actions {
+        gap: 8px !important;
+        margin-top: 4px;
+    }
+    .edit-product-page .edit-actions .btn {
+        padding: 8px 18px !important;
+        font-size: 13px;
+    }
+    @media (max-width: 768px) {
+        .edit-product-page {
+            padding: 10px 12px !important;
+        }
+        .edit-form-grid {
+            grid-template-columns: 1fr;
+        }
+        .edit-product-page .edit-page-header {
+            align-items: flex-start !important;
+        }
+        .edit-product-page .edit-page-header h2 {
+            font-size: 16px;
+        }
+    }
+</style>
+
+<div class="container edit-product-page">
+    <div class="edit-page-header" style="display: flex; justify-content: space-between; align-items: center;">
         <div>
             <h2 style="font-weight: 800; color: #1e293b; margin: 0;">✏️ تعديل صنف: <?php echo htmlspecialchars($product['name']); ?></h2>
             <p style="color: #64748b; margin: 5px 0 0;">تعديل الأسعار والأحجام والتفاصيل المتاحة للكاشير</p>
@@ -126,8 +210,9 @@ include '../../includes/navbar.php';
     </div>
 
     <form method="POST" enctype="multipart/form-data">
+        <div class="edit-form-grid">
         <!-- Main Info Card -->
-        <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 20px;">
+        <div class="card edit-card" style="border-radius: 12px;">
             <div class="card-header" style="background: #f8fafc; font-weight: 700; border-bottom: 1px solid #e2e8f0;">
                 📝 المعلومات الأساسية
             </div>
@@ -202,7 +287,7 @@ include '../../includes/navbar.php';
 
         <!-- Variants Section Card -->
         <?php $hasVarsInitial = ($product['has_variants'] == 1 || !empty($existingVariants)); ?>
-        <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 25px;">
+        <div class="card edit-card" style="border-radius: 12px;">
             <div class="card-header" style="background: #f8fafc; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0;">
                 <div style="font-weight: 700;">
                     📏 أحجام وخيارات الصنف (سنجل / دبل، صغير / وسط / كبير)
@@ -271,7 +356,9 @@ include '../../includes/navbar.php';
             </div>
         </div>
 
-        <div style="display: flex; gap: 15px; justify-content: flex-end;">
+        </div>
+
+        <div class="edit-actions" style="display: flex; justify-content: flex-end;">
             <a href="index.php" class="btn btn-secondary btn-lg" style="padding: 10px 25px;">إلغاء</a>
             <button type="submit" class="btn btn-primary btn-lg" style="padding: 10px 35px; font-weight: 700; background: #6F4E37; border-color: #6F4E37;">
                 💾 حفظ التعديلات

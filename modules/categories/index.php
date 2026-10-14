@@ -69,26 +69,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// Search filter
+$search = trim($_GET['search'] ?? '');
+$searchWhere = "";
+$params = [];
+if ($search !== '') {
+    $searchWhere = "WHERE c.name LIKE ?";
+    $params[] = "%$search%";
+}
+
+$categoriesPerPage = 8;
+$categoriesPage = max(1, (int)($_GET['page'] ?? 1));
+$totalCategoriesRow = getRow("SELECT COUNT(*) AS total FROM categories c $searchWhere", $params);
+$totalCategories = (int)($totalCategoriesRow['total'] ?? 0);
+$totalCategoryPages = max(1, (int)ceil($totalCategories / $categoriesPerPage));
+$categoriesPage = min($categoriesPage, $totalCategoryPages);
+$categoriesOffset = ($categoriesPage - 1) * $categoriesPerPage;
+
 $categoriesList = getRows("
     SELECT c.*, COUNT(p.id) AS products_count 
     FROM categories c 
     LEFT JOIN products p ON p.category_id = c.id 
     GROUP BY c.id 
+    $searchWhere
     ORDER BY c.sort_order ASC, c.name ASC
-");
+    LIMIT $categoriesPerPage OFFSET $categoriesOffset
+", $params);
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
 ?>
 
-<div class="container-fluid" style="padding: 15px 25px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+<style>
+    .category-page { padding: 12px 20px !important; }
+    .category-page .category-header { margin-bottom: 14px !important; }
+    .category-page .category-header h2 { font-size: 19px; }
+    .category-page .category-header p { margin-top: 2px !important; font-size: 12px; }
+    .category-page .card { margin-bottom: 12px !important; box-shadow: 0 2px 5px rgba(15, 23, 42, 0.04) !important; }
+    .category-page .card-body { padding: 14px !important; }
+    .category-page .form-control { min-height: 35px; padding: 6px 9px; font-size: 12.5px; }
+    .category-page table th, .category-page table td { padding: 8px 10px !important; font-size: 12px; }
+</style>
+
+<div class="container-fluid category-page">
+    <!-- Top Header -->
+    <div class="category-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
         <div>
-            <h2 style="font-weight: 800; color: #1e293b; margin: 0;">🏷️ إدارة أقسام المنيو</h2>
+            <h2 style="font-weight: 800; color: #1e293b; margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span>🏷️</span> إدارة أقسام المنيو
+            </h2>
             <p style="color: #64748b; margin: 5px 0 0;">إضافة وترتيب أقسام المشروبات والحلويات مع تحديد الأيقونات والألوان للظهور في الكاشير</p>
         </div>
         <div style="display: flex; gap: 10px;">
-            <a href="../products/index.php" class="btn btn-secondary">📋 العودة لقائمة الأصناف</a>
+            <a href="../../index.php" class="btn btn-secondary" style="border-radius: 8px;">🏠 الرئيسية</a>
+            <a href="../products/index.php" class="btn btn-secondary" style="border-radius: 8px;">📋 العودة للأصناف</a>
         </div>
     </div>
 
@@ -119,7 +153,7 @@ include '../../includes/navbar.php';
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label class="form-label" style="font-weight: 600;">اللون في الكاشير</label>
-                                <input type="color" name="color" class="form-control form-control-color w-100" value="<?php echo htmlspecialchars($editingCategory['color'] ?? '#6F4E37'); ?>" style="height: 42px;">
+                                <input type="color" name="color" class="form-control form-control-color w-100" value="<?php echo htmlspecialchars($editingCategory['color'] ?? '#ea580c'); ?>" style="height: 42px;">
                             </div>
                         </div>
 
@@ -145,7 +179,7 @@ include '../../includes/navbar.php';
                         </div>
 
                         <div class="d-flex gap-2">
-                            <button class="btn btn-primary w-100" type="submit" style="font-weight: 700; background: #6F4E37; border-color: #6F4E37;">
+                            <button class="btn btn-primary w-100" type="submit" style="font-weight: 700; background: #ea580c; border-color: #ea580c;">
                                 <?php echo $editingCategory ? '💾 حفظ التعديلات' : '➕ إضافة القسم'; ?>
                             </button>
                             <?php if ($editingCategory): ?>
@@ -162,7 +196,7 @@ include '../../includes/navbar.php';
         <div class="<?php echo hasPermission('categories.manage') ? 'col-lg-8' : 'col-12'; ?>">
             <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
                 <div class="card-header" style="background: #f8fafc; font-weight: 700; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                    <span>📋 أقسام المنيو الحالية (<?php echo count($categoriesList); ?>)</span>
+                    <span>📋 أقسام المنيو الحالية (<?php echo $totalCategories; ?>)</span>
                 </div>
                 <div class="card-body" style="padding: 0;">
                     <div class="table-responsive">
@@ -179,7 +213,7 @@ include '../../includes/navbar.php';
                             </thead>
                             <tbody>
                                 <?php if (empty($categoriesList)): ?>
-                                    <tr><td colspan="6" class="text-center" style="padding: 30px;">لا توجد أقسام مسجلة.</td></tr>
+                                    <tr><td colspan="6" class="text-center" style="padding: 30px;">لا توجد أقسام مطابقة للبحث.</td></tr>
                                 <?php else: ?>
                                     <?php foreach ($categoriesList as $cat): ?>
                                         <tr style="vertical-align: middle;">
@@ -191,7 +225,7 @@ include '../../includes/navbar.php';
                                             <td>
                                                 <div style="display: flex; align-items: center; gap: 8px;">
                                                     <span style="font-size: 22px;"><?php echo htmlspecialchars($cat['icon'] ?? '☕'); ?></span>
-                                                    <span style="display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: <?php echo htmlspecialchars($cat['color'] ?? '#6F4E37'); ?>; border: 1px solid #cbd5e1;"></span>
+                                                    <span style="display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: <?php echo htmlspecialchars($cat['color'] ?? '#ea580c'); ?>; border: 1px solid #cbd5e1;"></span>
                                                 </div>
                                             </td>
                                             <td><?php echo (int)$cat['sort_order']; ?></td>
@@ -207,12 +241,10 @@ include '../../includes/navbar.php';
                                             </td>
                                             <td style="text-align: left; padding-left: 20px;">
                                                 <?php if (hasPermission('categories.manage')): ?>
-                                                    <a class="btn btn-sm btn-outline-primary" href="?edit=<?php echo $cat['id']; ?>">✏️ تعديل</a>
-                                                    <form method="POST" style="display: inline;" onsubmit="return confirm('هل أنت متأكد من حذف هذا القسم؟');">
-                                                        <input type="hidden" name="action" value="delete">
-                                                        <input type="hidden" name="category_id" value="<?php echo $cat['id']; ?>">
-                                                        <button class="btn btn-sm btn-outline-danger" type="submit" <?php echo $cat['products_count'] > 0 ? 'disabled title="لا يمكن حذف قسم به أصناف"' : ''; ?>>🗑️ حذف</button>
-                                                    </form>
+                                                    <a class="btn btn-sm btn-outline-primary" href="?edit=<?php echo $cat['id']; ?>" style="border-radius: 6px;">✏️ تعديل</a>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick='confirmDeleteCategory(<?php echo $cat['id']; ?>, <?php echo json_encode($cat['name']); ?>, <?php echo (int)$cat['products_count']; ?>)' style="border-radius: 6px;" <?php echo $cat['products_count'] > 0 ? 'disabled title="لا يمكن حذف قسم به أصناف"' : ''; ?>>
+                                                        🗑️ حذف
+                                                    </button>
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
@@ -221,10 +253,77 @@ include '../../includes/navbar.php';
                             </tbody>
                         </table>
                     </div>
+                    <?php if ($totalCategoryPages > 1): ?>
+                    <?php $categoryQuery = $search !== '' ? '&search=' . urlencode($search) : ''; ?>
+                    <div style="display:flex; justify-content:center; align-items:center; gap:6px; flex-wrap:wrap; padding:14px 10px 4px; direction:rtl;">
+                        <?php if ($categoriesPage > 1): ?>
+                            <a href="?page=<?php echo $categoriesPage - 1 . $categoryQuery; ?>" class="page-link" style="font-size:12px;">السابق</a>
+                        <?php endif; ?>
+                        <?php for ($pageNumber = 1; $pageNumber <= $totalCategoryPages; $pageNumber++): ?>
+                            <a href="?page=<?php echo $pageNumber . $categoryQuery; ?>" class="page-link <?php echo $pageNumber === $categoriesPage ? 'active' : ''; ?>" style="min-width:32px; font-size:12px;"><?php echo $pageNumber; ?></a>
+                        <?php endfor; ?>
+                        <?php if ($categoriesPage < $totalCategoryPages): ?>
+                            <a href="?page=<?php echo $categoriesPage + 1 . $categoryQuery; ?>" class="page-link" style="font-size:12px;">التالي</a>
+                        <?php endif; ?>
+                    </div>
+                    <div style="text-align:center; color:#64748b; font-size:11px; padding:4px 0 10px;">صفحة <?php echo $categoriesPage; ?> من <?php echo $totalCategoryPages; ?></div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal" id="deleteCategoryModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+        <div class="modal-content">
+            <div class="modal-header" style="background: #fee2e2; border-bottom: 1px solid #fecaca;">
+                <h5 class="modal-title" style="color: #991b1b;">⚠️ تأكيد حذف القسم</h5>
+                <button type="button" class="btn-close" onclick="closeDeleteModal()"></button>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="category_id" id="deleteCatId" value="">
+                <div class="modal-body" style="text-align: center; padding: 25px;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">🗑️</div>
+                    <div style="font-size: 15px; color: #1e293b; margin-bottom: 8px;">
+                        هل أنت متأكد من حذف قسم المنيو:
+                    </div>
+                    <div id="deleteCatName" style="font-size: 17px; font-weight: 800; color: #dc2626; margin-bottom: 12px;"></div>
+                    <div style="font-size: 12px; color: #64748b;">
+                        لا يمكن التراجع عن هذا الإجراء.
+                    </div>
+                </div>
+                <div class="modal-footer" style="justify-content: center;">
+                    <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">إلغاء</button>
+                    <button type="submit" class="btn btn-danger">🗑️ نعم، احذف</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function confirmDeleteCategory(id, name, count) {
+    if (count > 0) {
+        alert('لا يمكن حذف القسم لأنه يحتوي على ' + count + ' صنف. يرجى نقل الأصناف أو تعديلها أولاً.');
+        return;
+    }
+    document.getElementById('deleteCatId').value = id;
+    document.getElementById('deleteCatName').innerText = name;
+    document.getElementById('deleteCategoryModal').style.display = 'flex';
+}
+
+function closeDeleteModal() {
+    document.getElementById('deleteCategoryModal').style.display = 'none';
+}
+
+window.onclick = function(e) {
+    if (e.target == document.getElementById('deleteCategoryModal')) {
+        closeDeleteModal();
+    }
+}
+</script>
 
 <?php include '../../includes/footer.php'; ?>

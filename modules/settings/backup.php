@@ -154,9 +154,19 @@ include '../../includes/navbar.php';
 ?>
 
 <div class="container">
-    <div class="card">
-        <div class="card-header">💾 النسخ الاحتياطي والاستعادة</div>
-        <div class="card-body">
+    <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+        <div class="card-header" style="background: linear-gradient(135deg, #10b981, #059669); color: white; display: flex; justify-content: space-between; align-items: center; padding: 12px 18px;">
+            <span>💾 النسخ الاحتياطي واستعادة البيانات</span>
+            <div style="display: flex; gap: 8px;">
+                <a href="../../index.php" style="background: rgba(255,255,255,0.2); color: white; text-decoration: none; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">
+                    🏠 الرئيسية
+                </a>
+                <a href="index.php" style="background: rgba(255,255,255,0.2); color: white; text-decoration: none; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">
+                    ⚙️ الإعدادات
+                </a>
+            </div>
+        </div>
+        <div class="card-body" style="padding: 20px;">
             <div class="alert alert-info">
                 <strong>ℹ️ معلومات هامة:</strong>
                 <ul style="margin: 10px 0 0 20px;">

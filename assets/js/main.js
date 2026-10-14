@@ -21,8 +21,181 @@ function confirmDelete(message = 'هل أنت متأكد من الحذف؟') {
 
 // Format number with commas
 function formatNumber(num) {
+    if (num === undefined || num === null) return "0";
     return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
+
+/**
+ * Dynamic Toast Notification
+ * @param {string} message 
+ * @param {string} type 'success' or 'error' or 'info'
+ */
+function showToast(message, type = 'success') {
+    // Remove existing toast if any
+    const existing = document.getElementById('simple-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.id = 'simple-toast';
+    toast.className = type === 'info' ? 'success' : type; // reusing success styles for info
+    if (type === 'info') toast.style.background = '#3b82f6';
+    
+    const icon = type === 'success' ? '✅' : (type === 'error' ? '❌' : '🔔');
+    
+    toast.innerHTML = `
+        <span>${icon}</span>
+        <span class="toast-text">${message}</span>
+        <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Auto hide after 10 seconds for timer alerts
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.classList.add('hiding');
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 10000);
+}
+
+// Global Timer Checker
+let timerCheckInterval = null;
+let notifiedAlertKeys = new Set();
+
+function resolveAppUrl(relativePath) {
+    const base = (window.APP_BASE_URL && typeof window.APP_BASE_URL === 'string') ? window.APP_BASE_URL : '';
+    if (base) return base + relativePath.replace(/^\/+/, '');
+    const path = window.location.pathname || '';
+    const prefix = path.includes('/modules/') ? '../../' : './';
+    return prefix + relativePath.replace(/^\/+/, '');
+}
+
+function escapeHtmlNotif(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function notificationLink(link) {
+    const rel = String(link || '').replace(/^\/+/, '');
+    const base = (window.APP_BASE_URL && typeof window.APP_BASE_URL === 'string') ? window.APP_BASE_URL : '';
+    return base + rel;
+}
+
+function updateNotificationBadge(count) {
+    const bell = document.getElementById('notificationBell');
+    if (!bell) return;
+    let badge = bell.querySelector('.notification-badge');
+    const safeCount = (typeof count === 'number' && !isNaN(count)) ? count : 0;
+    if (safeCount > 0) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'notification-badge';
+            bell.appendChild(badge);
+        }
+        badge.textContent = safeCount > 99 ? '99+' : safeCount;
+    } else if (badge) {
+        badge.remove();
+    }
+
+    const countSpan = document.querySelector('.notification-count');
+    if (countSpan) countSpan.textContent = safeCount;
+}
+
+function updateNotificationDropdown(notifications) {
+    const body = document.querySelector('.notification-dropdown-body');
+    if (!body) return;
+
+    const items = Array.isArray(notifications) ? notifications : [];
+    if (items.length === 0) {
+        body.innerHTML = '<div class="notification-empty">✔️ لا توجد إشعارات</div>';
+        return;
+    }
+
+    body.innerHTML = items.map(function (notif) {
+        return '<a href="' + escapeHtmlNotif(notificationLink(notif.link)) + '" class="notification-dropdown-item ' + escapeHtmlNotif(notif.type || 'info') + '">' +
+            '<span class="notification-dropdown-icon">' + escapeHtmlNotif(notif.icon || '🔔') + '</span>' +
+            '<div class="notification-dropdown-content">' +
+                '<div class="notification-dropdown-title">' + escapeHtmlNotif(notif.title || '') + '</div>' +
+                '<div class="notification-dropdown-message">' + escapeHtmlNotif(notif.message || '') + '</div>' +
+            '</div>' +
+        '</a>';
+    }).join('');
+}
+
+async function checkTimersNow() {
+    const ajaxUrl = resolveAppUrl('modules/notifications/ajax.php?action=check_timers');
+    try {
+        const res = await fetch(ajaxUrl, { cache: 'no-store' });
+        const data = await res.json();
+        if (!data || !data.success) return;
+
+        updateNotificationBadge(data.notification_count || 0);
+        if (Array.isArray(data.notifications)) {
+            updateNotificationDropdown(data.notifications);
+        }
+
+        const alerts = Array.isArray(data.new_alerts) ? data.new_alerts : (Array.isArray(data.finished) ? data.finished : []);
+        alerts.forEach(sess => {
+            const key = `${sess.type || 'session'}_${sess.id || sess.name}`;
+            if (notifiedAlertKeys.has(key)) return;
+            notifiedAlertKeys.add(key);
+            const message = sess.message || (sess.name ? `انتهى وقت ${sess.name}` : 'انتهى وقت جلسة');
+            showToast(message, 'info');
+            playNotificationSound();
+            tryNotifyBrowser(message);
+        });
+
+        // If we are on the gaming or billiards page, refresh to show updated status
+        if (window.location.pathname.includes('modules/gaming/index.php') ||
+            window.location.pathname.includes('modules/billiards/index.php')) {
+            if (typeof loadDevices === 'function') loadDevices();
+            if (typeof loadTables === 'function') loadTables();
+        }
+    } catch (err) {
+        try { console.warn('Global timer check failed:', err, ajaxUrl); } catch (e) {}
+    }
+}
+
+function tryNotifyBrowser(message) {
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission === 'granted') {
+        new Notification('كافيه عروسة النيل', { body: message, icon: '🔔' });
+    }
+}
+
+function startTimerNotifications() {
+    // Immediate check
+    checkTimersNow();
+    // Poll every 5 seconds so alerts appear quickly regardless of page
+    timerCheckInterval = setInterval(checkTimersNow, 5000);
+}
+
+// Request browser notification permission on user interaction
+document.addEventListener('click', function() {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+}, { once: true });
+
+// Initialize global features
+function initTimerNotificationsOnce() {
+    if (window.__timerNotificationsStarted) return;
+    window.__timerNotificationsStarted = true;
+    startTimerNotifications();
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initTimerNotificationsOnce);
+} else {
+    initTimerNotificationsOnce();
+}
+window.addEventListener('pageshow', function () {
+    // Re-check when returning to a cached page.
+    checkTimersNow();
+});
 
 // Calculate totals in invoice
 function calculateInvoiceTotal() {

@@ -190,7 +190,13 @@ try {
                 $subtotal += ($price * $qty) + ($modsTotal * $qty);
             }
 
-            $totalAmount = max(0, $subtotal - $discountAmount);
+            $discountAmount = min($discountAmount, $subtotal);
+
+            $discountedSubtotal = max(0, $subtotal - $discountAmount);
+            $vatRate = max(0, (float)getSetting('vat_rate', 0));
+            $serviceRate = max(0, (float)getSetting('service_charge', 0));
+            $taxAmount = round($discountedSubtotal * (($vatRate + $serviceRate) / 100), 2);
+            $totalAmount = $discountedSubtotal + $taxAmount;
 
             // تحديد حالة الدفع
             // إذا كان الطلب مربوطاً بجلسة بلايستيشن أو بلياردو أو طاولة مفتوحة، يمكن أن يكون الحساب معلقاً حتى إغلاق الجلسة
@@ -202,15 +208,19 @@ try {
             // إنشاء الطلب
             $orderId = insert(
                 "INSERT INTO orders (order_number, order_type, table_session_id, gaming_session_id, billiard_session_id, 
-                                     status, subtotal, discount_amount, total_amount, paid_amount, payment_status, 
+                                     status, subtotal, discount_amount, tax_amount, total_amount, paid_amount, payment_status, 
                                      payment_method, customer_name, customer_phone, notes, shift_id, created_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     $orderNumber, $orderType, $tableSessionId, $gamingSessionId, $billiardSessionId,
-                    $orderStatus, $subtotal, $discountAmount, $totalAmount, $paidAmount, $paymentStatus,
+                    $orderStatus, $subtotal, $discountAmount, $taxAmount, $totalAmount, $paidAmount, $paymentStatus,
                     $paymentMethod, $customerName, $customerPhone, $orderNotes, $shiftId, getCurrentUserId()
                 ]
             );
+
+            if (!$orderId) {
+                throw new RuntimeException('تعذر إنشاء الطلب في قاعدة البيانات');
+            }
 
             // إدخال بنود الطلب
             foreach ($items as $item) {
@@ -234,6 +244,10 @@ try {
                         $item['notes'] ?? null
                     ]
                 );
+
+                if (!$orderItemId) {
+                    throw new RuntimeException('تعذر إضافة صنف الطلب في قاعدة البيانات');
+                }
 
                 // إدخال الإضافات
                 if (!empty($item['modifiers'])) {

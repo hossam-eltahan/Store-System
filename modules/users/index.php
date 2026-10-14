@@ -28,9 +28,14 @@ include '../../includes/navbar.php';
 <div class="container">
     <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h1 style="margin: 0;">🔐 إدارة المستخدمين</h1>
-        <a href="add.php" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 6px;">
-            <span>➕</span> إضافة مستخدم جديد
-        </a>
+        <div style="display: flex; gap: 8px;">
+            <a href="../../index.php" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 6px;">
+                <span>🏠</span> الرئيسية
+            </a>
+            <a href="add.php" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 6px;">
+                <span>➕</span> إضافة مستخدم جديد
+            </a>
+        </div>
     </div>
 
     <!-- Stats -->

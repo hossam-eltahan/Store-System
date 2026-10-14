@@ -144,6 +144,11 @@ function getSuccess() {
     return null;
 }
 
+// Check if success message exists
+function hasSuccess() {
+    return isset($_SESSION['success']) && !empty($_SESSION['success']);
+}
+
 // Get and clear error message
 function getError() {
     if (isset($_SESSION['error'])) {
@@ -152,6 +157,11 @@ function getError() {
         return $message;
     }
     return null;
+}
+
+// Check if error message exists
+function hasError() {
+    return isset($_SESSION['error']) && !empty($_SESSION['error']);
 }
 
 // Log activity

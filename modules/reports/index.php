@@ -1268,6 +1268,9 @@ include '../../includes/navbar.php';
     
     <!-- Unified Report Tabs -->
     <div class="report-tabs noprint">
+        <a href="../../index.php" class="report-tab" style="background: #1e293b; color: white;">
+            🏠 الرئيسية
+        </a>
         <?php foreach ($typeNames as $key => $label): ?>
             <a href="?type=<?php echo $key; ?>" class="report-tab <?php echo $reportType == $key ? 'active' : ''; ?>">
                 <?php echo $label; ?>

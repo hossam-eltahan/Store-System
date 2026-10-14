@@ -26,7 +26,8 @@ try {
             // جلب الجلسات النشطة الحالية
             $activeSessions = getRows(
                 "SELECT gs.*, u.full_name as opened_by_name,
-                        TIMESTAMPDIFF(SECOND, gs.started_at, NOW()) as total_seconds_from_start
+                        TIMESTAMPDIFF(SECOND, gs.started_at, NOW()) as total_seconds_from_start,
+                        IF(gs.status = 'paused' AND gs.paused_at IS NOT NULL, TIMESTAMPDIFF(SECOND, gs.paused_at, NOW()), 0) as current_pause_seconds
                  FROM gaming_sessions gs 
                  LEFT JOIN users u ON gs.opened_by = u.id 
                  WHERE gs.status IN ('active', 'paused')"
@@ -34,6 +35,9 @@ try {
 
             $sessionMap = [];
             foreach ($activeSessions as $sess) {
+                if (($sess['status'] ?? '') === 'paused') {
+                    $sess['total_paused_seconds'] = (int)$sess['total_paused_seconds'] + (int)($sess['current_pause_seconds'] ?? 0);
+                }
                 // جلب طلبات الكافيه المضافة للجلسة
                 $orders = getRows("SELECT id, order_number, total_amount FROM orders WHERE gaming_session_id = ?", [$sess['id']]);
                 $sess['orders'] = $orders;
@@ -76,8 +80,10 @@ try {
                 exit;
             }
 
-            // تحديد سعر الساعة المطبق
-            $appliedRate = ($sessionType === 'multi') ? $device['rate_multi'] : $device['rate_single'];
+            // Use cafe defaults for new sessions, with device rates as a fallback.
+            $defaultSingleRate = (float)getSetting('ps_default_rate_single', $device['rate_single']);
+            $defaultMultiRate = (float)getSetting('ps_default_rate_multi', $device['rate_multi']);
+            $appliedRate = ($sessionType === 'multi') ? $defaultMultiRate : $defaultSingleRate;
             if ($sessionType === 'vip' && !empty($device['rate_vip'])) {
                 $appliedRate = $device['rate_vip'];
             }
@@ -144,6 +150,11 @@ try {
 
         // 5. تبديل نوع اللعب أثناء الجلسة (Single <-> Multi)
         case 'switch_type':
+            if (!hasPermission('gaming.manage')) {
+                echo json_encode(['success' => false, 'error' => 'ليس لديك صلاحية تعديل جلسات اللعب']);
+                exit;
+            }
+
             $sessionId = (int)($_POST['session_id'] ?? 0);
             $newType = $_POST['new_type'] ?? 'multi'; // single, multi
 
@@ -153,7 +164,9 @@ try {
                 exit;
             }
 
-            $newRate = ($newType === 'multi') ? $session['rate_multi'] : $session['rate_single'];
+            $newRate = ($newType === 'multi')
+                ? (float)getSetting('ps_default_rate_multi', $session['rate_multi'])
+                : (float)getSetting('ps_default_rate_single', $session['rate_single']);
             execute("UPDATE gaming_sessions SET session_type = ?, applied_rate = ? WHERE id = ?", [$newType, $newRate, $sessionId]);
 
             echo json_encode(['success' => true, 'new_rate' => $newRate, 'message' => "تم التبديل إلى $newType بنجاح"], JSON_UNESCAPED_UNICODE);
@@ -161,6 +174,11 @@ try {
 
         // 6. نقل الجلسة إلى جهاز آخر
         case 'transfer_device':
+            if (!hasPermission('gaming.manage')) {
+                echo json_encode(['success' => false, 'error' => 'ليس لديك صلاحية نقل جلسات اللعب']);
+                exit;
+            }
+
             $sessionId = (int)($_POST['session_id'] ?? 0);
             $targetDeviceId = (int)($_POST['target_device_id'] ?? 0);
 
@@ -180,7 +198,9 @@ try {
             }
 
             // حساب السعر الجديد
-            $newRate = ($session['session_type'] === 'multi') ? $targetDev['rate_multi'] : $targetDev['rate_single'];
+            $newRate = ($session['session_type'] === 'multi')
+                ? (float)getSetting('ps_default_rate_multi', $targetDev['rate_multi'])
+                : (float)getSetting('ps_default_rate_single', $targetDev['rate_single']);
 
             execute("UPDATE gaming_sessions SET device_id = ?, applied_rate = ? WHERE id = ?", [$targetDeviceId, $newRate, $sessionId]);
 
@@ -204,8 +224,13 @@ try {
                 exit;
             }
 
-            // صافي الثواني
-            $netSeconds = max(0, $session['raw_seconds'] - $session['total_paused_seconds']);
+            // صافي الثواني (مع احتساب الإيقاف المؤقت الحالي)
+            $totalPaused = (int)$session['total_paused_seconds'];
+            if (($session['status'] ?? '') === 'paused' && !empty($session['paused_at'])) {
+                $pauseRow = getRow("SELECT TIMESTAMPDIFF(SECOND, ?, NOW()) as d", [$session['paused_at']]);
+                $totalPaused += (int)($pauseRow['d'] ?? 0);
+            }
+            $netSeconds = max(0, $session['raw_seconds'] - $totalPaused);
             $netMinutes = ceil($netSeconds / 60);
 
             // تطبيق الحد الأدنى
@@ -218,11 +243,15 @@ try {
             // طلبات الكافيه
             $cafeOrders = getRows("SELECT * FROM orders WHERE gaming_session_id = ?", [$sessionId]);
             $cafeTotal = 0;
+            $cafePaid = 0;
             foreach ($cafeOrders as $ord) {
                 $cafeTotal += floatval($ord['total_amount']);
+                $orderPayment = getRow("SELECT COALESCE(SUM(amount), 0) AS total FROM payment_records WHERE source_type = 'order' AND source_id = ? AND payment_type = 'payment'", [$ord['id']]);
+                $cafePaid += (float)($orderPayment['total'] ?? 0);
             }
 
             $grandTotal = $timeCharge + $cafeTotal;
+            $amountDue = max(0, $timeCharge + $cafeTotal - $cafePaid);
 
             echo json_encode([
                 'success' => true,
@@ -233,6 +262,8 @@ try {
                 'time_charge' => $timeCharge,
                 'cafe_orders' => $cafeOrders,
                 'cafe_total' => $cafeTotal,
+                'cafe_paid' => $cafePaid,
+                'amount_due' => $amountDue,
                 'grand_total' => $grandTotal
             ], JSON_UNESCAPED_UNICODE);
             break;
@@ -267,22 +298,36 @@ try {
 
             beginTransaction();
 
-            $netSeconds = max(0, $session['raw_seconds'] - $session['total_paused_seconds']);
+            $totalPaused = (int)$session['total_paused_seconds'];
+            if (($session['status'] ?? '') === 'paused' && !empty($session['paused_at'])) {
+                $pauseRow = getRow("SELECT TIMESTAMPDIFF(SECOND, ?, NOW()) as d", [$session['paused_at']]);
+                $totalPaused += (int)($pauseRow['d'] ?? 0);
+            }
+            $netSeconds = max(0, $session['raw_seconds'] - $totalPaused);
             $netMinutes = ceil($netSeconds / 60);
             $billableMinutes = max((int)$session['min_billable_minutes'], $netMinutes);
             $hourlyRate = floatval($session['applied_rate']);
             $gamingCharge = round(($billableMinutes / 60) * $hourlyRate, 2);
 
             // طلبات الكافيه المرتبطة
-            $cafeOrders = getRows("SELECT id, total_amount FROM orders WHERE gaming_session_id = ?", [$sessionId]);
+            $cafeOrders = getRows("SELECT id, total_amount, paid_amount FROM orders WHERE gaming_session_id = ?", [$sessionId]);
             $cafeTotal = 0;
+            $cafeDue = 0;
             foreach ($cafeOrders as $o) {
-                $cafeTotal += floatval($o['total_amount']);
-                // تحديث حالة الطلبات لتصبح مدفوعة ومكتملة
-                execute("UPDATE orders SET payment_status = 'paid', status = 'completed', paid_amount = total_amount WHERE id = ?", [$o['id']]);
+                $orderTotal = (float)$o['total_amount'];
+                $orderPaid = ($o['payment_status'] ?? '') === 'paid'
+                    ? $orderTotal
+                    : min($orderTotal, max(0, (float)$o['paid_amount']));
+                $cafeTotal += $orderTotal;
+                $cafeDue += max(0, $orderTotal - $orderPaid);
+                if ($orderTotal > $orderPaid) {
+                    execute("UPDATE orders SET payment_status = 'paid', status = 'completed', paid_amount = total_amount WHERE id = ?", [$o['id']]);
+                }
             }
 
-            $totalAmount = max(0, ($gamingCharge + $cafeTotal) - $discountAmount);
+            $discountAmount = min($discountAmount, $gamingCharge + $cafeDue);
+
+            $totalAmount = max(0, ($gamingCharge + $cafeDue) - $discountAmount);
 
             // جلب الشيفت المفتوح الحالي
             $currentShift = getRow("SELECT id FROM shifts WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1", [getCurrentUserId()]);
@@ -342,6 +387,64 @@ try {
                 'total_amount' => $totalAmount,
                 'message' => 'تم إنهاء الجلسة وتسجيل الفاتورة بنجاح'
             ], JSON_UNESCAPED_UNICODE);
+            break;
+
+        // 7. Mark session as notified (for countdown timer alerts)
+        case 'mark_notified':
+            if (!hasPermission('gaming.manage')) {
+                echo json_encode(['success' => false, 'error' => 'غير مصرح']);
+                exit;
+            }
+            $sessionId = (int)($_POST['session_id'] ?? 0);
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `session_timer_notifications` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `entity_type` ENUM('gaming', 'billiards') NOT NULL,
+                `session_id` INT NOT NULL,
+                `notified_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY `unique_session` (`entity_type`, `session_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $pdo->exec("INSERT IGNORE INTO session_timer_notifications (entity_type, session_id) VALUES ('gaming', $sessionId)");
+            echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
+            break;
+
+        // 8. Extend session time (add minutes to countdown)
+        case 'extend_session':
+            if (!hasPermission('gaming.manage')) {
+                echo json_encode(['success' => false, 'error' => 'غير مصرح']);
+                exit;
+            }
+            $sessionId = (int)($_POST['session_id'] ?? 0);
+            $addMinutes = max(1, (int)($_POST['add_minutes'] ?? 30));
+
+            $session = getRow("SELECT gs.*, gd.display_name, TIMESTAMPDIFF(SECOND, gs.started_at, NOW()) as raw_seconds FROM gaming_sessions gs JOIN gaming_devices gd ON gs.device_id = gd.id WHERE gs.id = ? AND gs.status IN ('active', 'paused') AND gs.time_mode = 'countdown'", [$sessionId]);
+            if (!$session) {
+                echo json_encode(['success' => false, 'error' => 'الجلسة غير موجودة أو غير نشطة']);
+                exit;
+            }
+
+            $rawSeconds = max(0, (int)($session['raw_seconds'] ?? 0));
+            $totalPaused = (int)($session['total_paused_seconds'] ?? 0);
+            if (($session['status'] ?? '') === 'paused' && !empty($session['paused_at'])) {
+                $pauseRow = getRow("SELECT TIMESTAMPDIFF(SECOND, ?, NOW()) as d", [$session['paused_at']]);
+                $totalPaused += (int)($pauseRow['d'] ?? 0);
+            }
+            $netSeconds = max(0, $rawSeconds - $totalPaused);
+            $netMinutes = (int)ceil($netSeconds / 60);
+            $oldPreset = (int)$session['preset_minutes'];
+            $newPreset = max($oldPreset, $netMinutes) + $addMinutes;
+
+            execute("UPDATE gaming_sessions SET preset_minutes = ? WHERE id = ?", [$newPreset, $sessionId]);
+            // Clear notification tracking so this session is re-evaluated
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `session_timer_notifications` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `entity_type` ENUM('gaming', 'billiards') NOT NULL,
+                `session_id` INT NOT NULL,
+                `notified_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY `unique_session` (`entity_type`, `session_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $pdo->exec("DELETE FROM session_timer_notifications WHERE entity_type = 'gaming' AND session_id = {$sessionId}");
+
+            echo json_encode(['success' => true, 'message' => "تم إضافة {$addMinutes} دقيقة إلى جهاز {$session['display_name']}", 'new_preset_minutes' => $newPreset], JSON_UNESCAPED_UNICODE);
             break;
 
         default:

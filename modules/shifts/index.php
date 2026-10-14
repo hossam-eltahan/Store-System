@@ -45,18 +45,36 @@ $expectedCashInDrawer = ($opening + $salesCash + $cashIn) - ($cashOut + $expense
 // حركات النقدية للوردية المفتوحة
 $cashMovements = [];
 if ($currentShift) {
-    $cashMovements = getRows("SELECT * FROM cash_movements WHERE shift_id = ? ORDER BY id DESC LIMIT 15", [$currentShift['id']]);
+    $movementsPage = max(1, (int)($_GET['movements_page'] ?? 1));
+    $movementsPerPage = 10;
+    $movementsTotal = 0;
+    $movementsPages = 1;
+    $movementsTotalRow = getRow("SELECT COUNT(*) AS total FROM cash_movements WHERE shift_id = ?", [$currentShift['id']]);
+    $movementsTotal = (int)($movementsTotalRow['total'] ?? 0);
+    $movementsPages = max(1, (int)ceil($movementsTotal / $movementsPerPage));
+    $movementsPage = min($movementsPage, $movementsPages);
+    $movementsOffset = ($movementsPage - 1) * $movementsPerPage;
+    $cashMovements = getRows(
+        "SELECT * FROM cash_movements WHERE shift_id = ? ORDER BY id DESC LIMIT {$movementsPerPage} OFFSET {$movementsOffset}",
+        [$currentShift['id']]
+    );
 }
 
 include '../../includes/header.php';
+include '../../includes/navbar.php';
 ?>
 
-<div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; background:#fff; padding:16px 20px; border-radius:12px; border:1px solid #e2e8f0;">
+<div class="container">
+
+<div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; background:#fff; padding:16px 20px; border-radius:12px; border:1px solid #e2e8f0; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
     <div>
         <h2 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0 0 4px 0;">⏱️ إدارة الورديات والخزينة النقدية</h2>
         <div style="font-size: 12.5px; color: #64748b;">متابعة عهدة الدرج، النقدية الفعلية، تقفيل الشيفت، واكتشاف العجز أو الزيادة آلياً</div>
     </div>
     <div style="display: flex; gap: 8px;">
+        <a href="../../index.php" style="background:#fff; color:#334155; font-weight:700; font-size:12px; padding:8px 14px; border-radius:8px; border:1px solid #cbd5e1; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
+            <span>🔙</span> الرئيسية
+        </a>
         <?php if ($currentShift): ?>
             <button onclick="document.getElementById('movementModal').style.display='flex'" style="background:#0284c7; color:white; border:none; padding:8px 14px; border-radius:8px; font-weight:bold; cursor:pointer;">
                 💸 تسجيل حركة نقدية (سحب/إيداع)
@@ -158,6 +176,20 @@ include '../../includes/header.php';
             <?php endforeach; ?>
         </tbody>
     </table>
+        <?php if ($movementsPages > 1): ?>
+        <div style="display:flex; justify-content:center; align-items:center; gap:6px; flex-wrap:wrap; margin-top:14px; direction:rtl;">
+            <?php if ($movementsPage > 1): ?>
+                <a href="?movements_page=<?php echo $movementsPage - 1; ?>" style="padding:6px 12px; border:1px solid #cbd5e1; border-radius:7px; color:#334155; text-decoration:none; font-size:12px; font-weight:700;">السابق</a>
+            <?php endif; ?>
+            <?php for ($page = 1; $page <= $movementsPages; $page++): ?>
+                <a href="?movements_page=<?php echo $page; ?>" style="min-width:32px; padding:6px 9px; text-align:center; border:1px solid <?php echo $page === $movementsPage ? '#0284c7' : '#cbd5e1'; ?>; border-radius:7px; background:<?php echo $page === $movementsPage ? '#0284c7' : '#fff'; ?>; color:<?php echo $page === $movementsPage ? '#fff' : '#334155'; ?>; text-decoration:none; font-size:12px; font-weight:700;"><?php echo $page; ?></a>
+            <?php endfor; ?>
+            <?php if ($movementsPage < $movementsPages): ?>
+                <a href="?movements_page=<?php echo $movementsPage + 1; ?>" style="padding:6px 12px; border:1px solid #cbd5e1; border-radius:7px; color:#334155; text-decoration:none; font-size:12px; font-weight:700;">التالي</a>
+            <?php endif; ?>
+        </div>
+        <div style="text-align:center; color:#64748b; font-size:11px; margin-top:7px;">صفحة <?php echo $movementsPage; ?> من <?php echo $movementsPages; ?> (إجمالي <?php echo $movementsTotal; ?> حركة)</div>
+        <?php endif; ?>
     <?php endif; ?>
 </div>
 <?php endif; ?>
@@ -369,5 +401,6 @@ async function submitCloseShift() {
     }
 }
 </script>
+</div><!-- End container -->
 
 <?php include '../../includes/footer.php'; ?>

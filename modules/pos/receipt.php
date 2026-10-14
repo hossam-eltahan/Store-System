@@ -31,7 +31,8 @@ $order = getRow(
 );
 
 if (!$order) {
-    die("الطلب غير موجود");
+    header('Location: index.php?receipt_error=not_found');
+    exit;
 }
 
 $items = getRows("SELECT * FROM order_items WHERE order_id = ? ORDER BY id ASC", [$orderId]);
@@ -315,6 +316,12 @@ $isKitchen = ($type === 'kitchen');
             <td class="text-left">-<?php echo number_format($order['discount_amount'], 2); ?> ج.م</td>
         </tr>
         <?php endif; ?>
+        <?php if ((float)$order['tax_amount'] > 0): ?>
+        <tr>
+            <td>الضريبة والخدمة:</td>
+            <td class="text-left"><?php echo number_format($order['tax_amount'], 2); ?> ج.م</td>
+        </tr>
+        <?php endif; ?>
         <tr class="grand-total">
             <td>الإجمالي المطلوب:</td>
             <td class="text-left"><?php echo number_format($order['total_amount'], 2); ?> ج.م</td>
@@ -360,6 +367,9 @@ $isKitchen = ($type === 'kitchen');
             setTimeout(function() {
                 window.print();
             }, 300);
+        };
+        window.onafterprint = function() {
+            setTimeout(function() { try { window.close(); } catch (e) {} }, 100);
         };
     </script>
 </body>

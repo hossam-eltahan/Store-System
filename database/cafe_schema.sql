@@ -27,9 +27,9 @@ CREATE TABLE IF NOT EXISTS `users` (
 CREATE TABLE IF NOT EXISTS `user_permissions` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `user_id` INT NOT NULL,
-    `permission` VARCHAR(100) NOT NULL,
+    `permission_key` VARCHAR(100) NOT NULL,
     FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
-    UNIQUE KEY `unique_user_permission` (`user_id`, `permission`)
+    UNIQUE KEY `unique_user_permission` (`user_id`, `permission_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 3. جلسات المستخدمين (User Sessions)
@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS `table_sessions` (
     `opened_by` INT DEFAULT NULL,
     `closed_by` INT DEFAULT NULL,
     `total_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    `discount_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (`table_id`) REFERENCES `cafe_tables`(`id`),
     FOREIGN KEY (`opened_by`) REFERENCES `users`(`id`),
@@ -268,6 +269,16 @@ CREATE TABLE IF NOT EXISTS `gaming_sessions` (
     FOREIGN KEY (`closed_by`) REFERENCES `users`(`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 18b. جدول تتبع إشعارات انتهاء الجلسات (Session Timer Notifications Tracking)
+CREATE TABLE IF NOT EXISTS `session_timer_notifications` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `entity_type` ENUM('gaming', 'billiards') NOT NULL,
+    `session_id` INT NOT NULL,
+    `notified_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `unique_session` (`entity_type`, `session_id`),
+    INDEX `idx_notified_at` (`notified_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 18. فترات الإيقاف المؤقت للبلايستيشن (Gaming Session Pauses)
 CREATE TABLE IF NOT EXISTS `gaming_session_pauses` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -306,6 +317,8 @@ CREATE TABLE IF NOT EXISTS `billiard_sessions` (
     `ended_at` DATETIME DEFAULT NULL,
     `paused_at` DATETIME DEFAULT NULL,
     `total_paused_seconds` INT NOT NULL DEFAULT 0,
+    `time_mode` ENUM('open','countdown') NOT NULL DEFAULT 'open',
+    `preset_minutes` INT DEFAULT NULL,
     `game_count` INT NOT NULL DEFAULT 0,
     `applied_rate` DECIMAL(10,2) NOT NULL,
     `billable_minutes` DECIMAL(10,2) DEFAULT NULL,

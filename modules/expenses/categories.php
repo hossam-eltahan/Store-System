@@ -107,8 +107,9 @@ include '../../includes/navbar.php';
             <h1 style="font-size: 1.5rem; margin: 0 0 4px 0; color: #0f172a;">🏷️ إدارة بنود وتصنيفات المصروفات</h1>
             <p style="margin: 0; color: #64748b; font-size: 0.88rem;">إضافة وتعديل بنود الصرف كفواتير الكهرباء والمياه والإيجار والمرتبات والنثريات</p>
         </div>
-        <div>
-            <a href="index.php" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 6px;">
+        <div style="display: flex; gap: 8px;">
+            <a href="../../index.php" class="btn btn-secondary" style="border-radius: 8px;">🏠 الرئيسية</a>
+            <a href="index.php" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 6px; border-radius: 8px;">
                 <span>←</span> العودة لسجل المصروفات
             </a>
         </div>
@@ -246,13 +247,9 @@ include '../../includes/navbar.php';
                                         </a>
 
                                         <?php if ($c['expenses_count'] == 0): ?>
-                                        <form method="POST" style="display: inline;" onsubmit="return confirm('هل أنت متأكد من حذف هذا البند؟');">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="category_id" value="<?php echo $c['id']; ?>">
-                                            <button type="submit" class="btn btn-danger btn-sm" style="padding: 4px 8px;" title="حذف">
-                                                <span>🗑️</span>
-                                            </button>
-                                        </form>
+                                        <button type="button" class="btn btn-danger btn-sm" style="padding: 4px 8px;" onclick='confirmDeleteExpCat(<?php echo $c['id']; ?>, <?php echo json_encode($c['name']); ?>)' title="حذف">
+                                            <span>🗑️</span>
+                                        </button>
                                         <?php else: ?>
                                         <button type="button" class="btn btn-secondary btn-sm" style="padding: 4px 8px; opacity: 0.5; cursor: not-allowed;" title="لا يمكن حذف بند مستخدم في مصروفات">
                                             <span>🗑️</span>
@@ -270,5 +267,53 @@ include '../../includes/navbar.php';
         </div>
     </div>
 </div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal" id="deleteExpCatModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+        <div class="modal-content">
+            <div class="modal-header" style="background: #fee2e2; border-bottom: 1px solid #fecaca;">
+                <h5 class="modal-title" style="color: #991b1b;">⚠️ تأكيد حذف بند المصروف</h5>
+                <button type="button" class="btn-close" onclick="closeDeleteModal()"></button>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="category_id" id="deleteExpCatId" value="">
+                <div class="modal-body" style="text-align: center; padding: 25px;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">🗑️</div>
+                    <div style="font-size: 15px; color: #1e293b; margin-bottom: 8px;">
+                        هل أنت متأكد من حذف بند المصروف:
+                    </div>
+                    <div id="deleteExpCatName" style="font-size: 17px; font-weight: 800; color: #dc2626; margin-bottom: 12px;"></div>
+                    <div style="font-size: 12px; color: #64748b;">
+                        لا يمكن التراجع عن هذا الإجراء.
+                    </div>
+                </div>
+                <div class="modal-footer" style="justify-content: center;">
+                    <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">إلغاء</button>
+                    <button type="submit" class="btn btn-danger">🗑️ نعم، احذف</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function confirmDeleteExpCat(id, name) {
+    document.getElementById('deleteExpCatId').value = id;
+    document.getElementById('deleteExpCatName').innerText = name;
+    document.getElementById('deleteExpCatModal').style.display = 'flex';
+}
+
+function closeDeleteModal() {
+    document.getElementById('deleteExpCatModal').style.display = 'none';
+}
+
+window.onclick = function(e) {
+    if (e.target == document.getElementById('deleteExpCatModal')) {
+        closeDeleteModal();
+    }
+}
+</script>
 
 <?php include '../../includes/footer.php'; ?>

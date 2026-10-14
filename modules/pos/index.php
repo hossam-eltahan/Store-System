@@ -24,6 +24,7 @@ $currentShift = getRow("SELECT * FROM shifts WHERE user_id = ? AND status = 'ope
 
 // إدراج الهيدر
 include '../../includes/header.php';
+include '../../includes/navbar.php';
 ?>
 
 <link rel="stylesheet" href="../../assets/css/pos.css?v=2.0">
@@ -46,11 +47,12 @@ body {
 .pos-container {
     display: grid;
     grid-template-columns: 1fr 390px;
-    gap: 16px;
-    height: calc(100vh - 80px);
-    margin: -15px -15px 0 -15px;
-    padding: 12px;
+    gap: 14px;
+    height: calc(100vh - 65px);
+    margin: 0;
+    padding: 12px 16px;
     overflow: hidden;
+    box-sizing: border-box;
 }
 
 @media (max-width: 1024px) {
@@ -615,13 +617,16 @@ body {
         
         <!-- Search & Quick Filters -->
         <div class="pos-top-bar">
+            <a href="../../index.php" title="العودة للوحة التحكم" style="background:#f1f5f9; color:#334155; border:1px solid #cbd5e1; padding:8px 14px; border-radius:10px; font-weight:800; font-size:12.5px; text-decoration:none; display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
+                <span>🏠</span> الرئيسية
+            </a>
             <div class="pos-search-wrapper">
                 <span class="pos-search-icon">🔍</span>
                 <input type="text" id="posSearchInput" class="pos-search-input" placeholder="بحث باسم الصنف أو الكود أو الباركود..." autofocus autocomplete="off">
             </div>
             <?php if (!$currentShift): ?>
-            <a href="../shifts/index.php" style="background:#fee2e2; color:#dc2626; border:1px solid #fecaca; padding:6px 12px; border-radius:8px; font-weight:700; font-size:12px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
-                <span>⚠️</span> تنبيه: الوردية مغلقة (اضغط لفتح وردية)
+            <a href="../shifts/index.php" style="background:#fee2e2; color:#dc2626; border:1px solid #fecaca; padding:6px 12px; border-radius:8px; font-weight:700; font-size:12px; text-decoration:none; display:inline-flex; align-items:center; gap:4px; flex-shrink:0;">
+                <span>⚠️</span> الوردية مغلقة
             </a>
             <?php else: ?>
             <div style="font-size:12px; background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; padding:6px 12px; border-radius:8px; font-weight:700;">
@@ -921,10 +926,44 @@ async function loadDestinations() {
         if (data.success) {
             destinations = data;
             updateDestinationUI();
+            applyLinkedDestination();
         }
     } catch (err) {
         console.error('Failed to load destinations', err);
     }
+}
+
+function applyLinkedDestination() {
+    const params = new URLSearchParams(window.location.search);
+    const linkedGamingSessionId = params.get('gaming_session_id');
+    const linkedBilliardSessionId = params.get('billiard_session_id');
+    const linkedTableSessionId = params.get('table_session_id');
+    let linkedType = null;
+    let linkedValue = null;
+
+    if (linkedGamingSessionId) {
+        linkedType = 'gaming_ps';
+        linkedValue = linkedGamingSessionId;
+    } else if (linkedBilliardSessionId) {
+        linkedType = 'gaming_billiard';
+        linkedValue = linkedBilliardSessionId;
+    } else if (linkedTableSessionId) {
+        linkedType = 'dine_in';
+        linkedValue = `active_${linkedTableSessionId}`;
+    }
+
+    if (!linkedType) return;
+
+    const typeButton = document.querySelector(`.order-type-btn[data-type="${linkedType}"]`);
+    if (typeButton) typeButton.click();
+
+    const selectorId = linkedType === 'gaming_ps'
+        ? 'selectedGamingSessionId'
+        : linkedType === 'gaming_billiard'
+            ? 'selectedBilliardSessionId'
+            : 'selectedTableTarget';
+    const selector = document.getElementById(selectorId);
+    if (selector) selector.value = linkedValue;
 }
 
 // Update destination picker UI
@@ -1192,7 +1231,12 @@ function removeItem(index) {
 
 function applyDiscount() {
     const val = parseFloat(document.getElementById('discountAmountInput').value) || 0;
-    discountAmount = Math.max(0, val);
+    const subtotal = cart.reduce((acc, item) => {
+        const modifiersTotal = item.modifiers.reduce((sum, modifier) => sum + (parseFloat(modifier.price) * (modifier.quantity || 1)), 0);
+        return acc + (item.unit_price * item.quantity) + (modifiersTotal * item.quantity);
+    }, 0);
+    discountAmount = Math.min(subtotal, Math.max(0, val));
+    document.getElementById('discountAmountInput').value = discountAmount;
     document.getElementById('discountModal').style.display = 'none';
     renderCart();
 }
@@ -1252,8 +1296,10 @@ async function processCheckout(isDeferred) {
         const data = await res.json();
 
         if (data.success) {
-            // Open Thermal Receipt in new window
-            window.open(`receipt.php?id=${data.order_id}&type=customer`, '_blank', 'width=400,height=600');
+            // Deferred orders remain attached to the session and are printed when it is closed.
+            if (!isDeferred && data.is_deferred !== true && data.order_id) {
+                window.open(`receipt.php?id=${data.order_id}&type=customer`, '_blank', 'width=400,height=600');
+            }
 
             // Reset Cart
             cart = [];
@@ -1263,7 +1309,12 @@ async function processCheckout(isDeferred) {
             renderCart();
             loadDestinations();
 
-            alert(isDeferred ? 'تم تعليق وإضافة الطلب بنجاح لحساب الجلسة!' : 'تم حفظ ودفع الطلب بنجاح!');
+            alert(isDeferred
+                ? `تم تعليق وإضافة الطلب رقم ${data.order_number || data.order_id} بنجاح لحساب الجلسة!`
+                : 'تم حفظ ودفع الطلب بنجاح!');
+            if (isDeferred) {
+                window.location.reload();
+            }
         } else {
             alert(data.error || 'فشل حفظ الطلب');
         }

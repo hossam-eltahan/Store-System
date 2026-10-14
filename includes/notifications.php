@@ -86,6 +86,54 @@ function getNotifications() {
             ];
         }
     }
+
+    // 5. Expired gaming sessions with countdown timers (only if gaming.view)
+    if (hasPermission('gaming.view')) {
+        $expiredGaming = getRows("
+            SELECT gs.id, gd.display_name, gs.preset_minutes
+            FROM gaming_sessions gs
+            JOIN gaming_devices gd ON gs.device_id = gd.id
+            WHERE gs.status IN ('active', 'paused')
+              AND gs.time_mode = 'countdown'
+              AND TIMESTAMPDIFF(SECOND, gs.started_at, NOW()) - (COALESCE(gs.total_paused_seconds, 0) + IF(gs.status = 'paused' AND gs.paused_at IS NOT NULL, TIMESTAMPDIFF(SECOND, gs.paused_at, NOW()), 0)) >= (COALESCE(gs.preset_minutes, 0) * 60)
+            ORDER BY gs.started_at ASC
+            LIMIT 5
+        ");
+        foreach ($expiredGaming as $sess) {
+            $notifications[] = [
+                'type' => 'danger',
+                'icon' => '🎮',
+                'title' => 'انتهى وقت بلايستيشن',
+                'message' => 'جهاز ' . $sess['display_name'] . ' - انتهى العداد المحدد (' . $sess['preset_minutes'] . ' دقيقة)',
+                'link' => 'modules/gaming/index.php',
+                'priority' => 0
+            ];
+        }
+    }
+
+    // 6. Expired billiard sessions with countdown timers (only if billiards.view)
+    if (hasPermission('billiards.view')) {
+        $expiredBilliards = getRows("
+            SELECT bs.id, bt.display_name, bs.preset_minutes
+            FROM billiard_sessions bs
+            JOIN billiard_tables bt ON bs.table_id = bt.id
+            WHERE bs.status IN ('active', 'paused')
+              AND bs.time_mode = 'countdown'
+              AND TIMESTAMPDIFF(SECOND, bs.started_at, NOW()) - (COALESCE(bs.total_paused_seconds, 0) + IF(bs.status = 'paused' AND bs.paused_at IS NOT NULL, TIMESTAMPDIFF(SECOND, bs.paused_at, NOW()), 0)) >= (COALESCE(bs.preset_minutes, 0) * 60)
+            ORDER BY bs.started_at ASC
+            LIMIT 5
+        ");
+        foreach ($expiredBilliards as $sess) {
+            $notifications[] = [
+                'type' => 'danger',
+                'icon' => '🎱',
+                'title' => 'انتهى وقت البلياردو',
+                'message' => 'طاولة ' . $sess['display_name'] . ' - انتهى العداد المحدد (' . $sess['preset_minutes'] . ' دقيقة)',
+                'link' => 'modules/billiards/index.php',
+                'priority' => 0
+            ];
+        }
+    }
     
     // Sort by priority (lower = more important)
     usort($notifications, function($a, $b) {
@@ -114,6 +162,24 @@ function getNotificationCount() {
         $tomorrowDay = getTomorrowDayName();
         $tomorrowSuppliers = getRow("SELECT COUNT(*) as count FROM suppliers WHERE visit_days LIKE ?", ["%$tomorrowDay%"]);
         $count += ($tomorrowSuppliers['count'] ?? 0);
+    }
+    if (hasPermission('gaming.view')) {
+        $expiredGaming = getRow("
+            SELECT COUNT(*) as count FROM gaming_sessions gs
+            WHERE gs.status IN ('active', 'paused')
+              AND gs.time_mode = 'countdown'
+              AND TIMESTAMPDIFF(SECOND, gs.started_at, NOW()) - (COALESCE(gs.total_paused_seconds, 0) + IF(gs.status = 'paused' AND gs.paused_at IS NOT NULL, TIMESTAMPDIFF(SECOND, gs.paused_at, NOW()), 0)) >= (COALESCE(gs.preset_minutes, 0) * 60)
+        ");
+        $count += ($expiredGaming['count'] ?? 0);
+    }
+    if (hasPermission('billiards.view')) {
+        $expiredBilliards = getRow("
+            SELECT COUNT(*) as count FROM billiard_sessions bs
+            WHERE bs.status IN ('active', 'paused')
+              AND bs.time_mode = 'countdown'
+              AND TIMESTAMPDIFF(SECOND, bs.started_at, NOW()) - (COALESCE(bs.total_paused_seconds, 0) + IF(bs.status = 'paused' AND bs.paused_at IS NOT NULL, TIMESTAMPDIFF(SECOND, bs.paused_at, NOW()), 0)) >= (COALESCE(bs.preset_minutes, 0) * 60)
+        ");
+        $count += ($expiredBilliards['count'] ?? 0);
     }
     
     return $count;

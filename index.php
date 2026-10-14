@@ -72,7 +72,7 @@ $recentOrders = getRows(
     "SELECT o.*, u.full_name as cashier_name 
      FROM orders o 
      LEFT JOIN users u ON o.created_by = u.id 
-     ORDER BY o.id DESC LIMIT 8"
+     ORDER BY o.id DESC LIMIT 3"
 );
 
 // جلسات البلايستيشن النشطة حالياً
@@ -82,24 +82,44 @@ $activeSessions = getRows(
      FROM gaming_sessions gs 
      JOIN gaming_devices gd ON gs.device_id = gd.id 
      WHERE gs.status IN ('active', 'paused') 
-     ORDER BY gs.started_at DESC"
+     ORDER BY gs.started_at DESC
+     LIMIT 3"
+);
+
+$activeBilliardSessions = getRows(
+    "SELECT bs.*, bt.display_name as table_name,
+            TIMESTAMPDIFF(MINUTE, bs.started_at, NOW()) as elapsed_minutes
+     FROM billiard_sessions bs 
+     JOIN billiard_tables bt ON bs.table_id = bt.id 
+     WHERE bs.status IN ('active', 'paused') 
+     ORDER BY bs.started_at DESC
+     LIMIT 3"
 );
 
 include 'includes/header.php';
+include 'includes/navbar.php';
 ?>
 
 <style>
+html, body {
+    overflow: hidden !important;
+    height: 100%;
+}
+.container {
+    max-height: calc(100vh - 24px);
+    overflow: hidden;
+}
 .dashboard-quick-actions {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 12px;
-    margin-bottom: 22px;
+    gap: 8px;
+    margin-bottom: 12px;
 }
 
 .quick-action-card {
     background: #ffffff;
     border-radius: 14px;
-    padding: 16px 18px;
+    padding: 10px 14px;
     border: 1px solid #e2e8f0;
     display: flex;
     align-items: center;
@@ -130,14 +150,14 @@ include 'includes/header.php';
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-    gap: 14px;
-    margin-bottom: 22px;
+    gap: 8px;
+    margin-bottom: 12px;
 }
 
 .stat-card {
     background: #ffffff;
     border-radius: 14px;
-    padding: 18px;
+    padding: 10px 14px;
     border: 1px solid #e2e8f0;
     box-shadow: 0 2px 6px rgba(0,0,0,0.02);
     display: flex;
@@ -159,6 +179,24 @@ include 'includes/header.php';
     line-height: 1.2;
 }
 </style>
+
+<div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: #ffffff; padding: 10px 16px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
+        <div>
+            <h1 style="font-size: 20px; font-weight: 800; color: #0f172a; margin: 0 0 4px 0; display: flex; align-items: center; gap: 8px;">
+                <span>☕</span> لوحة تحكم كافيه وصالة ألعاب عروسة النيل
+            </h1>
+            <div style="font-size: 13px; color: #64748b;">
+                مرحباً بك، <strong><?php echo htmlspecialchars($_SESSION['full_name'] ?? 'المدير'); ?></strong> • متابعة مباشرة للمبيعات، جلسات البلايستيشن، طاولات البلياردو والورديات
+            </div>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            </a>
+            <a href="index.php" style="background: #f8fafc; color: #334155; border: 1px solid #cbd5e1; padding: 9px 14px; border-radius: 8px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                <span>🔄</span> تحديث
+            </a>
+        </div>
+    </div>
 
 <!-- Top Quick Action Hero Banner -->
 <div class="dashboard-quick-actions">
@@ -273,16 +311,16 @@ include 'includes/header.php';
 </div>
 
 <!-- Active Gaming Sessions + Recent Orders Grid -->
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
     
     <!-- Active PlayStation Sessions -->
     <div style="background:#fff; border-radius:14px; border:1px solid #e2e8f0; padding:18px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-            <h3 style="font-size:15px; font-weight:800; color:#0f172a; margin:0;">🎮 أجهزة البلايستيشن النشطة حالياً</h3>
+            <h3 style="font-size:15px; font-weight:800; color:#0f172a; margin:0;">🎮 جلسات نشطة (PS + بلياردو)</h3>
             <a href="modules/gaming/index.php" style="font-size:12px; color:#2563eb; text-decoration:none; font-weight:bold;">عرض الصالة &larr;</a>
         </div>
 
-        <?php if (empty($activeSessions)): ?>
+        <?php if (empty($activeSessions) && empty($activeBilliardSessions)): ?>
             <div style="text-align:center; padding:30px; color:#94a3b8; font-size:13px;">
                 لا توجد أجهزة قيد التشغيل حالياً (جميع الأجهزة متاحة)
             </div>
@@ -301,6 +339,25 @@ include 'includes/header.php';
                             تحكم
                         </a>
                     </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if (!empty($activeBilliardSessions)): ?>
+            <div style="font-size:12px; font-weight:800; color:#059669; margin:10px 0 6px;">🎱 بلياردو (<?php echo count($activeBilliardSessions); ?>)</div>
+            <div style="display:flex; flex-direction:column; gap:6px;">
+                <?php foreach ($activeBilliardSessions as $bsess): ?>
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <div style="font-weight:800; font-size:13px; color:#0f172a;"><?php echo htmlspecialchars($bsess['table_name']); ?></div>
+                        <div style="font-size:11px; color:#64748b;">
+                            <?php echo $bsess['billing_mode'] === 'per_game' ? '🎱 بالجيم' : '⏱️ بالساعة'; ?> • <?php echo (int)$bsess['elapsed_minutes']; ?> دقيقة
+                        </div>
+                    </div>
+                    <a href="modules/billiards/index.php" style="background:#059669; color:white; padding:5px 10px; border-radius:6px; text-decoration:none; font-size:11px; font-weight:bold;">
+                        متابعة
+                    </a>
                 </div>
                 <?php endforeach; ?>
             </div>
@@ -343,6 +400,6 @@ include 'includes/header.php';
         <?php endif; ?>
     </div>
 
-</div>
+</div><!-- End container -->
 
 <?php include 'includes/footer.php'; ?>

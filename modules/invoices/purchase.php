@@ -45,6 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($items as $item) {
             $totalAmount += $item['quantity'] * $item['price'];
         }
+
+        $discount = min(max(0, $discount), $totalAmount);
         
         $finalAmount = $totalAmount - $discount;
         $remainingAmount = $finalAmount - $paidAmount;
@@ -752,7 +754,8 @@ function removeItem(id) {
 
 function calculateTotals() {
     const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
-    const discount = parseFloat(document.getElementById('discount').value) || 0;
+    const discount = Math.min(subtotal, Math.max(0, parseFloat(document.getElementById('discount').value) || 0));
+    document.getElementById('discount').value = discount;
     const total = subtotal - discount;
     const paid = parseFloat(document.getElementById('paidAmount').value) || 0;
     const weOweSupplier = supplierOldBalance > 0 ? supplierOldBalance : 0;

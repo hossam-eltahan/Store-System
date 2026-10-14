@@ -68,11 +68,16 @@ include '../../includes/navbar.php';
 
 <div class="container">
     <div class="card">
-        <div class="card-header d-flex justify-between align-center">
-            <span>👥 قائمة العملاء</span>
-            <?php if (hasPermission('customers.add')): ?>
-            <a href="add.php" class="btn btn-primary">+ إضافة عميل جديد</a>
-            <?php endif; ?>
+        <div class="card-header d-flex justify-between align-center" style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-weight: 800; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                <span>👥</span> قائمة العملاء
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <a href="../../index.php" class="btn btn-secondary" style="border-radius: 8px;">🏠 الرئيسية</a>
+                <?php if (hasPermission('customers.add')): ?>
+                <a href="add.php" class="btn btn-primary" style="border-radius: 8px; background: #ea580c; border-color: #ea580c;">+ إضافة عميل جديد</a>
+                <?php endif; ?>
+            </div>
         </div>
         
         <div class="card-body">
