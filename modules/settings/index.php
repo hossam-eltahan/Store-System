@@ -70,13 +70,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     updateSetting('billiard_default_rate_hour', $billiardRateHour);
     updateSetting('billiard_default_rate_game', $billiardRateGame);
     // Sync the new rates to ALL existing devices/tables so they follow Settings
+    // (service modal rates in POS are read live from Settings via SVC_RATES)
     execute("UPDATE gaming_devices SET rate_single = ?, rate_multi = ?", [$psRateSingle, $psRateMulti]);
     execute("UPDATE billiard_tables SET rate_per_hour = ?, rate_per_game = ?", [$billiardRateHour, $billiardRateGame]);
-    // Sync manual service products (POS settlement) to the same Settings rates
-    execute("UPDATE products SET price = ? WHERE code = 'SRV-PS-SINGLE'", [$psRateSingle]);
-    execute("UPDATE products SET price = ? WHERE code = 'SRV-PS-MULTI'", [$psRateMulti]);
-    execute("UPDATE products SET price = ? WHERE code = 'SRV-BL-HOUR'", [$billiardRateHour]);
-    execute("UPDATE products SET price = ? WHERE code = 'SRV-BL-GAME'", [$billiardRateGame]);
     $devTotal = getRow("SELECT COUNT(*) AS c FROM gaming_devices");
     $tblTotal = getRow("SELECT COUNT(*) AS c FROM billiard_tables");
     $devTotal = (int)($devTotal['c'] ?? 0);

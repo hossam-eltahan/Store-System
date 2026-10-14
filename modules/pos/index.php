@@ -22,6 +22,12 @@ $categories = getRows("SELECT * FROM categories WHERE is_active = 1 ORDER BY sor
 // جلب حالة الوردية الحالية
 $currentShift = getRow("SELECT * FROM shifts WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1", [getCurrentUserId()]);
 
+// Live service rates for the manual settlement modal (always follow Settings)
+$svcPsSingle = floatval(getSetting('ps_default_rate_single', 30));
+$svcPsMulti = floatval(getSetting('ps_default_rate_multi', 40));
+$svcBlHour = floatval(getSetting('billiard_default_rate_hour', 40));
+$svcBlGame = floatval(getSetting('billiard_default_rate_game', 10));
+
 // إدراج الهيدر
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -860,7 +866,35 @@ body {
             <button type="button" onclick="closeServiceModal()" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b;">&times;</button>
         </div>
         <div class="modal-body">
-            <div id="serviceMinutesBox">
+            <!-- PlayStation: single or multi -->
+            <div id="svcPsBox" style="display: none;">
+                <div class="options-group-title">نوع اللعب:</div>
+                <div class="options-grid">
+                    <div class="option-item selected" id="svcPsSingleOpt" onclick="setSvcPsType('single')">
+                        <span class="option-name">🎮 فردي</span>
+                        <span class="option-price" id="svcPsSingleRate"></span>
+                    </div>
+                    <div class="option-item" id="svcPsMultiOpt" onclick="setSvcPsType('multi')">
+                        <span class="option-name">👥 زوجي</span>
+                        <span class="option-price" id="svcPsMultiRate"></span>
+                    </div>
+                </div>
+            </div>
+            <!-- Billiards: hourly or per-game -->
+            <div id="svcBlBox" style="display: none;">
+                <div class="options-group-title">نظام الحساب:</div>
+                <div class="options-grid">
+                    <div class="option-item selected" id="svcBlHourOpt" onclick="setSvcBlMode('hour')">
+                        <span class="option-name">⏳ بالساعة</span>
+                        <span class="option-price" id="svcBlHourRate"></span>
+                    </div>
+                    <div class="option-item" id="svcBlGameOpt" onclick="setSvcBlMode('game')">
+                        <span class="option-name">🎯 بالجيم</span>
+                        <span class="option-price" id="svcBlGameRate"></span>
+                    </div>
+                </div>
+            </div>
+            <div id="serviceMinutesBox" style="margin-top: 12px;">
                 <div class="options-group-title">المدة بالدقائق:</div>
                 <input type="number" id="serviceMinutesInput" value="60" min="1" step="1" oninput="updateServiceTotal()" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 15px; font-family: inherit; font-weight: 800;">
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
@@ -869,7 +903,7 @@ body {
                     <button type="button" onclick="setServiceMinutes(120)" style="flex:1; padding: 7px; border-radius: 8px; border: 1px solid #e2e8f0; background: #f8fafc; font-weight: 700; font-size: 12px; cursor: pointer;">ساعتين</button>
                 </div>
             </div>
-            <div id="serviceCountBox" style="display: none;">
+            <div id="serviceCountBox" style="display: none; margin-top: 12px;">
                 <div class="options-group-title">عدد الأجيام:</div>
                 <input type="number" id="serviceCountInput" value="1" min="1" step="1" oninput="updateServiceTotal()" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 15px; font-family: inherit; font-weight: 800;">
             </div>
@@ -911,6 +945,14 @@ let currentOrderType = 'takeaway';
 let currentPaymentMethod = 'cash';
 let discountAmount = 0;
 let destinations = { gaming_sessions: [], billiard_sessions: [], table_sessions: [], available_tables: [] };
+
+// Manual settlement rates (live from Settings)
+const SVC_RATES = {
+    psSingle: <?php echo $svcPsSingle; ?>,
+    psMulti: <?php echo $svcPsMulti; ?>,
+    blHour: <?php echo $svcBlHour; ?>,
+    blGame: <?php echo $svcBlGame; ?>
+};
 
 // Pending product for modal
 let activeProductModal = null;
@@ -1015,7 +1057,7 @@ function renderProductsGrid() {
         <div class="pos-product-card" onclick="onProductClick(${prod.id})">
             <div class="product-name">${escapeHtml(prod.name)}</div>
             <div class="product-footer">
-                <span class="product-price">${parseFloat(prod.price).toFixed(2)} ج.م</span>
+                <span class="product-price">${prod.is_service ? '⚙️ حسب الاختيار' : `${parseFloat(prod.price).toFixed(2)} ج.م`}</span>
                 ${prod.is_service ? `<span class="variant-indicator">خدمة</span>` : (prod.has_variants ? `<span class="variant-indicator">أحجام</span>` : (prod.has_modifiers ? `<span class="variant-indicator">إضافات</span>` : ''))}
             </div>
         </div>
@@ -1232,21 +1274,31 @@ document.getElementById('modalAddToCartBtn').addEventListener('click', () => {
     closeVariantModal();
 });
 
-// Manual Service Settlement (per-game services are billed by count, hourly by minutes)
+// Manual Service Settlement: one card per area (PlayStation / Billiards),
+// options inside the modal, rates live from Settings (SVC_RATES)
 let activeService = null;
-const SERVICE_BY_COUNT = ['SRV-BL-GAME'];
+let svcPsType = 'single';
+let svcBlMode = 'hour';
 
 function openServiceModal(prod) {
     activeService = prod;
-    const byCount = SERVICE_BY_COUNT.includes(prod.code);
+    svcPsType = 'single';
+    svcBlMode = 'hour';
+    const isPs = prod.code === 'SRV-PS';
     document.getElementById('serviceModalTitle').textContent = prod.name;
-    document.getElementById('serviceModalRate').textContent = byCount
-        ? `${parseFloat(prod.price).toFixed(2)} ج.م / جيم`
-        : `${parseFloat(prod.price).toFixed(2)} ج.م / ساعة`;
-    document.getElementById('serviceMinutesBox').style.display = byCount ? 'none' : 'block';
-    document.getElementById('serviceCountBox').style.display = byCount ? 'block' : 'none';
+    document.getElementById('serviceModalRate').textContent = isPs ? 'تسوية بدون تايمر — اختر نوع اللعب والمدة' : 'تسوية بدون تايمر — اختر نظام الحساب';
+    document.getElementById('svcPsBox').style.display = isPs ? 'block' : 'none';
+    document.getElementById('svcBlBox').style.display = isPs ? 'none' : 'block';
+    document.getElementById('svcPsSingleRate').textContent = `${SVC_RATES.psSingle.toFixed(2)} / ساعة`;
+    document.getElementById('svcPsMultiRate').textContent = `${SVC_RATES.psMulti.toFixed(2)} / ساعة`;
+    document.getElementById('svcBlHourRate').textContent = `${SVC_RATES.blHour.toFixed(2)} / ساعة`;
+    document.getElementById('svcBlGameRate').textContent = `${SVC_RATES.blGame.toFixed(2)} / جيم`;
+    syncSvcSelections();
     document.getElementById('serviceMinutesInput').value = 60;
     document.getElementById('serviceCountInput').value = 1;
+    updateServiceTotal();
+    document.getElementById('serviceModal').style.display = 'flex';
+}
     updateServiceTotal();
     document.getElementById('serviceModal').style.display = 'flex';
 }
@@ -1261,16 +1313,45 @@ function setServiceMinutes(mins) {
     updateServiceTotal();
 }
 
+function setSvcPsType(type) {
+    svcPsType = type;
+    syncSvcSelections();
+    updateServiceTotal();
+}
+
+function setSvcBlMode(mode) {
+    svcBlMode = mode;
+    syncSvcSelections();
+    updateServiceTotal();
+}
+
+function syncSvcSelections() {
+    document.getElementById('svcPsSingleOpt').classList.toggle('selected', svcPsType === 'single');
+    document.getElementById('svcPsMultiOpt').classList.toggle('selected', svcPsType === 'multi');
+    document.getElementById('svcBlHourOpt').classList.toggle('selected', svcBlMode === 'hour');
+    document.getElementById('svcBlGameOpt').classList.toggle('selected', svcBlMode === 'game');
+    const byCount = activeService && activeService.code === 'SRV-BL' && svcBlMode === 'game';
+    document.getElementById('serviceMinutesBox').style.display = byCount ? 'none' : 'block';
+    document.getElementById('serviceCountBox').style.display = byCount ? 'block' : 'none';
+}
+
 function calcServiceTotal() {
-    if (!activeService) return { total: 0, qty: 1, note: '' };
-    const rate = parseFloat(activeService.price);
-    if (SERVICE_BY_COUNT.includes(activeService.code)) {
+    if (!activeService) return { total: 0, qty: 1, unitPrice: 0, note: '' };
+    if (activeService.code === 'SRV-PS') {
+        const rate = svcPsType === 'multi' ? SVC_RATES.psMulti : SVC_RATES.psSingle;
+        const minutes = Math.max(1, parseInt(document.getElementById('serviceMinutesInput').value) || 1);
+        const total = Math.round((rate / 60) * minutes * 100) / 100;
+        const label = svcPsType === 'multi' ? 'زوجي' : 'فردي';
+        return { total, qty: 1, unitPrice: total, note: `${label} - ${minutes} دقيقة` };
+    }
+    // SRV-BL
+    if (svcBlMode === 'game') {
         const count = Math.max(1, parseInt(document.getElementById('serviceCountInput').value) || 1);
-        return { total: rate * count, qty: count, unitPrice: rate, note: `${count} جيم` };
+        return { total: SVC_RATES.blGame * count, qty: count, unitPrice: SVC_RATES.blGame, note: `بالجيم - ${count} جيم` };
     }
     const minutes = Math.max(1, parseInt(document.getElementById('serviceMinutesInput').value) || 1);
-    const total = Math.round((rate / 60) * minutes * 100) / 100;
-    return { total, qty: 1, unitPrice: total, note: `${minutes} دقيقة` };
+    const total = Math.round((SVC_RATES.blHour / 60) * minutes * 100) / 100;
+    return { total, qty: 1, unitPrice: total, note: `بالساعة - ${minutes} دقيقة` };
 }
 
 function updateServiceTotal() {
