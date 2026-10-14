@@ -69,7 +69,7 @@ if (!$isCompleted) {
 
 $endedAtLabel = !empty($session['ended_at'])
     ? date('h:i A', strtotime($session['ended_at']))
-    : 'Ù„Ù… ØªÙØºÙ„Ù‚ Ø¨Ø¹Ø¯';
+    : 'غير منتهية';
 
 // Ø­Ø³Ø§Ø¨ Ø§Ù„ÙˆÙ‚Øª Ø¨Ø§Ù„Ø³Ø§Ø¹Ø§Øª ÙˆØ§Ù„Ø¯Ù‚Ø§Ø¦Ù‚
 $minutes = $isCompleted ? (int)($session['billable_minutes'] ?? 0) : $billableMinutes;
