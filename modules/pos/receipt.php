@@ -86,7 +86,7 @@ $isKitchen = ($type === 'kitchen');
 <body>
     <div class="no-print">
         <button class="btn-print" onclick="window.print()">طباعة</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">إغلاق</button>
+        <button class="btn-print" style="background:#475569;" onclick="if(window.self===window.top){window.close();}else if(window.parent&&typeof window.parent.closeReceiptModal==='function'){window.parent.closeReceiptModal();}">إغلاق</button>
     </div>
 
     <div class="header text-center">

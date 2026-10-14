@@ -112,8 +112,8 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
 <body>
 
     <div class="no-print">
-        <button class="btn-print" onclick="window.print()">PRINT</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">CLOSE</button>
+        <button class="btn-print" onclick="window.print()">طباعة</button>
+        <button class="btn-print" style="background:#475569;" onclick="if(window.self===window.top){window.close();}else if(window.parent&&typeof window.parent.closeReceiptModal==='function'){window.parent.closeReceiptModal();}">إغلاق</button>
     </div>
 
     <div class="header">
