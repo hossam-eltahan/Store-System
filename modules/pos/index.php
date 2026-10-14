@@ -1505,6 +1505,7 @@ function openCheckoutModal() {
             🏁 تحصيل الفاتورة وطباعة البون
         </button>
     `;
+    updateCoNetTotal(subtotal);
     document.getElementById('checkoutModal').style.display = 'flex';
 }
 
