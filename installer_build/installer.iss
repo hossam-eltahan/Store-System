@@ -88,6 +88,8 @@ Type: filesandordirs; Name: "{app}\logs"
 Type: filesandordirs; Name: "{app}\tmp"
 Type: filesandordirs; Name: "{app}\config"
 Type: filesandordirs; Name: "{app}"
+; Secondary backup folder (machine-global safety copies)
+Type: filesandordirs; Name: "C:\StoreBackups"
 
 [Code]
 function InitializeUninstall(): Boolean;
