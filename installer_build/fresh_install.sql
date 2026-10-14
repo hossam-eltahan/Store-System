@@ -1042,3 +1042,44 @@ INSERT INTO `ingredients` (`name`, `sku`, `base_unit`, `category`, `current_stoc
 
 -- ---------- fresh-install overrides ----------
 UPDATE `users` SET `password` = '$2y$10$UaTK6e2Qo1mEuhLHRabvt.ZF4/2EE00MC1NQgWc57rO08grQ5nbzK' WHERE `username` = 'admin';
+
+-- ---------- warehouses (fresh-install port of database/migration_warehouses.sql) ----------
+CREATE TABLE IF NOT EXISTS warehouses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    code VARCHAR(50) DEFAULT NULL,
+    location VARCHAR(255) DEFAULT NULL,
+    phone VARCHAR(20) DEFAULT NULL,
+    manager_name VARCHAR(100) DEFAULT NULL,
+    is_default TINYINT(1) NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    notes TEXT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS warehouse_stock (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    warehouse_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL DEFAULT 0,
+    min_stock_level INT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_warehouse_product (warehouse_id, product_id),
+    FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS warehouse_id INT DEFAULT NULL;
+
+INSERT INTO warehouses (id, name, code, location, is_default, is_active, notes)
+VALUES (1, 'المخزن الرئيسي', 'WH-MAIN', 'المقر الرئيسي', 1, 1, 'المخزن الرئيسي الافتراضي للنظام')
+ON DUPLICATE KEY UPDATE name = VALUES(name), is_default = 1;
+
+INSERT INTO warehouse_stock (warehouse_id, product_id, quantity, min_stock_level)
+SELECT 1, id, stock_quantity, min_stock_level FROM products
+ON DUPLICATE KEY UPDATE quantity = VALUES(quantity), min_stock_level = VALUES(min_stock_level);
+
+UPDATE users SET default_warehouse_id = 1 WHERE default_warehouse_id IS NULL;
+UPDATE invoices SET warehouse_id = 1 WHERE warehouse_id IS NULL;
