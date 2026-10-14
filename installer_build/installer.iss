@@ -68,8 +68,8 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{commondesktop}\{#MyAppName}"; Filename: "wscript.exe"; Parameters: """{app}\{#MyAppExeName}"""; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-; Install VC++ silently if needed
-Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated skipifnotsilent
+; Install VC++ silently if needed (must run in normal UI installs too, not silent-only)
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated; Check: VCRedistNeedsInstall
 
 ; Run first-time setup
 Filename: "{app}\scripts\setup_first_run.bat"; StatusMsg: "Preparing environment..."; Flags: runhidden waituntilterminated
@@ -92,6 +92,13 @@ Type: filesandordirs; Name: "{app}"
 Type: filesandordirs; Name: "C:\StoreBackups"
 
 [Code]
+function VCRedistNeedsInstall(): Boolean;
+begin
+  Result := not FileExists(ExpandConstant('{sys}\vcruntime140.dll'));
+  if not Result then
+    Log('VC++ runtime already present, skipping vc_redist install.');
+end;
+
 function InitializeUninstall(): Boolean;
 begin
   Result := MsgBox('هل أنت متأكد من رغبتك في إزالة تثبيت النظام بالكامل وحذف جميع ملفاته؟',
