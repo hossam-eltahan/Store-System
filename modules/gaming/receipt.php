@@ -44,6 +44,21 @@ foreach ($cafeOrders as $ord) {
     $allOrderItems = array_merge($allOrderItems, $items);
 }
 
+
+$firstOrder = $cafeOrders[0] ?? null;
+$orderNumber = $firstOrder['order_number'] ?? ('PS-' . strval($sessionId));
+$cashierLabel = $firstOrder['cashier_name'] ?? ($session['opened_by_name'] ?? 'الكاشير');
+$sessionPayment = getRow("SELECT COALESCE(SUM(amount),0) AS total FROM payment_records WHERE source_type = 'gaming_session' AND source_id = ? AND payment_type = 'payment'", [$sessionId]);
+$paidAtClose = (float)($sessionPayment['total'] ?? 0);
+$paymentMethodCode = 'cash';
+foreach ($cafeOrders as $tmpOrder) {
+    $tmpPm = getRow("SELECT payment_method FROM payment_records WHERE source_type = 'order' AND source_id = ? ORDER BY id DESC LIMIT 1", [$tmpOrder['id']]);
+    if (!empty($tmpPm['payment_method'])) { $paymentMethodCode = $tmpPm['payment_method']; break; }
+}
+$tmpPmSession = getRow("SELECT payment_method FROM payment_records WHERE source_type = 'gaming_session' AND source_id = ? ORDER BY id DESC LIMIT 1", [$sessionId]);
+if (!empty($tmpPmSession['payment_method'])) { $paymentMethodCode = $tmpPmSession['payment_method']; }
+$paymentMethods = ['cash' => 'نقداً (كاش)', 'card' => 'بطاقة / كاش', 'instapay' => 'InstaPay', 'vodafone_cash' => 'Vodafone Cash'];
+$paymentMethodLabel = $paymentMethods[$paymentMethodCode] ?? $paymentMethodCode;
 $storeName = getSetting('store_name', 'ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„');
 $storeAddress = getSetting('store_address', '');
 $storePhone = getSetting('store_phone', '');
@@ -254,7 +269,22 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
     <div style="border-top:1px dashed #000;margin:6px 0;"></div>
 
     <table class="meta-table">
+            <table class="meta-table">
         <tr>
+            <td class="fw-bold">رقم الطلب:</td>
+            <td class="text-left fw-bold"><?php echo htmlspecialchars($orderNumber); ?></td>
+        </tr>
+        <tr>
+            <td class="fw-bold">الكاشير:</td>
+            <td class="text-left"><?php echo htmlspecialchars($cashierLabel); ?></td>
+        </tr>
+    <?php if (!empty($cafeOrders)): ?>
+        <tr>
+            <td class="fw-bold">عدد الطلبات:</td>
+            <td class="text-left fw-bold"><?php echo count($cafeOrders); ?> طلب</td>
+        </tr>
+    <?php endif; ?>
+<tr>
             <td class="fw-bold">الجهاز:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($session['device_name']); ?></td>
         </tr>
@@ -296,7 +326,7 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
                 <th class="text-right">الصنف</th>
                 <th class="text-center">العدد</th>
                 <th class="text-center">السعر</th>
-                <th class="text-left">الإجمالي</th>
+                <th class="text-left" style="white-space:nowrap;">الإجمالي</th>
             </tr>
         </thead>
         <tbody>
@@ -305,7 +335,7 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
                 <td class="text-right"><?php echo htmlspecialchars($it['product_name']); ?></td>
                 <td class="text-center">x<?php echo $it['quantity']; ?></td>
                 <td class="text-center"><?php echo number_format($it['unit_price'], 2); ?></td>
-                <td class="text-left"><?php echo number_format($it['line_total'], 2); ?> ج.م</td>
+                <td class="text-left" style="white-space:nowrap;"><?php echo number_format($it['line_total'], 2); ?> ج.م</td>
             </tr>
             <?php endforeach; ?>
         </tbody>
@@ -332,6 +362,7 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
         <?php endif; ?>
         <?php
             $total = $sessionTotal > 0 ? $sessionTotal : ($gamingCharge + $cafeGrossTotal - $discountAmount);
+            $grandDue = max(0, $total - $prepaidCafeTotal - $paidAtClose);
         ?>
         <tr class="grand-total">
             <td>الإجمالي:</td>
@@ -343,6 +374,21 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
             <td class="text-left"><?php echo number_format($prepaidCafeTotal, 2); ?> ج.م</td>
         </tr>
         <?php endif; ?>
+        <?php if ($paidAtClose > 0): ?>
+        <tr>
+            <td>مدفوع عند الإغلاق:</td>
+            <td class="text-left"><?php echo number_format($paidAtClose, 2); ?> ج.م</td>
+        </tr>
+        <?php endif; ?>
+        <tr style="font-weight: 900; color: <?php echo $grandDue > 0 ? '#d97706' : '#059669'; ?>;">
+            <td>المتبقي للتحصيل:</td>
+            <td class="text-left"><?php echo number_format($grandDue, 2); ?> ج.م</td>
+        </tr>
+        <tr>
+            <td>طريقة الدفع:</td>
+            <td class="text-left fw-bold"><?php echo htmlspecialchars($paymentMethodLabel); ?></td>
+        </tr>
+
     </table>
 
     <div style="text-align:center; font-size:11px; margin-top:6px;">
