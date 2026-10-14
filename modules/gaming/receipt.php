@@ -1,7 +1,7 @@
-<?php
+﻿<?php
 /**
  * Gaming Session Thermal Receipt (80mm)
- * بون جلسة بلايستيشن كافيه عروسة النيل
+ * Ø¨ÙˆÙ† Ø¬Ù„Ø³Ø© Ø¨Ù„Ø§ÙŠØ³ØªÙŠØ´Ù† ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„
  */
 
 require_once '../../config/database.php';
@@ -26,7 +26,7 @@ $session = getRow(
 );
 
 if (!$session) {
-    die("الجلسة غير موجودة");
+    die("Ø§Ù„Ø¬Ù„Ø³Ø© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©");
 }
 
 $cafeOrders = getRows("SELECT * FROM orders WHERE gaming_session_id = ?", [$sessionId]);
@@ -44,10 +44,10 @@ foreach ($cafeOrders as $ord) {
     $allOrderItems = array_merge($allOrderItems, $items);
 }
 
-$storeName = getSetting('store_name', 'كافيه عروسة النيل');
+$storeName = getSetting('store_name', 'ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„');
 $storeAddress = getSetting('store_address', '');
 $storePhone = getSetting('store_phone', '');
-$receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - نتمنى لكم وقتاً ممتعاً');
+$receiptFooter = getSetting('receipt_footer', 'Ø´ÙƒØ±Ø§Ù‹ Ù„Ø²ÙŠØ§Ø±ØªÙƒÙ… - Ù†ØªÙ…Ù†Ù‰ Ù„ÙƒÙ… ÙˆÙ‚ØªØ§Ù‹ Ù…Ù…ØªØ¹Ø§Ù‹');
 $gamingCharge = (float)($session['gaming_charge'] ?? 0);
 $discountAmount = (float)($session['discount_amount'] ?? 0);
 $sessionTotal = (float)($session['total_amount'] ?? 0);
@@ -69,20 +69,20 @@ if (!$isCompleted) {
 
 $endedAtLabel = !empty($session['ended_at'])
     ? date('h:i A', strtotime($session['ended_at']))
-    : 'لم تُغلق بعد';
+    : 'Ù„Ù… ØªÙØºÙ„Ù‚ Ø¨Ø¹Ø¯';
 
-// حساب الوقت بالساعات والدقائق
+// Ø­Ø³Ø§Ø¨ Ø§Ù„ÙˆÙ‚Øª Ø¨Ø§Ù„Ø³Ø§Ø¹Ø§Øª ÙˆØ§Ù„Ø¯Ù‚Ø§Ø¦Ù‚
 $minutes = $isCompleted ? (int)($session['billable_minutes'] ?? 0) : $billableMinutes;
 $hours = floor($minutes / 60);
 $remMinutes = $minutes % 60;
-$durationFormatted = ($hours > 0 ? "$hours ساعة و " : "") . "$remMinutes دقيقة";
+$durationFormatted = ($hours > 0 ? "$hours Ø³Ø§Ø¹Ø© Ùˆ " : "") . "$remMinutes Ø¯Ù‚ÙŠÙ‚Ø©";
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>فاتورة بلايستيشن - <?php echo htmlspecialchars($session['device_name']); ?></title>
+    <title>ÙØ§ØªÙˆØ±Ø© Ø¨Ù„Ø§ÙŠØ³ØªÙŠØ´Ù† - <?php echo htmlspecialchars($session['device_name']); ?></title>
     <style>
         @page { size: 80mm auto; margin: 0; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Cairo', 'Courier New', monospace, sans-serif; -webkit-print-color-adjust: exact; }
@@ -112,46 +112,46 @@ $durationFormatted = ($hours > 0 ? "$hours ساعة و " : "") . "$remMinutes د
 <body>
 
     <div class="no-print">
-        <button class="btn-print" onclick="window.print()">🖨️ طباعة الفاتورة الآن</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">✖️ إغلاق</button>
+        <button class="btn-print" onclick="window.print()">ðŸ–¨ï¸ Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„ÙØ§ØªÙˆØ±Ø© Ø§Ù„Ø¢Ù†</button>
+        <button class="btn-print" style="background:#475569;" onclick="window.close()">âœ–ï¸ Ø¥ØºÙ„Ø§Ù‚</button>
     </div>
 
     <div class="header">
         <h1><?php echo htmlspecialchars($storeName); ?></h1>
-        <div class="badge">🎮 فاتورة ألعاب بلايستيشن</div>
-        <?php if ($storePhone): ?><p style="font-size:11px;">هاتف: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
+        <div class="badge">ðŸŽ® ÙØ§ØªÙˆØ±Ø© Ø£Ù„Ø¹Ø§Ø¨ Ø¨Ù„Ø§ÙŠØ³ØªÙŠØ´Ù†</div>
+        <?php if ($storePhone): ?><p style="font-size:11px;">Ù‡Ø§ØªÙ: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
     </div>
 
     <div class="divider"></div>
 
     <table class="meta-table">
         <tr>
-            <td class="fw-bold">الجهاز:</td>
+            <td class="fw-bold">Ø§Ù„Ø¬Ù‡Ø§Ø²:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($session['device_name']); ?></td>
         </tr>
         <tr>
-            <td>نوع اللعب:</td>
-            <td class="text-left fw-bold"><?php echo $session['session_type'] === 'multi' ? 'جماعي (مالتي)' : 'فردي (سنجل)'; ?></td>
+            <td>Ù†ÙˆØ¹ Ø§Ù„Ù„Ø¹Ø¨:</td>
+            <td class="text-left fw-bold"><?php echo $session['session_type'] === 'multi' ? 'Ø¬Ù…Ø§Ø¹ÙŠ (Ù…Ø§Ù„ØªÙŠ)' : 'ÙØ±Ø¯ÙŠ (Ø³Ù†Ø¬Ù„)'; ?></td>
         </tr>
         <tr>
-            <td>وقت البدء:</td>
+            <td>ÙˆÙ‚Øª Ø§Ù„Ø¨Ø¯Ø¡:</td>
             <td class="text-left"><?php echo date('Y-m-d h:i A', strtotime($session['started_at'])); ?></td>
         </tr>
         <tr>
-            <td>وقت الانتهاء:</td>
+            <td>ÙˆÙ‚Øª Ø§Ù„Ø§Ù†ØªÙ‡Ø§Ø¡:</td>
             <td class="text-left"><?php echo $endedAtLabel; ?></td>
         </tr>
         <tr>
-            <td>إجمالي مدة اللعب:</td>
+            <td>Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ù…Ø¯Ø© Ø§Ù„Ù„Ø¹Ø¨:</td>
             <td class="text-left fw-bold"><?php echo $durationFormatted; ?></td>
         </tr>
         <tr>
-            <td>سعر الساعة المطبق:</td>
-            <td class="text-left"><?php echo number_format($session['applied_rate'], 2); ?> ج.م / ساعة</td>
+            <td>Ø³Ø¹Ø± Ø§Ù„Ø³Ø§Ø¹Ø© Ø§Ù„Ù…Ø·Ø¨Ù‚:</td>
+            <td class="text-left"><?php echo number_format($session['applied_rate'], 2); ?> Ø¬.Ù… / Ø³Ø§Ø¹Ø©</td>
         </tr>
         <?php if (!empty($session['customer_name'])): ?>
         <tr>
-            <td>العميل:</td>
+            <td>Ø§Ù„Ø¹Ù…ÙŠÙ„:</td>
             <td class="text-left"><?php echo htmlspecialchars($session['customer_name']); ?></td>
         </tr>
         <?php endif; ?>
@@ -161,13 +161,13 @@ $durationFormatted = ($hours > 0 ? "$hours ساعة و " : "") . "$remMinutes د
 
     <?php if (!empty($allOrderItems)): ?>
     <div class="divider"></div>
-    <div style="font-size:11px; font-weight:bold; margin-bottom:4px;">تفاصيل طلبات الكافيه المضافة:</div>
+    <div style="font-size:11px; font-weight:bold; margin-bottom:4px;">ØªÙØ§ØµÙŠÙ„ Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙƒØ§ÙÙŠÙ‡ Ø§Ù„Ù…Ø¶Ø§ÙØ©:</div>
     <table class="items-table">
         <?php foreach ($allOrderItems as $it): ?>
         <tr>
-            <td>• <?php echo htmlspecialchars($it['product_name']); ?> <?php echo $it['variant_name'] ? "({$it['variant_name']})" : ""; ?></td>
+            <td>â€¢ <?php echo htmlspecialchars($it['product_name']); ?> <?php echo $it['variant_name'] ? "({$it['variant_name']})" : ""; ?></td>
             <td class="text-center">x<?php echo $it['quantity']; ?></td>
-            <td class="text-left"><?php echo number_format($it['line_total'], 2); ?> ج.م</td>
+            <td class="text-left"><?php echo number_format($it['line_total'], 2); ?> Ø¬.Ù…</td>
         </tr>
         <?php endforeach; ?>
     </table>
@@ -183,39 +183,39 @@ $durationFormatted = ($hours > 0 ? "$hours ساعة و " : "") . "$remMinutes د
     <div class="double-divider"></div>
     <table class="totals-table">
         <tr>
-            <td class="fw-bold">حساب وقت اللعب:</td>
-            <td class="text-left fw-bold"><?php echo number_format($gamingCharge, 2); ?> ج.م</td>
+            <td class="fw-bold">Ø­Ø³Ø§Ø¨ ÙˆÙ‚Øª Ø§Ù„Ù„Ø¹Ø¨:</td>
+            <td class="text-left fw-bold"><?php echo number_format($gamingCharge, 2); ?> Ø¬.Ù…</td>
         </tr>
         <?php if ($cafeGrossTotal > 0): ?>
         <tr>
-            <td>مشروبات وطلبات كافيه:</td>
-            <td class="text-left"><?php echo number_format($cafeGrossTotal, 2); ?> ج.م</td>
+            <td>Ù…Ø´Ø±ÙˆØ¨Ø§Øª ÙˆØ·Ù„Ø¨Ø§Øª ÙƒØ§ÙÙŠÙ‡:</td>
+            <td class="text-left"><?php echo number_format($cafeGrossTotal, 2); ?> Ø¬.Ù…</td>
         </tr>
         <?php endif; ?>
         <?php if ($discountAmount > 0): ?>
         <tr style="color:#dc2626;">
-            <td>الخصم:</td>
-            <td class="text-left">-<?php echo number_format($discountAmount, 2); ?> ج.م</td>
+            <td>Ø§Ù„Ø®ØµÙ…:</td>
+            <td class="text-left">-<?php echo number_format($discountAmount, 2); ?> Ø¬.Ù…</td>
         </tr>
         <?php endif; ?>
         <tr class="grand-total">
-            <td>الإجمالي المطلوب:</td>
-            <td class="text-left"><?php echo number_format($grossTotal, 2); ?> ج.م</td>
+            <td>Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨:</td>
+            <td class="text-left"><?php echo number_format($grossTotal, 2); ?> Ø¬.Ù…</td>
         </tr>
         <tr>
-            <td>المدفوع مسبقاً:</td>
-            <td class="text-left"><?php echo number_format($prepaidCafeTotal, 2); ?> ج.م</td>
+            <td>Ø§Ù„Ù…Ø¯ÙÙˆØ¹ Ù…Ø³Ø¨Ù‚Ø§Ù‹:</td>
+            <td class="text-left"><?php echo number_format($prepaidCafeTotal, 2); ?> Ø¬.Ù…</td>
         </tr>
         <tr style="font-weight:900; color:<?php echo $remainingTotal > 0 ? '#d97706' : '#059669'; ?>;">
-            <td>المتبقي للتحصيل:</td>
-            <td class="text-left"><?php echo number_format($remainingTotal, 2); ?> ج.م</td>
+            <td>Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ Ù„Ù„ØªØ­ØµÙŠÙ„:</td>
+            <td class="text-left"><?php echo number_format($remainingTotal, 2); ?> Ø¬.Ù…</td>
         </tr>
     </table>
 
     <div class="divider"></div>
     <div style="text-align:center; font-size:11px; margin-top:6px;">
         <p><?php echo htmlspecialchars($receiptFooter); ?></p>
-        <p style="font-size:9.5px; opacity:0.7; margin-top:3px;">كاشير: <?php echo htmlspecialchars($session['closed_by_name'] ?? 'الكاشير'); ?></p>
+        <p style="font-size:9.5px; opacity:0.7; margin-top:3px;">ÙƒØ§Ø´ÙŠØ±: <?php echo htmlspecialchars($session['closed_by_name'] ?? 'Ø§Ù„ÙƒØ§Ø´ÙŠØ±'); ?></p>
     </div>
 
     <script>
@@ -223,7 +223,15 @@ $durationFormatted = ($hours > 0 ? "$hours ساعة و " : "") . "$remMinutes د
             setTimeout(function() { window.print(); }, 300);
         };
         window.onafterprint = function() {
-            setTimeout(function() { try { window.close(); } catch (e) {} }, 100);
+            setTimeout(function() {
+                try {
+                    if (window.self === window.top) {
+                        window.close();
+                    } else if (window.parent && typeof window.parent.closeReceiptModal === 'function') {
+                        window.parent.closeReceiptModal();
+                    }
+                } catch (e) {}
+            }, 100);
         };
     </script>
 </body>

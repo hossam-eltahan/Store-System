@@ -1,7 +1,7 @@
-<?php
+﻿<?php
 /**
  * POS Receipt Printing Template (Thermal 80mm / 57mm)
- * بون طباعة كاشير كافيه عروسة النيل
+ * Ø¨ÙˆÙ† Ø·Ø¨Ø§Ø¹Ø© ÙƒØ§Ø´ÙŠØ± ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„
  */
 
 require_once '../../config/database.php';
@@ -40,11 +40,11 @@ foreach ($items as &$it) {
     $it['modifiers'] = getRows("SELECT * FROM order_item_modifiers WHERE order_item_id = ?", [$it['id']]);
 }
 
-$storeName = getSetting('store_name', 'كافيه عروسة النيل');
+$storeName = getSetting('store_name', 'ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„');
 $storeAddress = getSetting('store_address', '');
 $storePhone = getSetting('store_phone', '');
-$receiptHeader = getSetting('receipt_header', 'أهلاً بكم في كافيه عروسة النيل');
-$receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - نتمنى لكم وقتاً ممتعاً');
+$receiptHeader = getSetting('receipt_header', 'Ø£Ù‡Ù„Ø§Ù‹ Ø¨ÙƒÙ… ÙÙŠ ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„');
+$receiptFooter = getSetting('receipt_footer', 'Ø´ÙƒØ±Ø§Ù‹ Ù„Ø²ÙŠØ§Ø±ØªÙƒÙ… - Ù†ØªÙ…Ù†Ù‰ Ù„ÙƒÙ… ÙˆÙ‚ØªØ§Ù‹ Ù…Ù…ØªØ¹Ø§Ù‹');
 $isKitchen = ($type === 'kitchen');
 ?>
 <!DOCTYPE html>
@@ -52,7 +52,7 @@ $isKitchen = ($type === 'kitchen');
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>بون طلب #<?php echo htmlspecialchars($order['order_number']); ?> - <?php echo $isKitchen ? 'المطبخ والبار' : 'العميل'; ?></title>
+    <title>Ø¨ÙˆÙ† Ø·Ù„Ø¨ #<?php echo htmlspecialchars($order['order_number']); ?> - <?php echo $isKitchen ? 'Ø§Ù„Ù…Ø·Ø¨Ø® ÙˆØ§Ù„Ø¨Ø§Ø±' : 'Ø§Ù„Ø¹Ù…ÙŠÙ„'; ?></title>
     <style>
         @page {
             size: 80mm auto;
@@ -206,22 +206,22 @@ $isKitchen = ($type === 'kitchen');
 <body>
 
     <div class="no-print">
-        <button class="btn-print" onclick="window.print()">🖨️ طباعة البون الآن</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">✖️ إغلاق</button>
+        <button class="btn-print" onclick="window.print()">ðŸ–¨ï¸ Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„Ø¨ÙˆÙ† Ø§Ù„Ø¢Ù†</button>
+        <button class="btn-print" style="background:#475569;" onclick="window.close()">âœ–ï¸ Ø¥ØºÙ„Ø§Ù‚</button>
         <?php if (!$isKitchen): ?>
-            <a href="receipt.php?id=<?php echo $orderId; ?>&type=kitchen" style="text-decoration:none; margin-right:8px;" class="btn-print" style="background:#e11d48;">👨‍🍳 بون البار/المطبخ</a>
+            <a href="receipt.php?id=<?php echo $orderId; ?>&type=kitchen" style="text-decoration:none; margin-right:8px;" class="btn-print" style="background:#e11d48;">ðŸ‘¨â€ðŸ³ Ø¨ÙˆÙ† Ø§Ù„Ø¨Ø§Ø±/Ø§Ù„Ù…Ø·Ø¨Ø®</a>
         <?php else: ?>
-            <a href="receipt.php?id=<?php echo $orderId; ?>&type=customer" style="text-decoration:none; margin-right:8px;" class="btn-print" style="background:#059669;">🧾 بون العميل</a>
+            <a href="receipt.php?id=<?php echo $orderId; ?>&type=customer" style="text-decoration:none; margin-right:8px;" class="btn-print" style="background:#059669;">ðŸ§¾ Ø¨ÙˆÙ† Ø§Ù„Ø¹Ù…ÙŠÙ„</a>
         <?php endif; ?>
     </div>
 
     <div class="header text-center">
         <?php if ($isKitchen): ?>
-            <div class="kitchen-badge">📋 بون تحضير (البار / المطبخ)</div>
+            <div class="kitchen-badge">ðŸ“‹ Ø¨ÙˆÙ† ØªØ­Ø¶ÙŠØ± (Ø§Ù„Ø¨Ø§Ø± / Ø§Ù„Ù…Ø·Ø¨Ø®)</div>
         <?php else: ?>
             <h1><?php echo htmlspecialchars($storeName); ?></h1>
             <?php if ($storeAddress): ?><p><?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>
-            <?php if ($storePhone): ?><p>هاتف: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
+            <?php if ($storePhone): ?><p>Ù‡Ø§ØªÙ: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
             <?php if ($receiptHeader): ?><p style="margin-top:3px;"><?php echo htmlspecialchars($receiptHeader); ?></p><?php endif; ?>
         <?php endif; ?>
     </div>
@@ -230,26 +230,26 @@ $isKitchen = ($type === 'kitchen');
 
     <table class="meta-table">
         <tr>
-            <td class="fw-bold">رقم الطلب:</td>
+            <td class="fw-bold">Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($order['order_number']); ?></td>
         </tr>
         <tr>
-            <td>التاريخ والوقت:</td>
+            <td>Ø§Ù„ØªØ§Ø±ÙŠØ® ÙˆØ§Ù„ÙˆÙ‚Øª:</td>
             <td class="text-left"><?php echo date('Y-m-d h:i A', strtotime($order['created_at'])); ?></td>
         </tr>
         <tr>
-            <td>الكاشير:</td>
-            <td class="text-left"><?php echo htmlspecialchars($order['cashier_name'] ?? 'الكاشير'); ?></td>
+            <td>Ø§Ù„ÙƒØ§Ø´ÙŠØ±:</td>
+            <td class="text-left"><?php echo htmlspecialchars($order['cashier_name'] ?? 'Ø§Ù„ÙƒØ§Ø´ÙŠØ±'); ?></td>
         </tr>
         <tr>
-            <td>نوع الطلب:</td>
+            <td>Ù†ÙˆØ¹ Ø§Ù„Ø·Ù„Ø¨:</td>
             <td class="text-left fw-bold">
                 <?php 
                 $types = [
-                    'takeaway' => 'تيك أواي (Takeaway) 🛍️',
-                    'dine_in' => 'صالة (طاولة) 🪑' . ($order['table_name'] ? ' - ' . $order['table_name'] : ''),
-                    'gaming_ps' => 'بلايستيشن 🎮' . ($order['ps_name'] ? ' - ' . $order['ps_name'] : ''),
-                    'gaming_billiard' => 'بلياردو 🎱' . ($order['billiard_name'] ? ' - ' . $order['billiard_name'] : ''),
+                    'takeaway' => 'ØªÙŠÙƒ Ø£ÙˆØ§ÙŠ (Takeaway) ðŸ›ï¸',
+                    'dine_in' => 'ØµØ§Ù„Ø© (Ø·Ø§ÙˆÙ„Ø©) ðŸª‘' . ($order['table_name'] ? ' - ' . $order['table_name'] : ''),
+                    'gaming_ps' => 'Ø¨Ù„Ø§ÙŠØ³ØªÙŠØ´Ù† ðŸŽ®' . ($order['ps_name'] ? ' - ' . $order['ps_name'] : ''),
+                    'gaming_billiard' => 'Ø¨Ù„ÙŠØ§Ø±Ø¯Ùˆ ðŸŽ±' . ($order['billiard_name'] ? ' - ' . $order['billiard_name'] : ''),
                 ];
                 echo $types[$order['order_type']] ?? $order['order_type'];
                 ?>
@@ -257,7 +257,7 @@ $isKitchen = ($type === 'kitchen');
         </tr>
         <?php if (!empty($order['customer_name'])): ?>
         <tr>
-            <td>العميل:</td>
+            <td>Ø§Ù„Ø¹Ù…ÙŠÙ„:</td>
             <td class="text-left"><?php echo htmlspecialchars($order['customer_name']); ?></td>
         </tr>
         <?php endif; ?>
@@ -268,11 +268,11 @@ $isKitchen = ($type === 'kitchen');
     <table class="items-table">
         <thead>
             <tr>
-                <th style="width: 50%;" class="text-right">الصنف</th>
-                <th style="width: 15%;" class="text-center">العدد</th>
+                <th style="width: 50%;" class="text-right">Ø§Ù„ØµÙ†Ù</th>
+                <th style="width: 15%;" class="text-center">Ø§Ù„Ø¹Ø¯Ø¯</th>
                 <?php if (!$isKitchen): ?>
-                <th style="width: 15%;" class="text-center">السعر</th>
-                <th style="width: 20%;" class="text-left">الإجمالي</th>
+                <th style="width: 15%;" class="text-center">Ø§Ù„Ø³Ø¹Ø±</th>
+                <th style="width: 20%;" class="text-left">Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</th>
                 <?php endif; ?>
             </tr>
         </thead>
@@ -290,7 +290,7 @@ $isKitchen = ($type === 'kitchen');
                         <?php endforeach; ?>
                     <?php endif; ?>
                     <?php if (!empty($item['item_notes'])): ?>
-                        <span class="note-tag">⚠️ ملاحظة: <?php echo htmlspecialchars($item['item_notes']); ?></span>
+                        <span class="note-tag">âš ï¸ Ù…Ù„Ø§Ø­Ø¸Ø©: <?php echo htmlspecialchars($item['item_notes']); ?></span>
                     <?php endif; ?>
                 </td>
                 <td class="text-center fw-bold" style="font-size: 13px;">x<?php echo $item['quantity']; ?></td>
@@ -307,42 +307,42 @@ $isKitchen = ($type === 'kitchen');
     <div class="double-divider"></div>
     <table class="totals-table">
         <tr>
-            <td>المجموع الفرعي:</td>
-            <td class="text-left"><?php echo number_format($order['subtotal'], 2); ?> ج.م</td>
+            <td>Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹ Ø§Ù„ÙØ±Ø¹ÙŠ:</td>
+            <td class="text-left"><?php echo number_format($order['subtotal'], 2); ?> Ø¬.Ù…</td>
         </tr>
         <?php if ($order['discount_amount'] > 0): ?>
         <tr style="color: #dc2626;">
-            <td>الخصم:</td>
-            <td class="text-left">-<?php echo number_format($order['discount_amount'], 2); ?> ج.م</td>
+            <td>Ø§Ù„Ø®ØµÙ…:</td>
+            <td class="text-left">-<?php echo number_format($order['discount_amount'], 2); ?> Ø¬.Ù…</td>
         </tr>
         <?php endif; ?>
         <?php if ((float)$order['tax_amount'] > 0): ?>
         <tr>
-            <td>الضريبة والخدمة:</td>
-            <td class="text-left"><?php echo number_format($order['tax_amount'], 2); ?> ج.م</td>
+            <td>Ø§Ù„Ø¶Ø±ÙŠØ¨Ø© ÙˆØ§Ù„Ø®Ø¯Ù…Ø©:</td>
+            <td class="text-left"><?php echo number_format($order['tax_amount'], 2); ?> Ø¬.Ù…</td>
         </tr>
         <?php endif; ?>
         <tr class="grand-total">
-            <td>الإجمالي المطلوب:</td>
-            <td class="text-left"><?php echo number_format($order['total_amount'], 2); ?> ج.م</td>
+            <td>Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨:</td>
+            <td class="text-left"><?php echo number_format($order['total_amount'], 2); ?> Ø¬.Ù…</td>
         </tr>
         <tr>
-            <td>طريقة الدفع:</td>
+            <td>Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯ÙØ¹:</td>
             <td class="text-left fw-bold">
                 <?php 
-                $methods = ['cash' => 'نقداً (كاش)', 'card' => 'فيزا / بطاقة', 'vodafone_cash' => 'فودافون كاش', 'instapay' => 'إنستاباي (InstaPay)'];
+                $methods = ['cash' => 'Ù†Ù‚Ø¯Ø§Ù‹ (ÙƒØ§Ø´)', 'card' => 'ÙÙŠØ²Ø§ / Ø¨Ø·Ø§Ù‚Ø©', 'vodafone_cash' => 'ÙÙˆØ¯Ø§ÙÙˆÙ† ÙƒØ§Ø´', 'instapay' => 'Ø¥Ù†Ø³ØªØ§Ø¨Ø§ÙŠ (InstaPay)'];
                 echo $methods[$order['payment_method']] ?? $order['payment_method'];
                 ?>
             </td>
         </tr>
         <tr>
-            <td>المدفوع:</td>
-            <td class="text-left"><?php echo number_format($order['paid_amount'], 2); ?> ج.م</td>
+            <td>Ø§Ù„Ù…Ø¯ÙÙˆØ¹:</td>
+            <td class="text-left"><?php echo number_format($order['paid_amount'], 2); ?> Ø¬.Ù…</td>
         </tr>
         <?php if ($order['total_amount'] > $order['paid_amount']): ?>
         <tr style="color:#d97706; font-weight:bold;">
-            <td>المتبقي (معلق):</td>
-            <td class="text-left"><?php echo number_format($order['total_amount'] - $order['paid_amount'], 2); ?> ج.م</td>
+            <td>Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ (Ù…Ø¹Ù„Ù‚):</td>
+            <td class="text-left"><?php echo number_format($order['total_amount'] - $order['paid_amount'], 2); ?> Ø¬.Ù…</td>
         </tr>
         <?php endif; ?>
     </table>
@@ -351,25 +351,33 @@ $isKitchen = ($type === 'kitchen');
     <?php if (!empty($order['notes'])): ?>
     <div class="divider"></div>
     <div style="font-size:11px;">
-        <span class="fw-bold">ملاحظات الطلب:</span> <?php echo htmlspecialchars($order['notes']); ?>
+        <span class="fw-bold">Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„Ø·Ù„Ø¨:</span> <?php echo htmlspecialchars($order['notes']); ?>
     </div>
     <?php endif; ?>
 
     <div class="footer">
         <div class="divider"></div>
         <p><?php echo htmlspecialchars($receiptFooter); ?></p>
-        <p style="font-size:9.5px; opacity:0.7; margin-top:4px;">نظام كاشير عروسة النيل v2.0</p>
+        <p style="font-size:9.5px; opacity:0.7; margin-top:4px;">Ù†Ø¸Ø§Ù… ÙƒØ§Ø´ÙŠØ± Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„ v2.0</p>
     </div>
 
     <script>
-        // طباعة تلقائية عند الفتح
+        // Ø·Ø¨Ø§Ø¹Ø© ØªÙ„Ù‚Ø§Ø¦ÙŠØ© Ø¹Ù†Ø¯ Ø§Ù„ÙØªØ­
         window.onload = function() {
             setTimeout(function() {
                 window.print();
             }, 300);
         };
         window.onafterprint = function() {
-            setTimeout(function() { try { window.close(); } catch (e) {} }, 100);
+            setTimeout(function() {
+                try {
+                    if (window.self === window.top) {
+                        window.close();
+                    } else if (window.parent && typeof window.parent.closeReceiptModal === 'function') {
+                        window.parent.closeReceiptModal();
+                    }
+                } catch (e) {}
+            }, 100);
         };
     </script>
 </body>

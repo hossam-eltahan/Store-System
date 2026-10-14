@@ -1298,7 +1298,7 @@ async function processCheckout(isDeferred) {
         if (data.success) {
             // Deferred orders remain attached to the session and are printed when it is closed.
             if (!isDeferred && data.is_deferred !== true && data.order_id) {
-                window.open(`receipt.php?id=${data.order_id}&type=customer`, '_blank', 'width=400,height=600');
+                openReceiptModal(`receipt.php?id=${data.order_id}&type=customer`);
             }
 
             // Reset Cart

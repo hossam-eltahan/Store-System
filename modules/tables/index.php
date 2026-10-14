@@ -196,7 +196,7 @@ function openTableModal(tableId, name) {
 }
 
 function viewOpenOrders(sessionId) {
-    window.open('receipt.php?id=' + sessionId, '_blank', 'width=350,height=700,scrollbars=yes,resizable=yes');
+    openReceiptModal('receipt.php?id=' + sessionId);
 }
 
 async function transferTable(sessionId, currentTableId) {
@@ -302,7 +302,7 @@ async function submitCloseTable() {
             // تحديث الطاولات
             loadTables();
             // فتح صفحة طباعة الفاتورة المجمعة
-            window.open('receipt.php?id=' + data.session_id, '_blank', 'width=350,height=700,scrollbars=yes,resizable=yes');
+            openReceiptModal('receipt.php?id=' + data.session_id);
         } else {
             alert(data.error);
         }

@@ -407,7 +407,7 @@ function renderTables() {
 }
 
 function viewBilliardOrders(sessionId) {
-    window.open(`receipt.php?id=${sessionId}`, '_blank', 'width=400,height=700,scrollbars=yes,resizable=yes');
+    openReceiptModal(`receipt.php?id=${sessionId}`);
 }
 
 function tickBilliardsLocally() {
@@ -608,7 +608,7 @@ async function submitEndBilliard() {
     });
     const data = await res.json();
     if (data.success) {
-        window.open(`receipt.php?id=${data.session_id}`, '_blank', 'width=400,height=600');
+        openReceiptModal(`receipt.php?id=${data.session_id}`);
         closeModal('endBilliardModal');
         loadTables();
     } else {

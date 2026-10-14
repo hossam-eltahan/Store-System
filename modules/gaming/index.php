@@ -725,7 +725,7 @@ function openTransferModal(sessionId) {
 }
 
 function viewSessionOrders(sessionId) {
-    window.open(`receipt.php?id=${sessionId}`, '_blank', 'width=400,height=700,scrollbars=yes,resizable=yes');
+    openReceiptModal(`receipt.php?id=${sessionId}`);
 }
 
 async function submitTransfer() {
@@ -854,7 +854,7 @@ async function submitEndSession() {
         const data = await res.json();
         if (data.success) {
             // Open print receipt
-            window.open(`receipt.php?id=${data.session_id}`, '_blank', 'width=400,height=600');
+            openReceiptModal(`receipt.php?id=${data.session_id}`);
             closeModal('endSessionModal');
             loadDevices();
         } else {

@@ -394,7 +394,7 @@ async function submitCloseShift() {
     const res = await fetch('ajax.php?action=close_shift', { method: 'POST', body: fd });
     const data = await res.json();
     if (data.success) {
-        window.open(`receipt.php?id=${data.shift_id}`, '_blank', 'width=400,height=600');
+        openReceiptModal(`receipt.php?id=${data.shift_id}`);
         location.reload();
     } else {
         alert(data.error);

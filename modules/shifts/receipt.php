@@ -182,6 +182,17 @@ $storePhone = getSetting('store_phone', '');
 
     <script>
         window.onload = function() { setTimeout(function() { window.print(); }, 300); };
+        window.onafterprint = function() {
+            setTimeout(function() {
+                try {
+                    if (window.self === window.top) {
+                        window.close();
+                    } else if (window.parent && typeof window.parent.closeReceiptModal === 'function') {
+                        window.parent.closeReceiptModal();
+                    }
+                } catch (e) {}
+            }, 100);
+        };
     </script>
 </body>
 </html>

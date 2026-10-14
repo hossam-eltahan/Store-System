@@ -412,6 +412,17 @@ $receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - ن�
                 window.print();
             }, 400);
         };
+        window.onafterprint = function() {
+            setTimeout(function() {
+                try {
+                    if (window.self === window.top) {
+                        window.close();
+                    } else if (window.parent && typeof window.parent.closeReceiptModal === 'function') {
+                        window.parent.closeReceiptModal();
+                    }
+                } catch (e) {}
+            }, 100);
+        };
     </script>
 </body>
 </html>

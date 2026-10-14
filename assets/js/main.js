@@ -313,3 +313,63 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 });
+// Receipt Modal (avoids leftover browser popup windows)
+function openReceiptModal(url) {
+    closeReceiptModal();
+    var overlay = document.createElement('div');
+    overlay.id = 'receiptModalOverlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.65);backdrop-filter:blur(4px);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;width:100%;max-width:420px;height:92vh;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 30px rgba(0,0,0,0.25);';
+
+    var header = document.createElement('div');
+    header.style.cssText = 'padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;';
+
+    var title = document.createElement('div');
+    title.style.cssText = 'font-weight:800;font-size:13.5px;color:#0f172a;';
+    title.textContent = 'Receipt / Bill';
+
+    var actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:8px;';
+
+    var printBtn = document.createElement('button');
+    printBtn.textContent = 'Print';
+    printBtn.style.cssText = 'background:#ea580c;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;';
+    printBtn.onclick = function() {
+        try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch (e) {}
+    };
+
+    var closeBtn = document.createElement('button');
+    closeBtn.textContent = 'x';
+    closeBtn.style.cssText = 'background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;border-radius:8px;padding:6px 12px;font-weight:700;font-size:14px;cursor:pointer;';
+    closeBtn.onclick = closeReceiptModal;
+
+    var iframe = document.createElement('iframe');
+    iframe.src = url;
+    iframe.style.cssText = 'flex:1;width:100%;border:0;background:#fff;';
+
+    actions.appendChild(printBtn);
+    actions.appendChild(closeBtn);
+    header.appendChild(title);
+    header.appendChild(actions);
+    box.appendChild(header);
+    box.appendChild(iframe);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) closeReceiptModal();
+    });
+    window.__receiptModalOverlay = overlay;
+}
+
+function closeReceiptModal() {
+    var overlay = window.__receiptModalOverlay || document.getElementById('receiptModalOverlay');
+    if (overlay) {
+        overlay.remove();
+    }
+    window.__receiptModalOverlay = null;
+}
+window.openReceiptModal = openReceiptModal;
+window.closeReceiptModal = closeReceiptModal;
