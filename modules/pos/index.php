@@ -1299,9 +1299,6 @@ function openServiceModal(prod) {
     updateServiceTotal();
     document.getElementById('serviceModal').style.display = 'flex';
 }
-    updateServiceTotal();
-    document.getElementById('serviceModal').style.display = 'flex';
-}
 
 function closeServiceModal() {
     document.getElementById('serviceModal').style.display = 'none';
