@@ -15,8 +15,25 @@ $pageTitle = 'إضافة طاولة بلياردو';
 $defaultRateHour = floatval(getSetting('billiard_default_rate_hour', 40));
 $defaultRateGame = floatval(getSetting('billiard_default_rate_game', 10));
 
+// Auto-generate the next table number (TBL-B1, TBL-B2, ...) — always unique
+function generateTableNumber() {
+    $max = 0;
+    $rows = getRows("SELECT table_number FROM billiard_tables");
+    foreach ($rows as $r) {
+        if (preg_match('/(\d+)\s*$/', $r['table_number'] ?? '', $m)) {
+            $max = max($max, (int)$m[1]);
+        }
+    }
+    do {
+        $max++;
+        $candidate = 'TBL-B' . $max;
+        $exists = getRow("SELECT id FROM billiard_tables WHERE table_number = ?", [$candidate]);
+    } while ($exists);
+    return $candidate;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $table_number = sanitize(trim($_POST['table_number'] ?? ''));
+    $table_number = generateTableNumber();
     $display_name = sanitize(trim($_POST['display_name'] ?? ''));
     $table_type = in_array(($_POST['table_type'] ?? 'pool'), ['pool', 'snooker', 'ping_pong'], true) ? $_POST['table_type'] : 'pool';
     $billing_mode = ($_POST['billing_mode'] ?? 'hourly') === 'per_game' ? 'per_game' : 'hourly';
@@ -26,22 +43,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_active = isset($_POST['is_active']) ? 1 : 0;
 
     // Validate inputs
-    if (empty($table_number)) {
-        setError('يرجى كتابة رقم الطاولة');
-    } elseif (empty($display_name)) {
+    if (empty($display_name)) {
         setError('يرجى كتابة اسم الطاولة');
     } elseif ($rate_per_hour <= 0) {
         setError('مرفوعات بالساعة يجب أن تكون أكبر من صفر');
     } elseif ($rate_per_game <= 0) {
         setError('مرفوعات بالجيم (Game) يجب أن تكون أكبر من صفر');
     } else {
-        // Check for duplicate table number or display name
+        // Check for duplicate display name
         $existing = getRow(
-            "SELECT id FROM billiard_tables WHERE table_number = ? OR display_name = ?",
-            [$table_number, $display_name]
+            "SELECT id FROM billiard_tables WHERE display_name = ?",
+            [$display_name]
         );
         if ($existing) {
-            setError('رقم الطاولة أو اسمها مسجل مسبقاً');
+            setError('اسم الطاولة مسجل مسبقاً');
         } else {
             $tableId = insert(
                 "INSERT INTO billiard_tables (table_number, display_name, table_type, billing_mode, rate_per_hour, rate_per_game, display_order, is_active)
@@ -208,12 +223,8 @@ include '../../includes/navbar.php';
         <form method="POST">
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">رقم الطاولة *</label>
-                    <input type="text" name="table_number"
-                           class="form-control"
-                           placeholder="مثال: TBL-B3"
-                           value="<?php echo htmlspecialchars($_POST['table_number'] ?? ''); ?>"
-                           required>
+                    <label class="form-label">رقم الطاولة</label>
+                    <input type="text" class="form-control" value="يتم إنشاؤه تلقائياً (مثال: TBL-B3)" disabled>
                 </div>
 
                 <div class="form-group">

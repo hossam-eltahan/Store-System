@@ -15,8 +15,25 @@ $pageTitle = 'إضافة جهاز بلايستيشن جديد';
 $defaultSingle = floatval(getSetting('ps_default_rate_single', 30));
 $defaultMulti = floatval(getSetting('ps_default_rate_multi', 40));
 
+// Auto-generate the next device number (PS-01, PS-02, ...) — always unique
+function generateDeviceNumber() {
+    $max = 0;
+    $rows = getRows("SELECT device_number FROM gaming_devices");
+    foreach ($rows as $r) {
+        if (preg_match('/(\d+)\s*$/', $r['device_number'] ?? '', $m)) {
+            $max = max($max, (int)$m[1]);
+        }
+    }
+    do {
+        $max++;
+        $candidate = 'PS-' . str_pad($max, 2, '0', STR_PAD_LEFT);
+        $exists = getRow("SELECT id FROM gaming_devices WHERE device_number = ?", [$candidate]);
+    } while ($exists);
+    return $candidate;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $device_number = sanitize(trim($_POST['device_number'] ?? ''));
+    $device_number = generateDeviceNumber();
     $display_name = sanitize(trim($_POST['display_name'] ?? ''));
     $device_type = ($_POST['device_type'] ?? 'ps4') === 'ps5' ? 'ps5' : 'ps4';
     $room_type = ($_POST['room_type'] ?? 'normal') === 'vip' ? 'vip' : 'normal';
@@ -28,22 +45,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_active = isset($_POST['is_active']) ? 1 : 0;
 
     // Validate inputs
-    if (empty($device_number)) {
-        setError('يرجى كتابة رقم الجهاز');
-    } elseif (empty($display_name)) {
+    if (empty($display_name)) {
         setError('يرجى كتابة اسم الجهاز');
     } elseif ($rate_single <= 0) {
         setError('مرفوعات الفردي (سنجل) يجب أن تكون أكبر من صفر');
     } elseif ($rate_multi <= 0) {
         setError('مرفوعات الجماعي (مالتي) يجب أن تكون أكبر من صفر');
     } else {
-        // Check for duplicate device number or display name
+        // Check for duplicate display name
         $existing = getRow(
-            "SELECT id FROM gaming_devices WHERE device_number = ? OR display_name = ?",
-            [$device_number, $display_name]
+            "SELECT id FROM gaming_devices WHERE display_name = ?",
+            [$display_name]
         );
         if ($existing) {
-            setError('رقم الجهاز أو اسمه مسجل مسبقاً');
+            setError('اسم الجهاز مسجل مسبقاً');
         } else {
             $deviceId = insert(
                 "INSERT INTO gaming_devices (device_number, display_name, device_type, room_type, rate_single, rate_multi, rate_vip, display_order, is_active)
@@ -210,12 +225,8 @@ include '../../includes/navbar.php';
         <form method="POST">
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">رقم الجهاز *</label>
-                    <input type="text" name="device_number"
-                           class="form-control"
-                           placeholder="مثال: PS-06"
-                           value="<?php echo htmlspecialchars($_POST['device_number'] ?? ''); ?>"
-                           required>
+                    <label class="form-label">رقم الجهاز</label>
+                    <input type="text" class="form-control" value="يتم إنشاؤه تلقائياً (مثال: PS-02)" disabled>
                 </div>
 
                 <div class="form-group">
