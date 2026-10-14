@@ -1299,7 +1299,7 @@ function calcServiceTotal() {
     if (activeService.code === 'SRV-PS') {
         const rate = svcPsType === 'multi' ? SVC_RATES.psMulti : SVC_RATES.psSingle;
         const minutes = Math.max(1, parseInt(document.getElementById('serviceMinutesInput').value) || 1);
-        const total = Math.round((rate / 60) * minutes * 100) / 100;
+        const total = Math.round(((rate / 60) * minutes + 1e-9) * 100) / 100;
         const label = svcPsType === 'multi' ? 'زوجي' : 'فردي';
         return { total, qty: 1, unitPrice: total, note: `${label} - ${minutes} دقيقة` };
     }
@@ -1309,7 +1309,7 @@ function calcServiceTotal() {
         return { total: SVC_RATES.blGame * count, qty: count, unitPrice: SVC_RATES.blGame, note: `بالجيم - ${count} جيم` };
     }
     const minutes = Math.max(1, parseInt(document.getElementById('serviceMinutesInput').value) || 1);
-    const total = Math.round((SVC_RATES.blHour / 60) * minutes * 100) / 100;
+    const total = Math.round(((SVC_RATES.blHour / 60) * minutes + 1e-9) * 100) / 100;
     return { total, qty: 1, unitPrice: total, note: `بالساعة - ${minutes} دقيقة` };
 }
 
@@ -1514,9 +1514,10 @@ function closeCheckoutModal() {
 }
 
 function coTaxAmount(netAfterDiscount) {
-    // Hall service applies to everything EXCEPT takeaway (same rule as the backend)
+    // Hall service applies to everything EXCEPT takeaway (same rule as the backend).
+    // +1e-9 keeps binary-float halves (e.g. 22.4999999) rounding exactly like PHP round().
     const rate = SVC_RATES.vat + (currentOrderType === 'takeaway' ? 0 : SVC_RATES.service);
-    return Math.round(netAfterDiscount * (rate / 100) * 100) / 100;
+    return Math.round((netAfterDiscount * (rate / 100) + 1e-9) * 100) / 100;
 }
 
 function coTaxPct() {

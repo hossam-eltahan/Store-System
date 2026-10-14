@@ -244,19 +244,25 @@ try {
             $cafeOrders = getRows("SELECT * FROM orders WHERE gaming_session_id = ?", [$sessionId]);
             $cafeTotal = 0;
             $cafePaid = 0;
-            $cafeTaxIncluded = 0;
+            $cafeTaxOnDue = 0;
             foreach ($cafeOrders as $ord) {
-                $cafeTotal += floatval($ord['total_amount']);
-                $cafeTaxIncluded += floatval($ord['tax_amount'] ?? 0);
+                $orderTotal = floatval($ord['total_amount']);
                 $orderPayment = getRow("SELECT COALESCE(SUM(amount), 0) AS total FROM payment_records WHERE source_type = 'order' AND source_id = ? AND payment_type = 'payment'", [$ord['id']]);
-                $cafePaid += (float)($orderPayment['total'] ?? 0);
+                $orderPaid = (float)($orderPayment['total'] ?? 0);
+                $orderDue = max(0, $orderTotal - $orderPaid);
+                $cafeTotal += $orderTotal;
+                $cafePaid += $orderPaid;
+                // Exclude only the tax sitting inside the STILL-DUE portion (paid parts were already taxed on collection)
+                if ($orderTotal > 0) {
+                    $cafeTaxOnDue += floatval($ord['tax_amount'] ?? 0) * ($orderDue / $orderTotal);
+                }
             }
 
             $grandTotal = $timeCharge + $cafeTotal;
             $amountDue = max(0, $timeCharge + $cafeTotal - $cafePaid);
             // VAT + hall service apply to the session bill, excluding tax already charged inside linked cafe orders
             $taxPct = max(0, (float)getSetting('vat_rate', 0)) + max(0, (float)getSetting('service_charge', 0));
-            $previewTax = round(max(0, $amountDue - $cafeTaxIncluded) * ($taxPct / 100), 2);
+            $previewTax = round(max(0, $amountDue - $cafeTaxOnDue) * ($taxPct / 100), 2);
 
             echo json_encode([
                 'success' => true,
@@ -270,7 +276,7 @@ try {
                 'cafe_paid' => $cafePaid,
                 'amount_due' => $amountDue,
                 'grand_total' => $grandTotal,
-                'cafe_tax_included' => $cafeTaxIncluded,
+                'cafe_tax_on_due' => round($cafeTaxOnDue, 2),
                 'tax_pct' => $taxPct,
                 'tax_amount' => $previewTax
             ], JSON_UNESCAPED_UNICODE);
@@ -321,15 +327,18 @@ try {
             $cafeOrders = getRows("SELECT id, total_amount, tax_amount, paid_amount, payment_status FROM orders WHERE gaming_session_id = ?", [$sessionId]);
             $cafeTotal = 0;
             $cafeDue = 0;
-            $cafeTaxIncluded = 0;
+            $cafeTaxOnDue = 0;
             foreach ($cafeOrders as $o) {
                 $orderTotal = (float)$o['total_amount'];
                 $orderPaid = ($o['payment_status'] ?? '') === 'paid'
                     ? $orderTotal
                     : min($orderTotal, max(0, (float)$o['paid_amount']));
+                $orderDue = max(0, $orderTotal - $orderPaid);
                 $cafeTotal += $orderTotal;
-                $cafeTaxIncluded += (float)($o['tax_amount'] ?? 0);
-                $cafeDue += max(0, $orderTotal - $orderPaid);
+                if ($orderTotal > 0) {
+                    $cafeTaxOnDue += (float)($o['tax_amount'] ?? 0) * ($orderDue / $orderTotal);
+                }
+                $cafeDue += $orderDue;
                 if ($orderTotal > $orderPaid) {
                     execute("UPDATE orders SET payment_status = 'paid', status = 'completed', paid_amount = total_amount WHERE id = ?", [$o['id']]);
                 }
@@ -337,9 +346,9 @@ try {
 
             $discountAmount = min($discountAmount, $gamingCharge + $cafeDue);
 
-            // VAT + hall service on the untaxed remainder (time charge + due cafe amounts minus tax already inside cafe orders)
+            // VAT + hall service on the untaxed remainder (time charge + due cafe amounts minus tax already inside the due cafe portion)
             $taxPct = max(0, (float)getSetting('vat_rate', 0)) + max(0, (float)getSetting('service_charge', 0));
-            $taxBase = max(0, $gamingCharge + $cafeDue - $cafeTaxIncluded - $discountAmount);
+            $taxBase = max(0, $gamingCharge + $cafeDue - $cafeTaxOnDue - $discountAmount);
             $taxAmount = round($taxBase * ($taxPct / 100), 2);
 
             $totalAmount = max(0, ($gamingCharge + $cafeDue) - $discountAmount + $taxAmount);

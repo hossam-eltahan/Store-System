@@ -818,7 +818,7 @@ function renderEndModalDetails(data) {
 
         <div style="margin-bottom:12px;">
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">قيمة الخصم من المتبقي:</label>
-            <input type="number" id="endDiscountInput" value="0" min="0" max="${parseFloat(data.amount_due)}" step="1" oninput="updateEndNetTotal(${data.amount_due}, ${data.cafe_tax_included}, ${data.tax_pct})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:14px; font-weight:bold;">
+            <input type="number" id="endDiscountInput" value="0" min="0" max="${parseFloat(data.amount_due)}" step="1" oninput="updateEndNetTotal(${data.amount_due}, ${data.cafe_tax_on_due}, ${data.tax_pct})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:14px; font-weight:bold;">
         </div>
 
         <div style="margin-bottom:14px;">
@@ -842,10 +842,10 @@ function updateEndNetTotal(baseTotal, cafeTax, taxPct) {
     const disc = Math.min(baseTotal, Math.max(0, parseFloat(input.value) || 0));
     input.value = disc;
     const net = Math.max(0, baseTotal - disc);
-    const tax = Math.round(Math.max(0, net - (parseFloat(cafeTax) || 0)) * (parseFloat(taxPct) || 0)) / 100;
+    const tax = Math.round((Math.max(0, net - (parseFloat(cafeTax) || 0)) * (parseFloat(taxPct) || 0) / 100 + 1e-9) * 100) / 100;
     document.getElementById('endNetTotalDisplay').textContent = `${net.toFixed(2)} ج.م`;
     document.getElementById('endTaxDisplay').textContent = `${tax.toFixed(2)} ج.م`;
-    document.getElementById('endFinalDisplay').textContent = `${(net + tax).toFixed(2)} ج.م`;
+    document.getElementById('endFinalDisplay').textContent = `${(Math.round((net + tax + 1e-9) * 100) / 100).toFixed(2)} ج.م`;
 }
 
 async function submitEndSession() {
