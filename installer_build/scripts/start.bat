@@ -129,7 +129,7 @@ REM ====================================================
 if !MYSQL_READY!==1 (
     "%MYSQL_DIR%\bin\mysql.exe" --host=127.0.0.1 --port=%MYSQL_PORT% -u root -e "SELECT id FROM cafe_management.users LIMIT 1;" >nul 2>&1
     if errorlevel 1 (
-        call "%SCRIPTS_DIR%\init_db.bat" %MYSQL_PORT%
+        call "%SCRIPTS_DIR%\init_db.bat" %MYSQL_PORT% "%ROOT_DIR%"
     )
 )
 

@@ -42,7 +42,7 @@ Source: "portable\php\*"; DestDir: "{app}\php"; Flags: ignoreversion recursesubd
 Source: "portable\data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Application files
-Source: "portable\htdocs\Store-System\*"; DestDir: "{app}\htdocs\Store-System"; Excludes: "tools\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "portable\htdocs\Store-System\*"; DestDir: "{app}\htdocs\Store-System"; Excludes: "tools\*,config\.dev_license,config\license.dat"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Scripts and launcher
 Source: "portable\scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs

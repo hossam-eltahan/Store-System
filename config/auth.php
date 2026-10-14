@@ -242,9 +242,9 @@ function attemptLogin($username, $password) {
  */
 function performLogout() {
     if (isset($_SESSION['session_token']) && isset($_SESSION['user_id'])) {
-        // Mark session as inactive
+        // Remove the session row (user_sessions has no status columns)
         execute(
-            "UPDATE user_sessions SET is_active = 0, logout_at = NOW() WHERE user_id = ? AND session_token = ?",
+            "DELETE FROM user_sessions WHERE user_id = ? AND session_token = ?",
             [$_SESSION['user_id'], $_SESSION['session_token']]
         );
     }
