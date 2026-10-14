@@ -27,6 +27,9 @@ $svcPsSingle = floatval(getSetting('ps_default_rate_single', 30));
 $svcPsMulti = floatval(getSetting('ps_default_rate_multi', 40));
 $svcBlHour = floatval(getSetting('billiard_default_rate_hour', 40));
 $svcBlGame = floatval(getSetting('billiard_default_rate_game', 10));
+// Tax rates applied by the backend on checkout (VAT + hall service)
+$svcVatRate = max(0, floatval(getSetting('vat_rate', 0)));
+$svcServiceRate = max(0, floatval(getSetting('service_charge', 0)));
 
 // إدراج الهيدر
 include '../../includes/header.php';
@@ -924,7 +927,9 @@ const SVC_RATES = {
     psSingle: <?php echo $svcPsSingle; ?>,
     psMulti: <?php echo $svcPsMulti; ?>,
     blHour: <?php echo $svcBlHour; ?>,
-    blGame: <?php echo $svcBlGame; ?>
+    blGame: <?php echo $svcBlGame; ?>,
+    vat: <?php echo $svcVatRate; ?>,
+    service: <?php echo $svcServiceRate; ?>
 };
 
 // Pending product for modal
@@ -1471,6 +1476,14 @@ function openCheckoutModal() {
                 <span>المطلوب بعد الخصم:</span>
                 <span id="coNetTotalDisplay">${subtotal.toFixed(2)} ج.م</span>
             </div>
+            <div id="coTaxRow" style="display:flex; justify-content:space-between; margin-top:4px; color:#475569;">
+                <span>ضريبة + خدمة (<span id="coTaxPct"></span>%):</span>
+                <span id="coTaxDisplay">0.00 ج.م</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-top:6px; font-weight:900; font-size:16px;">
+                <span>المطلوب تحصيله:</span>
+                <span style="color:#ea580c;" id="coFinalTotalDisplay">${subtotal.toFixed(2)} ج.م</span>
+            </div>
         </div>
 
         <div style="margin-bottom:12px;">
@@ -1499,11 +1512,20 @@ function closeCheckoutModal() {
     document.getElementById('checkoutModal').style.display = 'none';
 }
 
+function coTaxAmount(netAfterDiscount) {
+    return Math.round(netAfterDiscount * ((SVC_RATES.vat + SVC_RATES.service) / 100) * 100) / 100;
+}
+
 function updateCoNetTotal(baseTotal) {
     const input = document.getElementById('coDiscountInput');
     const disc = Math.min(baseTotal, Math.max(0, parseFloat(input.value) || 0));
     input.value = disc;
-    document.getElementById('coNetTotalDisplay').textContent = `${Math.max(0, baseTotal - disc).toFixed(2)} ج.م`;
+    const net = Math.max(0, baseTotal - disc);
+    const tax = coTaxAmount(net);
+    document.getElementById('coNetTotalDisplay').textContent = `${net.toFixed(2)} ج.م`;
+    document.getElementById('coTaxPct').textContent = `${(SVC_RATES.vat + SVC_RATES.service).toFixed(2)}`;
+    document.getElementById('coTaxDisplay').textContent = `${tax.toFixed(2)} ج.م`;
+    document.getElementById('coFinalTotalDisplay').textContent = `${(net + tax).toFixed(2)} ج.م`;
 }
 
 async function submitPosCheckout() {
