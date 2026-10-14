@@ -18,6 +18,8 @@ $defaultRateGame = floatval(getSetting('billiard_default_rate_game', 10));
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $table_number = sanitize(trim($_POST['table_number'] ?? ''));
     $display_name = sanitize(trim($_POST['display_name'] ?? ''));
+    $table_type = in_array(($_POST['table_type'] ?? 'pool'), ['pool', 'snooker', 'ping_pong'], true) ? $_POST['table_type'] : 'pool';
+    $billing_mode = ($_POST['billing_mode'] ?? 'hourly') === 'per_game' ? 'per_game' : 'hourly';
     $rate_per_hour = max(0, floatval($_POST['rate_per_hour'] ?? 0));
     $rate_per_game = max(0, floatval($_POST['rate_per_game'] ?? 0));
     $display_order = intval($_POST['display_order'] ?? 0);
@@ -42,9 +44,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setError('رقم الطاولة أو اسمها مسجل مسبقاً');
         } else {
             $tableId = insert(
-                "INSERT INTO billiard_tables (table_number, display_name, rate_per_hour, rate_per_game, display_order, is_active)
-                 VALUES (?, ?, ?, ?, ?, ?)",
-                [$table_number, $display_name, $rate_per_hour, $rate_per_game, $display_order, $is_active]
+                "INSERT INTO billiard_tables (table_number, display_name, table_type, billing_mode, rate_per_hour, rate_per_game, display_order, is_active)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [$table_number, $display_name, $table_type, $billing_mode, $rate_per_hour, $rate_per_game, $display_order, $is_active]
             );
 
             if ($tableId) {
@@ -222,6 +224,25 @@ include '../../includes/navbar.php';
                            value="<?php echo htmlspecialchars($_POST['display_name'] ?? ''); ?>"
                            required>
                     <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">الاسم الذي سيظهر للكاشير (مثال: طاولة بلياردو 1)</div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">نوع الطاولة *</label>
+                    <select name="table_type" class="form-control">
+                        <option value="pool" <?php echo (($_POST['table_type'] ?? 'pool') === 'pool') ? 'selected' : ''; ?>>🎱 بلياردو</option>
+                        <option value="snooker" <?php echo (($_POST['table_type'] ?? '') === 'snooker') ? 'selected' : ''; ?>>🎱 سنوكر</option>
+                        <option value="ping_pong" <?php echo (($_POST['table_type'] ?? '') === 'ping_pong') ? 'selected' : ''; ?>>🏓 بينج بونج</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">نظام الحساب *</label>
+                    <select name="billing_mode" class="form-control">
+                        <option value="hourly" <?php echo (($_POST['billing_mode'] ?? 'hourly') === 'hourly') ? 'selected' : ''; ?>>⏳ بالساعة</option>
+                        <option value="per_game" <?php echo (($_POST['billing_mode'] ?? '') === 'per_game') ? 'selected' : ''; ?>>🎯 بالجيم</option>
+                    </select>
                 </div>
             </div>
 

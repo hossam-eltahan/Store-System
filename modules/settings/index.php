@@ -69,6 +69,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     updateSetting('ps_default_rate_multi', $psRateMulti);
     updateSetting('billiard_default_rate_hour', $billiardRateHour);
     updateSetting('billiard_default_rate_game', $billiardRateGame);
+    // Sync the new rates to ALL existing devices/tables so they follow Settings
+    execute("UPDATE gaming_devices SET rate_single = ?, rate_multi = ?", [$psRateSingle, $psRateMulti]);
+    execute("UPDATE billiard_tables SET rate_per_hour = ?, rate_per_game = ?", [$billiardRateHour, $billiardRateGame]);
+    $devTotal = getRow("SELECT COUNT(*) AS c FROM gaming_devices");
+    $tblTotal = getRow("SELECT COUNT(*) AS c FROM billiard_tables");
+    $devTotal = (int)($devTotal['c'] ?? 0);
+    $tblTotal = (int)($tblTotal['c'] ?? 0);
     updateSetting('vat_rate', $vatRate);
     updateSetting('service_charge', $serviceCharge);
     updateSetting('enable_stock_alerts', $enableStockAlerts);
@@ -77,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     updateSetting('allow_delete_invoices', $allowDeleteInvoices);
     
     logActivity('تحديث الإعدادات', 'تم تحديث إعدادات النظام');
-    setSuccess('تم حفظ الإعدادات بنجاح');
+    setSuccess("تم حفظ الإعدادات بنجاح وتم تطبيق الأسعار على كل الأجهزة ({$devTotal}) والطاولات ({$tblTotal})");
     redirect('index.php');
 }
 

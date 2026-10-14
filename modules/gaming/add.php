@@ -18,8 +18,12 @@ $defaultMulti = floatval(getSetting('ps_default_rate_multi', 40));
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $device_number = sanitize(trim($_POST['device_number'] ?? ''));
     $display_name = sanitize(trim($_POST['display_name'] ?? ''));
+    $device_type = ($_POST['device_type'] ?? 'ps4') === 'ps5' ? 'ps5' : 'ps4';
+    $room_type = ($_POST['room_type'] ?? 'normal') === 'vip' ? 'vip' : 'normal';
     $rate_single = max(0, floatval($_POST['rate_single'] ?? 0));
     $rate_multi = max(0, floatval($_POST['rate_multi'] ?? 0));
+    $rate_vip_raw = trim($_POST['rate_vip'] ?? '');
+    $rate_vip = ($rate_vip_raw === '') ? null : max(0, floatval($rate_vip_raw));
     $display_order = intval($_POST['display_order'] ?? 0);
     $is_active = isset($_POST['is_active']) ? 1 : 0;
 
@@ -42,9 +46,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setError('رقم الجهاز أو اسمه مسجل مسبقاً');
         } else {
             $deviceId = insert(
-                "INSERT INTO gaming_devices (device_number, display_name, rate_single, rate_multi, display_order, is_active)
-                 VALUES (?, ?, ?, ?, ?, ?)",
-                [$device_number, $display_name, $rate_single, $rate_multi, $display_order, $is_active]
+                "INSERT INTO gaming_devices (device_number, display_name, device_type, room_type, rate_single, rate_multi, rate_vip, display_order, is_active)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [$device_number, $display_name, $device_type, $room_type, $rate_single, $rate_multi, $rate_vip, $display_order, $is_active]
             );
 
             if ($deviceId) {
@@ -227,6 +231,24 @@ include '../../includes/navbar.php';
 
             <div class="form-row">
                 <div class="form-group">
+                    <label class="form-label">نوع الجهاز *</label>
+                    <select name="device_type" class="form-control">
+                        <option value="ps4" <?php echo (($_POST['device_type'] ?? 'ps4') === 'ps4') ? 'selected' : ''; ?>>🎮 PS4</option>
+                        <option value="ps5" <?php echo (($_POST['device_type'] ?? '') === 'ps5') ? 'selected' : ''; ?>>🎮 PS5</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">نوع القاعة *</label>
+                    <select name="room_type" class="form-control">
+                        <option value="normal" <?php echo (($_POST['room_type'] ?? 'normal') === 'normal') ? 'selected' : ''; ?>>عادية</option>
+                        <option value="vip" <?php echo (($_POST['room_type'] ?? '') === 'vip') ? 'selected' : ''; ?>>⭐ VIP</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
                     <label class="form-label">مرفوعات الفردي (سنجل) *</label>
                     <input type="number" name="rate_single" min="0" step="0.5" class="form-control"
                            value="<?php echo htmlspecialchars($_POST['rate_single'] ?? $defaultSingle); ?>" required>
@@ -239,6 +261,14 @@ include '../../includes/navbar.php';
                            value="<?php echo htmlspecialchars($_POST['rate_multi'] ?? $defaultMulti); ?>" required>
                     <div class="rate-help">ج.م بالساعة (الافتراضي من الإعدادات: <?php echo htmlspecialchars($defaultMulti); ?>)</div>
                 </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">مرفوعات VIP (اختياري)</label>
+                <input type="number" name="rate_vip" min="0" step="0.5" class="form-control"
+                       placeholder="اتركه فارغاً لاستخدام سعر الفردي"
+                       value="<?php echo htmlspecialchars($_POST['rate_vip'] ?? ''); ?>">
+                <div class="rate-help">ج.م بالساعة — يستخدم لجلسات VIP فقط</div>
             </div>
 
             <div class="divider"></div>
