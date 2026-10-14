@@ -1309,9 +1309,7 @@ async function processCheckout(isDeferred) {
             renderCart();
             loadDestinations();
 
-            alert(isDeferred
-                ? `تم تعليق وإضافة الطلب رقم ${data.order_number || data.order_id} بنجاح لحساب الجلسة!`
-                : 'تم حفظ ودفع الطلب بنجاح!');
+            // Success alert disabled by UX preference.
             if (isDeferred) {
                 window.location.reload();
             }
