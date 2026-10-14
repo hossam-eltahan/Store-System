@@ -167,6 +167,7 @@ function getAllPermissions() {
             'permissions' => [
                 'settings.manage' => 'إعدادات النظام والكافيه',
                 'settings.backup' => 'النسخ الاحتياطي',
+                'settings.reset' => 'إعادة ضبط المصنع (مسح كل البيانات)',
             ]
         ],
         'users' => [

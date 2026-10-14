@@ -404,6 +404,20 @@ $storeLogo = getSetting('store_logo', '');
             animation: errorShake 0.4s ease-in-out;
         }
 
+        /* Success Message (e.g. after factory reset) */
+        .success-message {
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9em;
+            color: #6ee7b7;
+        }
+
         @keyframes errorShake {
             0%, 100% { transform: translateX(0); }
             25% { transform: translateX(-8px); }
@@ -491,6 +505,12 @@ $storeLogo = getSetting('store_logo', '');
                 <div class="error-message">
                     <span>⚠️</span>
                     <span><?php echo htmlspecialchars($error); ?></span>
+                </div>
+            <?php endif; ?>
+            <?php if (($_GET['reset'] ?? '') === 'done'): ?>
+                <div class="success-message">
+                    <span>✅</span>
+                    <span>تمت إعادة ضبط المصنع بنجاح — سجل الدخول بالحساب الافتراضي: admin / admin123</span>
                 </div>
             <?php endif; ?>
 

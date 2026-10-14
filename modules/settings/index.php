@@ -83,6 +83,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     updateSetting('enable_sound_alerts', $enableSoundAlerts);
     updateSetting('allow_edit_invoices', $allowEditInvoices);
     updateSetting('allow_delete_invoices', $allowDeleteInvoices);
+
+    // Automatic periodic backup schedule
+    $autoBackupEnabled = isset($_POST['auto_backup_enabled']) ? '1' : '0';
+    $autoBackupHours = (int)($_POST['auto_backup_interval_hours'] ?? 24);
+    if (!in_array($autoBackupHours, [24, 72, 168], true)) {
+        $autoBackupHours = 24;
+    }
+    $autoBackupKeep = (int)($_POST['auto_backup_keep'] ?? 7);
+    $autoBackupKeep = max(1, min(30, $autoBackupKeep));
+    updateSetting('auto_backup_enabled', $autoBackupEnabled);
+    updateSetting('auto_backup_interval_hours', (string)$autoBackupHours);
+    updateSetting('auto_backup_keep', (string)$autoBackupKeep);
     
     logActivity('تحديث الإعدادات', 'تم تحديث إعدادات النظام');
     setSuccess("تم حفظ الإعدادات بنجاح وتم تطبيق الأسعار على كل الأجهزة ({$devTotal}) والطاولات ({$tblTotal})");
@@ -322,7 +334,41 @@ $statusText = $isLife ? '💎 ترخيص دائم مدى الحياة' : ($isDev
                         </div>
                     </div>
 
-                    <!-- 3. بونات الطباعة والخيارات العامة -->
+                    <!-- 3. النسخ الاحتياطي التلقائي -->
+                    <div style="background: #f0fdf4; padding: 18px; border-radius: 12px; border: 1px solid #bbf7d0; margin-bottom: 20px;">
+                        <h3 style="color: #15803d; font-size: 15px; font-weight: 800; margin: 0 0 12px 0;">⏰ النسخ الاحتياطي التلقائي</h3>
+
+                        <div class="form-check mb-2">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9em;">
+                                <input type="checkbox" name="auto_backup_enabled" value="1"
+                                       <?php echo ($settings['auto_backup_enabled'] ?? '0') == '1' ? 'checked' : ''; ?>>
+                                <span>تفعيل النسخ الاحتياطي التلقائي أثناء العمل (بدون أي تدخل)</span>
+                            </label>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <label class="form-label" style="font-weight: 700;">كل فترة</label>
+                                <select name="auto_backup_interval_hours" class="form-control">
+                                    <option value="24" <?php echo ($settings['auto_backup_interval_hours'] ?? '24') == '24' ? 'selected' : ''; ?>>يومي (كل 24 ساعة)</option>
+                                    <option value="72" <?php echo ($settings['auto_backup_interval_hours'] ?? '24') == '72' ? 'selected' : ''; ?>>كل 3 أيام</option>
+                                    <option value="168" <?php echo ($settings['auto_backup_interval_hours'] ?? '24') == '168' ? 'selected' : ''; ?>>أسبوعي</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label" style="font-weight: 700;">الاحتفاظ بآخر (نسخة)</label>
+                                <input type="number" min="1" max="30" name="auto_backup_keep" class="form-control"
+                                       value="<?php echo htmlspecialchars($settings['auto_backup_keep'] ?? '7'); ?>">
+                            </div>
+                        </div>
+
+                        <div style="font-size: 0.85em; color: #166534;">
+                            آخر نسخة تلقائية: <strong><?php echo !empty($settings['last_auto_backup_ts']) ? date('Y/m/d H:i', (int)$settings['last_auto_backup_ts']) : 'لم تعمل بعد'; ?></strong>
+                            — النسخ اليدوية لا تُحذف تلقائياً أبداً.
+                        </div>
+                    </div>
+
+                    <!-- 4. بونات الطباعة والخيارات العامة -->
                     <div style="background: #f8fafc; padding: 18px; border-radius: 12px; border: 1px solid #e2e8f0;">
                         <h3 style="color: #059669; font-size: 15px; font-weight: 800; margin: 0 0 12px 0;">🧾 إعدادات الفواتير والطباعة والتحكم</h3>
                         
@@ -416,5 +462,23 @@ $statusText = $isLife ? '💎 ترخيص دائم مدى الحياة' : ($isDev
             </div>
         </div>
     </div>
+
+    <!-- منطقة الخطر: إعادة ضبط المصنع -->
+    <?php if (hasPermission('settings.reset')): ?>
+    <div class="card" style="margin-top: 20px; border: 2px solid #ef4444;">
+        <div class="card-header" style="background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; font-weight: 700;">
+            ⚠️ منطقة الخطر
+        </div>
+        <div class="card-body" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div style="font-size: 0.9em; color: #7f1d1d;">
+                <strong>إعادة ضبط المصنع:</strong> مسح كل بيانات النظام (المبيعات، المستخدمون، المخزون، الإعدادات)
+                والعودة لحالة التثبيت الجديد — بعد التأكد من وجود نسخة احتياطية حديثة.
+            </div>
+            <a href="reset.php" class="btn btn-danger" style="font-weight: 800; padding: 10px 22px; border-radius: 8px; text-decoration: none;">
+                🗑️ إعادة ضبط المصنع
+            </a>
+        </div>
+    </div>
+    <?php endif; ?>
 
 <?php include '../../includes/footer.php'; ?>

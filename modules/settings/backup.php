@@ -17,98 +17,26 @@ $pageTitle = 'النسخ الاحتياطي والاستعادة';
 
 // Handle backup creation
 if (isset($_POST['create_backup']) || isset($_GET['auto'])) {
-    $timestamp = date('Y-m-d_H-i-s');
-    $filename = "backup_$timestamp.sql";
-    $filepath = BACKUP_DIR . $filename;
-    $filepath2 = defined('BACKUP_DIR_SECONDARY') ? BACKUP_DIR_SECONDARY . $filename : null;
-    
-    // Create backup directories if not exists
-    if (!is_dir(BACKUP_DIR)) {
-        mkdir(BACKUP_DIR, 0777, true);
-    }
-    if ($filepath2 && !is_dir(BACKUP_DIR_SECONDARY)) {
-        @mkdir(BACKUP_DIR_SECONDARY, 0777, true);
-    }
-    
-    try {
-        // Get PDO connection
-        global $pdo;
-        
-        // Start SQL output
-        $sql = "-- Backup created: " . date('Y-m-d H:i:s') . "\n";
-        $sql .= "-- Database: " . DB_NAME . "\n\n";
-        $sql .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
-        
-        // Get all tables
-        $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
-        
-        foreach ($tables as $table) {
-            // Get create table statement
-            $createTable = $pdo->query("SHOW CREATE TABLE `$table`")->fetch(PDO::FETCH_ASSOC);
-            $sql .= "DROP TABLE IF EXISTS `$table`;\n";
-            $sql .= $createTable['Create Table'] . ";\n\n";
-            
-            // Get table data
-            $rows = $pdo->query("SELECT * FROM `$table`")->fetchAll(PDO::FETCH_ASSOC);
-            
-            if (count($rows) > 0) {
-                $columns = array_keys($rows[0]);
-                $columnList = '`' . implode('`, `', $columns) . '`';
-                
-                foreach ($rows as $row) {
-                    $values = array_map(function($v) use ($pdo) {
-                        if ($v === null) return 'NULL';
-                        return $pdo->quote($v);
-                    }, $row);
-                    $sql .= "INSERT INTO `$table` ($columnList) VALUES (" . implode(', ', $values) . ");\n";
-                }
-                $sql .= "\n";
-            }
+    require_once __DIR__ . '/../../config/backup_lib.php';
+    $prefix = isset($_GET['auto']) ? 'auto_backup_' : 'backup_';
+    $res = performDbBackup($prefix);
+
+    if ($res) {
+        $locations = 'المجلد الأساسي';
+        if (defined('BACKUP_DIR_SECONDARY') && file_exists(BACKUP_DIR_SECONDARY . $res['filename'])) {
+            $locations .= ' + المجلد الاحتياطي (C:/StoreBackups/)';
         }
-        
-        $sql .= "SET FOREIGN_KEY_CHECKS=1;\n";
-        
-        // Write to primary location
-        $saved1 = file_put_contents($filepath, $sql);
-        
-        // Write to secondary location
-        $saved2 = false;
-        if ($filepath2) {
-            $saved2 = @file_put_contents($filepath2, $sql);
-        }
-        
-        if ($saved1) {
-            $filesize = filesize($filepath);
-            
-            // Save to database
-            insert(
-                "INSERT INTO backups (filename, file_path, size) VALUES (?, ?, ?)",
-                [$filename, $filepath, $filesize]
-            );
-            
-            // Update last backup date for auto-backup tracking
-            updateSetting('last_backup_date', date('Y-m-d'));
-            
-            $locations = 'المجلد الأساسي';
-            if ($saved2) {
-                $locations .= ' + المجلد الاحتياطي (C:/StoreBackups/)';
-            }
-            
-            logActivity('نسخ احتياطي', "تم إنشاء نسخة احتياطية: $filename");
-            if (!isset($_GET['auto'])) {
-                setSuccess('تم إنشاء النسخة الاحتياطية بنجاح (' . number_format($filesize / 1024, 2) . ' KB) - ' . $locations);
-            }
-        } else {
-            if (!isset($_GET['auto'])) {
-                setError('فشل في كتابة ملف النسخة الاحتياطية');
-            }
-        }
-    } catch (Exception $e) {
         if (!isset($_GET['auto'])) {
-            setError('فشل إنشاء النسخة الاحتياطية: ' . $e->getMessage());
+            setSuccess('تم إنشاء النسخة الاحتياطية بنجاح (' . number_format($res['size'] / 1024, 2) . ' KB) - ' . $locations);
+        } else {
+            pruneAutoBackups(getSetting('auto_backup_keep', '7'));
+        }
+    } else {
+        if (!isset($_GET['auto'])) {
+            setError('فشل إنشاء النسخة الاحتياطية');
         }
     }
-    
+
     redirect('backup.php');
 }
 
@@ -116,12 +44,22 @@ if (isset($_POST['create_backup']) || isset($_GET['auto'])) {
 if (isset($_GET['download'])) {
     $id = $_GET['download'];
     $backup = getRow("SELECT * FROM backups WHERE id = ?", [$id]);
-    
-    if ($backup && file_exists($backup['file_path'])) {
+
+    $dlPath = null;
+    if ($backup) {
+        $candidate = BACKUP_DIR . basename($backup['filename']);
+        if (file_exists($candidate)) {
+            $dlPath = $candidate;
+        } elseif (defined('BACKUP_DIR_SECONDARY') && file_exists(BACKUP_DIR_SECONDARY . basename($backup['filename']))) {
+            $dlPath = BACKUP_DIR_SECONDARY . basename($backup['filename']);
+        }
+    }
+
+    if ($backup && $dlPath) {
         header('Content-Type: application/octet-stream');
         header('Content-Disposition: attachment; filename="' . $backup['filename'] . '"');
-        header('Content-Length: ' . $backup['size']);
-        readfile($backup['file_path']);
+        header('Content-Length: ' . filesize($dlPath));
+        readfile($dlPath);
         exit;
     } else {
         setError('الملف غير موجود');
@@ -133,16 +71,20 @@ if (isset($_GET['download'])) {
 if (isset($_GET['delete'])) {
     $id = $_GET['delete'];
     $backup = getRow("SELECT * FROM backups WHERE id = ?", [$id]);
-    
+
     if ($backup) {
-        if (file_exists($backup['file_path'])) {
-            unlink($backup['file_path']);
+        $candidate = BACKUP_DIR . basename($backup['filename']);
+        if (file_exists($candidate)) {
+            unlink($candidate);
+        }
+        if (defined('BACKUP_DIR_SECONDARY') && file_exists(BACKUP_DIR_SECONDARY . basename($backup['filename']))) {
+            @unlink(BACKUP_DIR_SECONDARY . basename($backup['filename']));
         }
         execute("DELETE FROM backups WHERE id = ?", [$id]);
         logActivity('حذف نسخة احتياطية', "تم حذف النسخة: {$backup['filename']}");
         setSuccess('تم حذف النسخة الاحتياطية');
     }
-    
+
     redirect('backup.php');
 }
 
@@ -206,7 +148,7 @@ include '../../includes/navbar.php';
                         <tr>
                             <td><strong><?php echo $backup['filename']; ?></strong></td>
                             <td><?php echo date('Y/m/d H:i', strtotime($backup['created_at'])); ?></td>
-                            <td><?php echo number_format($backup['size'] / 1024, 2); ?> KB</td>
+                            <td><?php echo number_format(($backup['file_size'] ?? 0) / 1024, 2); ?> KB</td>
                             <td>
                                 <a href="backup.php?download=<?php echo $backup['id']; ?>" class="btn btn-success">
                                     ⬇️ تحميل
@@ -229,7 +171,7 @@ include '../../includes/navbar.php';
                     <h4>📝 كيفية استعادة نسخة احتياطية:</h4>
                     <ol style="margin: 10px 0 0 20px;">
                         <li>افتح phpMyAdmin من XAMPP Control Panel</li>
-                        <li>اختر قاعدة البيانات <code>store_management</code></li>
+                        <li>اختر قاعدة البيانات <code>cafe_management</code></li>
                         <li>اضغط على تبويب "استيراد" (Import)</li>
                         <li>اختر ملف النسخة الاحتياطية (.sql)</li>
                         <li>اضغط "تنفيذ" (Go)</li>
@@ -237,7 +179,7 @@ include '../../includes/navbar.php';
                     
                     <p class="mt-2"><strong>أو عبر سطر الأوامر:</strong></p>
                     <code style="background: #000; color: #0f0; padding: 10px; display: block; border-radius: 5px;">
-                        mysql -u root -p store_management < backup_filename.sql
+                        mysql -u root -p cafe_management < backup_filename.sql
                     </code>
                 </div>
             </div>

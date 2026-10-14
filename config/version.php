@@ -1,5 +1,5 @@
 <?php
-define("APP_VERSION", "1.0.4");
+define("APP_VERSION", "1.0.5");
 define("APP_BUILD_DATE", "2026-10-14");
 define("DB_SCHEMA_VERSION", 1);
 define("UPDATE_CHECK_URL", "https://drive.google.com/drive/folders/1OB88y045M4uHZxQj6XLZulIYlL5ubTLD");

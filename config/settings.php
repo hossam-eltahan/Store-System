@@ -357,3 +357,23 @@ if (file_exists(__DIR__ . '/license.php')) {
         enforceLicense();
     }
 }
+
+// Automatic periodic backup (opportunistic: at most once per interval,
+// on normal page loads only — never on ajax/CLI/POST requests)
+if (
+    PHP_SAPI !== 'cli'
+    && isset($_SERVER['SCRIPT_NAME'], $_SERVER['REQUEST_METHOD'])
+    && $_SERVER['REQUEST_METHOD'] === 'GET'
+    && strpos($_SERVER['SCRIPT_NAME'], 'ajax.php') === false
+    && strpos($_SERVER['SCRIPT_NAME'], 'backup.php') === false
+    && file_exists(__DIR__ . '/backup_lib.php')
+) {
+    require_once __DIR__ . '/backup_lib.php';
+    if (function_exists('runAutoBackupIfDue')) {
+        try {
+            runAutoBackupIfDue();
+        } catch (Throwable $e) {
+            // Silent: backups must never break page loads
+        }
+    }
+}
