@@ -33,21 +33,36 @@ if ($activeSession) {
     redirect('index.php');
 }
 
-// Perform deletion
+// Perform deletion.
+// Devices with past sessions cannot be hard-deleted (FK from gaming_sessions),
+// so they are deactivated (hidden from the cashier screen) instead.
+$history = getRow("SELECT COUNT(*) AS c FROM gaming_sessions WHERE device_id = ?", [$deviceId]);
+$historyCount = (int)($history['c'] ?? 0);
+
 beginTransaction();
 
 if ($device['is_active']) {
     logActivity('حذف جهاز بلايستيشن', "تم حذف الجهاز: {$device['display_name']}");
 }
 
-$result = execute("DELETE FROM gaming_devices WHERE id = ?", [$deviceId]);
-
-if ($result) {
-    commit();
-    setSuccess('تم حذف الجهاز بنجاح');
-    redirect('index.php');
+if ($historyCount > 0) {
+    // Has session history (receipts/reports reference it) → soft delete
+    $result = execute("UPDATE gaming_devices SET is_active = 0 WHERE id = ?", [$deviceId]);
+    if ($result !== false) {
+        commit();
+        setSuccess('تم إيقاف الجهاز وإخفاؤه من القائمة (له سجل جلسات سابقة ولا يمكن حذفه نهائياً)');
+        redirect('index.php');
+    }
 } else {
-    rollback();
-    setError('حدث خطأ أثناء حذف الجهاز');
-    redirect('index.php');
+    // No history → safe to hard delete
+    $result = execute("DELETE FROM gaming_devices WHERE id = ?", [$deviceId]);
+    if ($result) {
+        commit();
+        setSuccess('تم حذف الجهاز بنجاح');
+        redirect('index.php');
+    }
 }
+
+rollback();
+setError('حدث خطأ أثناء حذف الجهاز');
+redirect('index.php');

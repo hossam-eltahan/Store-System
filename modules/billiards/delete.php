@@ -33,21 +33,36 @@ if ($activeSession) {
     redirect('index.php');
 }
 
-// Perform deletion
+// Perform deletion.
+// Tables with past sessions cannot be hard-deleted (FK from billiard_sessions),
+// so they are deactivated (hidden from the cashier screen) instead.
+$history = getRow("SELECT COUNT(*) AS c FROM billiard_sessions WHERE table_id = ?", [$tableId]);
+$historyCount = (int)($history['c'] ?? 0);
+
 beginTransaction();
 
 if ($table['is_active']) {
     logActivity('حذف طاولة بلياردو', "تم حذف الطاولة: {$table['display_name']}");
 }
 
-$result = execute("DELETE FROM billiard_tables WHERE id = ?", [$tableId]);
-
-if ($result) {
-    commit();
-    setSuccess('تم حذف الطاولة بنجاح');
-    redirect('index.php');
+if ($historyCount > 0) {
+    // Has session history (receipts/reports reference it) → soft delete
+    $result = execute("UPDATE billiard_tables SET is_active = 0 WHERE id = ?", [$tableId]);
+    if ($result !== false) {
+        commit();
+        setSuccess('تم إيقاف الطاولة وإخفاؤها من القائمة (لها سجل جلسات سابقة ولا يمكن حذفها نهائياً)');
+        redirect('index.php');
+    }
 } else {
-    rollback();
-    setError('حدث خطأ أثناء حذف الطاولة');
-    redirect('index.php');
+    // No history → safe to hard delete
+    $result = execute("DELETE FROM billiard_tables WHERE id = ?", [$tableId]);
+    if ($result) {
+        commit();
+        setSuccess('تم حذف الطاولة بنجاح');
+        redirect('index.php');
+    }
 }
+
+rollback();
+setError('حدث خطأ أثناء حذف الطاولة');
+redirect('index.php');

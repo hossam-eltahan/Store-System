@@ -11,7 +11,12 @@ requirePermission('billiards.tables');
 
 $pageTitle = 'إضافة طاولة بلياردو';
 
+// Default rates come from Settings (ساعة بلياردو / سعر الجيم)
+$defaultRateHour = floatval(getSetting('billiard_default_rate_hour', 40));
+$defaultRateGame = floatval(getSetting('billiard_default_rate_game', 10));
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $table_number = sanitize(trim($_POST['table_number'] ?? ''));
     $display_name = sanitize(trim($_POST['display_name'] ?? ''));
     $rate_per_hour = max(0, floatval($_POST['rate_per_hour'] ?? 0));
     $rate_per_game = max(0, floatval($_POST['rate_per_game'] ?? 0));
@@ -19,25 +24,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_active = isset($_POST['is_active']) ? 1 : 0;
 
     // Validate inputs
-    if (empty($display_name)) {
+    if (empty($table_number)) {
+        setError('يرجى كتابة رقم الطاولة');
+    } elseif (empty($display_name)) {
         setError('يرجى كتابة اسم الطاولة');
     } elseif ($rate_per_hour <= 0) {
-        setError('مرفوعات الساعة يجب أن تكون أكبر من صفر');
+        setError('مرفوعات بالساعة يجب أن تكون أكبر من صفر');
     } elseif ($rate_per_game <= 0) {
-        setError('مرفوعات الجيم يجب أن تكون أكبر من صفر');
+        setError('مرفوعات بالجيم (Game) يجب أن تكون أكبر من صفر');
     } else {
-        // Check for duplicate display name
+        // Check for duplicate table number or display name
         $existing = getRow(
-            "SELECT id FROM billiard_tables WHERE display_name = ?",
-            [$display_name]
+            "SELECT id FROM billiard_tables WHERE table_number = ? OR display_name = ?",
+            [$table_number, $display_name]
         );
         if ($existing) {
-            setError('اسم الطاولة مسجل مسبقاً');
+            setError('رقم الطاولة أو اسمها مسجل مسبقاً');
         } else {
             $tableId = insert(
-                "INSERT INTO billiard_tables (display_name, rate_per_hour, rate_per_game, display_order, is_active)
-                 VALUES (?, ?, ?, ?, ?)",
-                [$display_name, $rate_per_hour, $rate_per_game, $display_order, $is_active]
+                "INSERT INTO billiard_tables (table_number, display_name, rate_per_hour, rate_per_game, display_order, is_active)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+                [$table_number, $display_name, $rate_per_hour, $rate_per_game, $display_order, $is_active]
             );
 
             if ($tableId) {
@@ -182,7 +189,7 @@ include '../../includes/navbar.php';
 <div class="container">
     <div style="background: white; border-radius: 14px; border: 1px solid #e2e8f0; padding: 24px; margin-bottom: 20px;">
         <h2 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0 0 4px 0;">🎱 إضافة طاولة بلياردو جديدة</h2>
-        <div style="font-size: 13px; color: #64748b;">أدخل بيانات الطاولة وضبط مرفوعات السوق</div>
+        <div style="font-size: 13px; color: #64748b;">أدخل بيانات الطاولة وضبط مرفوعات اللعب</div>
     </div>
 
     <!-- Alerts -->
@@ -197,29 +204,40 @@ include '../../includes/navbar.php';
 
     <div style="background: white; border-radius: 14px; border: 1px solid #e2e8f0; padding: 24px;">
         <form method="POST">
-            <div class="form-group">
-                <label class="form-label">اسم الطاولة *</label>
-                <input type="text" name="display_name"
-                       class="form-control"
-                       placeholder="مثال: طاولة 1, طاولة VIP..."
-                       value="<?php echo htmlspecialchars($_POST['display_name'] ?? $_POST['rate_per_hour'] ?? ''); ?>"
-                       required>
-                <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">الاسم الذي سيظهر للكاشير (مثال: طاولة بلياردو 1)</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">رقم الطاولة *</label>
+                    <input type="text" name="table_number"
+                           class="form-control"
+                           placeholder="مثال: TBL-B3"
+                           value="<?php echo htmlspecialchars($_POST['table_number'] ?? ''); ?>"
+                           required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">اسم الطاولة *</label>
+                    <input type="text" name="display_name"
+                           class="form-control"
+                           placeholder="مثال: طاولة 1, طاولة VIP..."
+                           value="<?php echo htmlspecialchars($_POST['display_name'] ?? ''); ?>"
+                           required>
+                    <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">الاسم الذي سيظهر للكاشير (مثال: طاولة بلياردو 1)</div>
+                </div>
             </div>
 
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">مرفوعات البالساعة *</label>
+                    <label class="form-label">مرفوعات بالساعة *</label>
                     <input type="number" name="rate_per_hour" min="0" step="0.5" class="form-control"
-                           value="<?php echo htmlspecialchars($_POST['rate_per_hour'] ?? 0); ?>" required>
-                    <div class="rate-help">ج.م/ساعة</div>
+                           value="<?php echo htmlspecialchars($_POST['rate_per_hour'] ?? $defaultRateHour); ?>" required>
+                    <div class="rate-help">ج.م/ساعة (الافتراضي من الإعدادات: <?php echo htmlspecialchars($defaultRateHour); ?>)</div>
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">مرفوعات بالجيم (Game) *</label>
                     <input type="number" name="rate_per_game" min="0" step="0.5" class="form-control"
-                           value="<?php echo htmlspecialchars($_POST['rate_per_game'] ?? 0); ?>" required>
-                    <div class="rate-help">ج.م/تجميع شناقة</div>
+                           value="<?php echo htmlspecialchars($_POST['rate_per_game'] ?? $defaultRateGame); ?>" required>
+                    <div class="rate-help">ج.م/جيم (الافتراضي من الإعدادات: <?php echo htmlspecialchars($defaultRateGame); ?>)</div>
                 </div>
             </div>
 

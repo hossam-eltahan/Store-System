@@ -21,6 +21,7 @@ if (!$table) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $table_number = sanitize(trim($_POST['table_number'] ?? ''));
     $display_name = sanitize(trim($_POST['display_name'] ?? ''));
     $rate_per_hour = max(0, floatval($_POST['rate_per_hour'] ?? 0));
     $rate_per_game = max(0, floatval($_POST['rate_per_game'] ?? 0));
@@ -28,25 +29,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_active = isset($_POST['is_active']) ? 1 : 0;
 
     // Validate inputs
-    if (empty($display_name)) {
+    if (empty($table_number)) {
+        setError('يرجى كتابة رقم الطاولة');
+    } elseif (empty($display_name)) {
         setError('يرجى كتابة اسم الطاولة');
     } elseif ($rate_per_hour <= 0) {
-        setError('مرفوعات الساعة يجب أن تكون أكبر من صفر');
+        setError('مرفوعات بالساعة يجب أن تكون أكبر من صفر');
     } elseif ($rate_per_game <= 0) {
-        setError('مرفوعات الجيم يجب أن تكون أكبر من صفر');
+        setError('مرفوعات بالجيم (Game) يجب أن تكون أكبر من صفر');
     } else {
-        // Check for duplicate display name (excluding current table)
+        // Check for duplicate table number or display name (excluding current table)
         $existing = getRow(
-            "SELECT id FROM billiard_tables WHERE display_name = ? AND id != ?",
-            [$display_name, $tableId]
+            "SELECT id FROM billiard_tables WHERE (table_number = ? OR display_name = ?) AND id != ?",
+            [$table_number, $display_name, $tableId]
         );
         if ($existing) {
-            setError('اسم الطاولة مسجل مسبقاً');
+            setError('رقم الطاولة أو اسمها مسجل مسبقاً');
         } else {
             $result = execute(
-                "UPDATE billiard_tables SET display_name = ?, rate_per_hour = ?, rate_per_game = ?, display_order = ?, is_active = ?
+                "UPDATE billiard_tables SET table_number = ?, display_name = ?, rate_per_hour = ?, rate_per_game = ?, display_order = ?, is_active = ?
                  WHERE id = ?",
-                [$display_name, $rate_per_hour, $rate_per_game, $display_order, $is_active, $tableId]
+                [$table_number, $display_name, $rate_per_hour, $rate_per_game, $display_order, $is_active, $tableId]
             );
 
             if ($result) {
@@ -207,17 +210,27 @@ include '../../includes/navbar.php';
 
     <div style="background: white; border-radius: 14px; border: 1px solid #e2e8f0; padding: 24px;">
         <form method="POST">
-            <div class="form-group">
-                <label class="form-label">اسم الطاولة *</label>
-                <input type="text" name="display_name"
-                       class="form-control"
-                       value="<?php echo htmlspecialchars($table['display_name']); ?>"
-                       required>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">رقم الطاولة *</label>
+                    <input type="text" name="table_number"
+                           class="form-control"
+                           value="<?php echo htmlspecialchars($table['table_number']); ?>"
+                           required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">اسم الطاولة *</label>
+                    <input type="text" name="display_name"
+                           class="form-control"
+                           value="<?php echo htmlspecialchars($table['display_name']); ?>"
+                           required>
+                </div>
             </div>
 
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">مرفوعات البالساعة *</label>
+                    <label class="form-label">مرفوعات بالساعة *</label>
                     <input type="number" name="rate_per_hour" min="0" step="0.5" class="form-control"
                            value="<?php echo $table['rate_per_hour']; ?>" required>
                     <div style="font-size: 11.5px; color: #64748b;">ج.م/ساعة</div>
@@ -227,7 +240,7 @@ include '../../includes/navbar.php';
                     <label class="form-label">مرفوعات بالجيم (Game) *</label>
                     <input type="number" name="rate_per_game" min="0" step="0.5" class="form-control"
                            value="<?php echo $table['rate_per_game']; ?>" required>
-                    <div style="font-size: 11.5px; color: #64748b;">ج.م/تجميع شناقة</div>
+                    <div style="font-size: 11.5px; color: #64748b;">ج.م/جيم</div>
                 </div>
             </div>
 

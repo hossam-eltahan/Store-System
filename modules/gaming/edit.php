@@ -21,6 +21,7 @@ if (!$device) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $device_number = sanitize(trim($_POST['device_number'] ?? ''));
     $display_name = sanitize(trim($_POST['display_name'] ?? ''));
     $rate_single = max(0, floatval($_POST['rate_single'] ?? 0));
     $rate_multi = max(0, floatval($_POST['rate_multi'] ?? 0));
@@ -28,25 +29,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_active = isset($_POST['is_active']) ? 1 : 0;
 
     // Validate inputs
-    if (empty($display_name)) {
+    if (empty($device_number)) {
+        setError('يرجى كتابة رقم الجهاز');
+    } elseif (empty($display_name)) {
         setError('يرجى كتابة اسم الجهاز');
     } elseif ($rate_single <= 0) {
-        setError('مرفوعات الفردي سريع/جوجل يجب أن تكون أكبر من صفر');
+        setError('مرفوعات الفردي (سنجل) يجب أن تكون أكبر من صفر');
     } elseif ($rate_multi <= 0) {
-        setError('مرفوعات الجماعي مالتي يجب أن تكون أكبر من صفر');
+        setError('مرفوعات الجماعي (مالتي) يجب أن تكون أكبر من صفر');
     } else {
-        // Check for duplicate display name (excluding current device)
+        // Check for duplicate device number or display name (excluding current device)
         $existing = getRow(
-            "SELECT id FROM gaming_devices WHERE display_name = ? AND id != ?",
-            [$display_name, $deviceId]
+            "SELECT id FROM gaming_devices WHERE (device_number = ? OR display_name = ?) AND id != ?",
+            [$device_number, $display_name, $deviceId]
         );
         if ($existing) {
-            setError('اسم الجهاز مسجل مسبقاً');
+            setError('رقم الجهاز أو اسمه مسجل مسبقاً');
         } else {
             $result = execute(
-                "UPDATE gaming_devices SET display_name = ?, rate_single = ?, rate_multi = ?, display_order = ?, is_active = ?
+                "UPDATE gaming_devices SET device_number = ?, display_name = ?, rate_single = ?, rate_multi = ?, display_order = ?, is_active = ?
                  WHERE id = ?",
-                [$display_name, $rate_single, $rate_multi, $display_order, $is_active, $deviceId]
+                [$device_number, $display_name, $rate_single, $rate_multi, $display_order, $is_active, $deviceId]
             );
 
             if ($result) {
@@ -207,12 +210,22 @@ include '../../includes/navbar.php';
 
     <div style="background: white; border-radius: 14px; border: 1px solid #e2e8f0; padding: 24px;">
         <form method="POST">
-            <div class="form-group">
-                <label class="form-label">اسم الجهاز *</label>
-                <input type="text" name="display_name"
-                       class="form-control"
-                       value="<?php echo htmlspecialchars($device['display_name']); ?>"
-                       required>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">رقم الجهاز *</label>
+                    <input type="text" name="device_number"
+                           class="form-control"
+                           value="<?php echo htmlspecialchars($device['device_number']); ?>"
+                           required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">اسم الجهاز *</label>
+                    <input type="text" name="display_name"
+                           class="form-control"
+                           value="<?php echo htmlspecialchars($device['display_name']); ?>"
+                           required>
+                </div>
             </div>
 
             <div class="form-row">

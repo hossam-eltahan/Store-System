@@ -11,7 +11,12 @@ requirePermission('gaming.devices');
 
 $pageTitle = 'إضافة جهاز بلايستيشن جديد';
 
+// Default rates come from Settings (ساعة بلايستيشن فردي/زوجي)
+$defaultSingle = floatval(getSetting('ps_default_rate_single', 30));
+$defaultMulti = floatval(getSetting('ps_default_rate_multi', 40));
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $device_number = sanitize(trim($_POST['device_number'] ?? ''));
     $display_name = sanitize(trim($_POST['display_name'] ?? ''));
     $rate_single = max(0, floatval($_POST['rate_single'] ?? 0));
     $rate_multi = max(0, floatval($_POST['rate_multi'] ?? 0));
@@ -19,25 +24,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_active = isset($_POST['is_active']) ? 1 : 0;
 
     // Validate inputs
-    if (empty($display_name)) {
+    if (empty($device_number)) {
+        setError('يرجى كتابة رقم الجهاز');
+    } elseif (empty($display_name)) {
         setError('يرجى كتابة اسم الجهاز');
     } elseif ($rate_single <= 0) {
-        setError('مرفوعات الفردي سريع/جوجل يجب أن تكون أكبر من صفر');
+        setError('مرفوعات الفردي (سنجل) يجب أن تكون أكبر من صفر');
     } elseif ($rate_multi <= 0) {
-        setError('مرفوعات الجماعي مالتي يجب أن تكون أكبر من صفر');
+        setError('مرفوعات الجماعي (مالتي) يجب أن تكون أكبر من صفر');
     } else {
-        // Check for duplicate display name
+        // Check for duplicate device number or display name
         $existing = getRow(
-            "SELECT id FROM gaming_devices WHERE display_name = ?",
-            [$display_name]
+            "SELECT id FROM gaming_devices WHERE device_number = ? OR display_name = ?",
+            [$device_number, $display_name]
         );
         if ($existing) {
-            setError('اسم الجهاز مسجل مسبقاً');
+            setError('رقم الجهاز أو اسمه مسجل مسبقاً');
         } else {
             $deviceId = insert(
-                "INSERT INTO gaming_devices (display_name, rate_single, rate_multi, display_order, is_active)
-                 VALUES (?, ?, ?, ?, ?)",
-                [$display_name, $rate_single, $rate_multi, $display_order, $is_active]
+                "INSERT INTO gaming_devices (device_number, display_name, rate_single, rate_multi, display_order, is_active)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+                [$device_number, $display_name, $rate_single, $rate_multi, $display_order, $is_active]
             );
 
             if ($deviceId) {
@@ -197,29 +204,40 @@ include '../../includes/navbar.php';
 
     <div style="background: white; border-radius: 14px; border: 1px solid #e2e8f0; padding: 24px;">
         <form method="POST">
-            <div class="form-group">
-                <label class="form-label">اسم الجهاز *</label>
-                <input type="text" name="display_name"
-                       class="form-control"
-                       placeholder="مثال: بلايستيشن 1, جوجل بلاي ستيتون 2..."
-                       value="<?php echo htmlspecialchars($_POST['display_name'] ?? $_POST['rate_single'] ?? ''); ?>"
-                       required>
-                <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">الاسم الذي سيظهر للكاشير (مثال: جوجل بلاي ستيتون 1)</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">رقم الجهاز *</label>
+                    <input type="text" name="device_number"
+                           class="form-control"
+                           placeholder="مثال: PS-06"
+                           value="<?php echo htmlspecialchars($_POST['device_number'] ?? ''); ?>"
+                           required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">اسم الجهاز *</label>
+                    <input type="text" name="display_name"
+                           class="form-control"
+                           placeholder="مثال: جهاز 6 (PS5)..."
+                           value="<?php echo htmlspecialchars($_POST['display_name'] ?? ''); ?>"
+                           required>
+                    <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">الاسم الذي سيظهر للكاشير (مثال: جهاز 6)</div>
+                </div>
             </div>
 
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">مرفوعات الفردي (سنجل) *</label>
                     <input type="number" name="rate_single" min="0" step="0.5" class="form-control"
-                           value="<?php echo htmlspecialchars($_POST['rate_single'] ?? 0); ?>" required>
-                    <div class="rate-help">ج.م بالساعة</div>
+                           value="<?php echo htmlspecialchars($_POST['rate_single'] ?? $defaultSingle); ?>" required>
+                    <div class="rate-help">ج.م بالساعة (الافتراضي من الإعدادات: <?php echo htmlspecialchars($defaultSingle); ?>)</div>
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">مرفوعات الجماعي (مالتي) *</label>
                     <input type="number" name="rate_multi" min="0" step="0.5" class="form-control"
-                           value="<?php echo htmlspecialchars($_POST['rate_multi'] ?? 0); ?>" required>
-                    <div class="rate-help">ج.م بالساعة</div>
+                           value="<?php echo htmlspecialchars($_POST['rate_multi'] ?? $defaultMulti); ?>" required>
+                    <div class="rate-help">ج.م بالساعة (الافتراضي من الإعدادات: <?php echo htmlspecialchars($defaultMulti); ?>)</div>
                 </div>
             </div>
 
