@@ -24,6 +24,9 @@ $filterSubType = $_GET['sub_type'] ?? '';
 $filterUserId = $_GET['user_id'] ?? '';
 $filterExpenseCat = !empty($_GET['category_id']) ? intval($_GET['category_id']) : '';
 $userSubView = $_GET['user_view'] ?? 'overview';
+if (!in_array($userSubView, ['overview', 'orders', 'sessions', 'collections', 'activity'], true)) {
+    $userSubView = 'overview';
+}
 
 $allReportTypes = [
     'daily' => '📊 ملخص الدخل الشامل',
@@ -627,7 +630,7 @@ switch ($reportType) {
 
     case 'users':
         $activeFilters = ['date', 'user_select'];
-        
+
         // Find target user details if filtered
         $targetUser = null;
         if ($filterUserId) {
@@ -641,197 +644,147 @@ switch ($reportType) {
         if (!isAdmin() && !$targetUser) {
             $targetUser = getRow("SELECT id, username, full_name, role FROM users WHERE id = ?", [getCurrentUserId()]);
         }
-        
-        // Conditions
-        $userWhereInv = "1=1";
-        $userWherePay = "1=1";
-        $userWhereRet = "1=1";
-        $userWhereInst = "1=1";
-        $userWhereAct = "1=1";
-        $paramsUserInv = [];
-        $paramsUserPay = [];
-        $paramsUserRet = [];
-        $paramsUserInst = [];
-        $paramsUserAct = [];
-        
-        if ($targetUser) {
-            $userWhereInv = "(i.user_id = ? OR i.handled_by = ? OR i.handled_by = ?)";
-            $paramsUserInv = [$targetUser['id'], $targetUser['full_name'], $targetUser['username']];
-            
-            $userWherePay = "(p.user_id = ? OR p.handled_by = ? OR p.handled_by = ?)";
-            $paramsUserPay = [$targetUser['id'], $targetUser['full_name'], $targetUser['username']];
-            
-            $userWhereRet = "(r.user_id = ? OR r.handled_by = ? OR r.handled_by = ?)";
-            $paramsUserRet = [$targetUser['id'], $targetUser['full_name'], $targetUser['username']];
-            
-            $userWhereInst = "(ip.user_id = ? OR ip.handled_by = ? OR ip.handled_by = ?)";
-            $paramsUserInst = [$targetUser['id'], $targetUser['full_name'], $targetUser['username']];
-            
-            $userWhereAct = "(a.user_id = ? OR a.user = ? OR a.user = ?)";
-            $paramsUserAct = [$targetUser['id'], $targetUser['full_name'], $targetUser['username']];
+        $uid = $targetUser ? (int)$targetUser['id'] : 0;
+
+        // Summary KPIs from real cafe tables (orders, sessions, collections, expenses, shifts, activity)
+        $ordC = ["o.status != 'cancelled'"]; $ordP = [];
+        $sesGC = ["gs.status = 'completed'"]; $sesGP = [];
+        $sesBC = ["bs.status = 'completed'"]; $sesBP = [];
+        $payC = ["pr.payment_type = 'payment'"]; $payP = [];
+        $expC = ["1=1"]; $expP = [];
+        $shC = ["1=1"]; $shP = [];
+        $actC = ["1=1"]; $actP = [];
+        if ($uid) {
+            $ordC[] = "o.created_by = ?"; $ordP[] = $uid;
+            $sesGC[] = "gs.closed_by = ?"; $sesGP[] = $uid;
+            $sesBC[] = "bs.closed_by = ?"; $sesBP[] = $uid;
+            $payC[] = "pr.created_by = ?"; $payP[] = $uid;
+            $expC[] = "e.user_id = ?"; $expP[] = $uid;
+            $shC[] = "s.user_id = ?"; $shP[] = $uid;
+            $actC[] = "a.user_id = ?"; $actP[] = $uid;
         }
-        
-        // Date conditions
-        $dateCondInv = "";
-        $dateCondPay = "";
-        $dateCondRet = "";
-        $dateCondInst = "";
-        $dateCondAct = "";
         if ($dateFrom && $dateTo) {
-            $dateCondInv = " AND i.date BETWEEN ? AND ?";
-            $dateCondPay = " AND p.payment_date BETWEEN ? AND ?";
-            $dateCondRet = " AND r.return_date BETWEEN ? AND ?";
-            $dateCondInst = " AND ip.paid_date BETWEEN ? AND ?";
-            $dateCondAct = " AND DATE(a.created_at) BETWEEN ? AND ?";
+            $ordC[] = "DATE(o.created_at) BETWEEN ? AND ?"; array_push($ordP, $dateFrom, $dateTo);
+            $sesGC[] = "DATE(gs.started_at) BETWEEN ? AND ?"; array_push($sesGP, $dateFrom, $dateTo);
+            $sesBC[] = "DATE(bs.started_at) BETWEEN ? AND ?"; array_push($sesBP, $dateFrom, $dateTo);
+            $payC[] = "DATE(pr.created_at) BETWEEN ? AND ?"; array_push($payP, $dateFrom, $dateTo);
+            $expC[] = "e.date BETWEEN ? AND ?"; array_push($expP, $dateFrom, $dateTo);
+            $shC[] = "DATE(s.opened_at) BETWEEN ? AND ?"; array_push($shP, $dateFrom, $dateTo);
+            $actC[] = "DATE(a.created_at) BETWEEN ? AND ?"; array_push($actP, $dateFrom, $dateTo);
         }
-        
-        // Summary KPIs (Aggregates)
-        $pSales = $paramsUserInv; if ($dateFrom && $dateTo) { $pSales[] = $dateFrom; $pSales[] = $dateTo; }
-        $userSales = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(i.total_amount - i.discount), 0) as total, COALESCE(SUM(i.paid_amount), 0) as paid, COALESCE(SUM(i.remaining_amount), 0) as remaining FROM invoices i WHERE i.type='sale' AND {$userWhereInv} {$dateCondInv}", $pSales);
-        
-        $pPur = $paramsUserInv; if ($dateFrom && $dateTo) { $pPur[] = $dateFrom; $pPur[] = $dateTo; }
-        $userPurchases = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(i.total_amount - i.discount), 0) as total, COALESCE(SUM(i.paid_amount), 0) as paid, COALESCE(SUM(i.remaining_amount), 0) as remaining FROM invoices i WHERE i.type='purchase' AND {$userWhereInv} {$dateCondInv}", $pPur);
-        
-        $pCustPay = $paramsUserPay; if ($dateFrom && $dateTo) { $pCustPay[] = $dateFrom; $pCustPay[] = $dateTo; }
-        $userCustPay = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(p.amount), 0) as total FROM payments p WHERE p.type='customer' AND {$userWherePay} {$dateCondPay}", $pCustPay);
-        
-        $pSuppPay = $paramsUserPay; if ($dateFrom && $dateTo) { $pSuppPay[] = $dateFrom; $pSuppPay[] = $dateTo; }
-        $userSuppPay = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(p.amount), 0) as total FROM payments p WHERE p.type='supplier' AND {$userWherePay} {$dateCondPay}", $pSuppPay);
-        
-        $pInst = $paramsUserInst; if ($dateFrom && $dateTo) { $pInst[] = $dateFrom; $pInst[] = $dateTo; }
-        $userInstPay = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(ip.paid_amount), 0) as total FROM installment_payments ip WHERE ip.status IN ('paid', 'partial') AND {$userWhereInst} {$dateCondInst}", $pInst);
-        
-        $pRet = $paramsUserRet; if ($dateFrom && $dateTo) { $pRet[] = $dateFrom; $pRet[] = $dateTo; }
-        $userReturns = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(r.total_amount), 0) as total, COALESCE(SUM(r.cash_refund), 0) as cash_refund FROM returns r WHERE {$userWhereRet} {$dateCondRet}", $pRet);
-        
-        $pAct = $paramsUserAct; if ($dateFrom && $dateTo) { $pAct[] = $dateFrom; $pAct[] = $dateTo; }
-        $userActivity = getRow("SELECT COUNT(*) as cnt FROM activity_log a WHERE {$userWhereAct} {$dateCondAct}", $pAct);
-        
-        $salesCash = floatval($userSales['paid']);
-        $custCash = floatval($userCustPay['total']);
-        $totalCashIn = $salesCash + $custCash;
-        
-        $purCash = floatval($userPurchases['paid']);
-        $suppCash = floatval($userSuppPay['total']);
-        $retRefund = floatval($userReturns['cash_refund']);
-        $totalCashOut = $purCash + $suppCash + $retRefund;
-        $netCash = $totalCashIn - $totalCashOut;
-        
+
+        $userOrders = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(o.total_amount), 0) as total, COALESCE(SUM(o.paid_amount), 0) as paid FROM orders o WHERE " . implode(' AND ', $ordC), $ordP) ?: ['cnt' => 0, 'total' => 0, 'paid' => 0];
+        $userPs = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(gs.gaming_charge), 0) as total FROM gaming_sessions gs WHERE " . implode(' AND ', $sesGC), $sesGP) ?: ['cnt' => 0, 'total' => 0];
+        $userBil = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(bs.gaming_charge), 0) as total FROM billiard_sessions bs WHERE " . implode(' AND ', $sesBC), $sesBP) ?: ['cnt' => 0, 'total' => 0];
+        $userCollected = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(pr.amount), 0) as total FROM payment_records pr WHERE " . implode(' AND ', $payC), $payP) ?: ['cnt' => 0, 'total' => 0];
+        $userExpenses = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(e.amount), 0) as total FROM expenses e WHERE " . implode(' AND ', $expC), $expP) ?: ['cnt' => 0, 'total' => 0];
+        $userShifts = getRow("SELECT COUNT(*) as cnt FROM shifts s WHERE " . implode(' AND ', $shC), $shP) ?: ['cnt' => 0];
+        $userActivity = getRow("SELECT COUNT(*) as cnt FROM activity_log a WHERE " . implode(' AND ', $actC), $actP) ?: ['cnt' => 0];
+
         $summaryCards = [
-            ['title'=>'إجمالي مبيعات المستخدم', 'value'=>formatCurrency($userSales['total']) . ' (' . $userSales['cnt'] . ' فاتورة)', 'color'=>'primary', 'icon'=>'fa-shopping-cart'],
-            ['title'=>'إجمالي النقد الداخل', 'value'=>formatCurrency($totalCashIn), 'color'=>'success', 'icon'=>'fa-arrow-down'],
-            ['title'=>'إجمالي مشتريات المستخدم', 'value'=>formatCurrency($userPurchases['total']) . ' (' . $userPurchases['cnt'] . ' فاتورة)', 'color'=>'warning', 'icon'=>'fa-truck-loading'],
-            ['title'=>'إجمالي النقد الخارج', 'value'=>formatCurrency($totalCashOut), 'color'=>'danger', 'icon'=>'fa-arrow-up'],
-            ['title'=>'صافي حركة الخزينة', 'value'=>formatCurrency($netCash), 'color'=>($netCash>=0 ? 'success':'danger'), 'icon'=>'fa-vault'],
-            ['title'=>'إجمالي المرتجعات', 'value'=>formatCurrency($userReturns['total']) . ' (' . $userReturns['cnt'] . ' عملية)', 'color'=>'secondary', 'icon'=>'fa-undo'],
-            ['title'=>'تحصيلات الأقساط', 'value'=>formatCurrency($userInstPay['total']) . ' (' . $userInstPay['cnt'] . ' قسط)', 'color'=>'info', 'icon'=>'fa-calendar-check'],
-            ['title'=>'سجل الحركات المسجلة', 'value'=>$userActivity['cnt'] . ' حركة', 'color'=>'secondary', 'icon'=>'fa-clipboard-list']
+            ['title'=>'☕ طلبات الكافيه', 'value'=>formatCurrency($userOrders['total']) . ' (' . $userOrders['cnt'] . ' طلب)', 'color'=>'primary', 'icon'=>'fa-coffee'],
+            ['title'=>'💰 محصل الطلبات', 'value'=>formatCurrency($userOrders['paid']), 'color'=>'success', 'icon'=>'fa-money-bill-wave'],
+            ['title'=>'🎮 جلسات بلايستيشن مقفولة', 'value'=>formatCurrency($userPs['total']) . ' (' . $userPs['cnt'] . ' جلسة)', 'color'=>'info', 'icon'=>'fa-gamepad'],
+            ['title'=>'🎱 جلسات بلياردو مقفولة', 'value'=>formatCurrency($userBil['total']) . ' (' . $userBil['cnt'] . ' جلسة)', 'color'=>'success', 'icon'=>'fa-circle'],
+            ['title'=>'🧾 إجمالي المتحصلات', 'value'=>formatCurrency($userCollected['total']) . ' (' . $userCollected['cnt'] . ' إيصال)', 'color'=>'success', 'icon'=>'fa-hand-holding-usd'],
+            ['title'=>'💸 مصروفات سجلها', 'value'=>formatCurrency($userExpenses['total']) . ' (' . $userExpenses['cnt'] . ' سند)', 'color'=>'danger', 'icon'=>'fa-file-invoice-dollar'],
+            ['title'=>'⏱️ الشيفتات', 'value'=>$userShifts['cnt'] . ' شيفت', 'color'=>'warning', 'icon'=>'fa-history'],
+            ['title'=>'سجل النشاط', 'value'=>$userActivity['cnt'] . ' حركة', 'color'=>'secondary', 'icon'=>'fa-clipboard-list']
         ];
         
         switch ($userSubView) {
-            case 'sales':
+            case 'orders':
                 $columns = [
-                    'date' => 'التاريخ',
-                    'invoice_number' => 'رقم الفاتورة',
-                    'customer_name' => 'اسم العميل',
-                    'customer_phone' => 'التليفون',
-                    'payment_method' => 'طريقة الدفع',
-                    'total_amount' => 'إجمالي الفاتورة',
+                    'created_at' => 'الوقت والتاريخ',
+                    'order_number' => 'رقم الطلب',
+                    'order_type_lbl' => 'النوع',
+                    'customer_name' => 'العميل',
+                    'total_amount' => 'الإجمالي',
                     'paid_amount' => 'المدفوع',
-                    'remaining_amount' => 'المتبقي',
-                    'actions' => 'عرض الفاتورة'
+                    'payment_status_lbl' => 'الحالة',
+                    'actions' => 'البون'
                 ];
-                $p = $paramsUserInv;
-                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
-                $raw = getRows("SELECT i.*, COALESCE(c.name, i.customer_name) as customer_name, COALESCE(c.phone, i.customer_phone) as customer_phone FROM invoices i LEFT JOIN customers c ON i.customer_id = c.id WHERE i.type='sale' AND {$userWhereInv} {$dateCondInv} ORDER BY i.date DESC, i.id DESC", $p);
+                $oc2 = ["o.status != 'cancelled'"]; $op2 = [];
+                if ($uid) { $oc2[] = "o.created_by = ?"; $op2[] = $uid; }
+                if ($dateFrom && $dateTo) { $oc2[] = "DATE(o.created_at) BETWEEN ? AND ?"; array_push($op2, $dateFrom, $dateTo); }
+                $typeBadges = [
+                    'takeaway' => '<span class="badge badge-primary">تيك أواي</span>',
+                    'dine_in' => '<span class="badge badge-success">صالة / طاولات</span>',
+                    'gaming_ps' => '<span class="badge badge-info">بلايستيشن</span>',
+                    'gaming_billiard' => '<span class="badge badge-secondary">بلياردو</span>'
+                ];
+                $raw = getRows("SELECT o.* FROM orders o WHERE " . implode(' AND ', $oc2) . " ORDER BY o.id DESC", $op2);
                 foreach ($raw as $r) {
-                    $r['actions'] = '<a href="../invoices/print.php?id=' . $r['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> عرض الفاتورة</a>';
+                    $r['order_type_lbl'] = $typeBadges[$r['order_type']] ?? $r['order_type'];
+                    $r['payment_status_lbl'] = ($r['payment_status'] === 'paid') ? '<span class="badge badge-success">خالص</span>' : '<span class="badge badge-warning">معلق/آجل</span>';
+                    $r['actions'] = '<a href="../pos/receipt.php?id=' . $r['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> البون</a>';
                     $data[] = $r;
                 }
                 break;
-                
-            case 'purchases':
+
+            case 'sessions':
                 $columns = [
-                    'date' => 'التاريخ',
-                    'invoice_number' => 'رقم الفاتورة',
-                    'supplier_name' => 'اسم المورد',
-                    'supplier_phone' => 'التليفون',
-                    'payment_method' => 'طريقة الدفع',
-                    'total_amount' => 'إجمالي الفاتورة',
-                    'paid_amount' => 'المدفوع',
-                    'remaining_amount' => 'المتبقي',
-                    'actions' => 'عرض الفاتورة'
+                    'started_at' => 'وقت البداية',
+                    'place' => 'الجهاز / الطاولة',
+                    'mode_lbl' => 'النظام',
+                    'duration_lbl' => 'المدة / الأجيام',
+                    'charge_lbl' => 'حساب الوقت',
+                    'cafe_lbl' => 'طلبات كافيه',
+                    'total_lbl' => 'الإجمالي',
+                    'actions' => 'البون'
                 ];
-                $p = $paramsUserInv;
-                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
-                $raw = getRows("SELECT i.*, s.name as supplier_name, s.phone as supplier_phone FROM invoices i LEFT JOIN suppliers s ON i.supplier_id = s.id WHERE i.type='purchase' AND {$userWhereInv} {$dateCondInv} ORDER BY i.date DESC, i.id DESC", $p);
-                foreach ($raw as $r) {
-                    $r['actions'] = '<a href="../invoices/print_purchase.php?id=' . $r['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> عرض الفاتورة</a>';
-                    $data[] = $r;
+                $gc2 = ["gs.status = 'completed'"]; $gp2 = [];
+                $bc2 = ["bs.status = 'completed'"]; $bp2 = [];
+                if ($uid) { $gc2[] = "gs.closed_by = ?"; $gp2[] = $uid; $bc2[] = "bs.closed_by = ?"; $bp2[] = $uid; }
+                if ($dateFrom && $dateTo) {
+                    $gc2[] = "DATE(gs.started_at) BETWEEN ? AND ?"; array_push($gp2, $dateFrom, $dateTo);
+                    $bc2[] = "DATE(bs.started_at) BETWEEN ? AND ?"; array_push($bp2, $dateFrom, $dateTo);
+                }
+                $rawGs = getRows("SELECT gs.id, gs.started_at, gs.session_type as mode, gs.billable_minutes, gs.game_count, gs.gaming_charge, gs.cafe_orders_total, gs.total_amount, d.display_name as place FROM gaming_sessions gs JOIN gaming_devices d ON d.id = gs.device_id WHERE " . implode(' AND ', $gc2) . " ORDER BY gs.id DESC", $gp2);
+                foreach ($rawGs as $s) {
+                    $data[] = [
+                        'started_at' => $s['started_at'],
+                        'place' => '🎮 ' . htmlspecialchars($s['place']),
+                        'mode_lbl' => ($s['mode'] === 'multi') ? '<span class="badge badge-warning">مالتي</span>' : '<span class="badge badge-primary">سنجل</span>',
+                        'duration_lbl' => ($s['billable_minutes'] ?? 0) . ' دقيقة',
+                        'charge_lbl' => formatCurrency($s['gaming_charge']),
+                        'cafe_lbl' => formatCurrency($s['cafe_orders_total']),
+                        'total_lbl' => '<strong>' . formatCurrency($s['total_amount']) . '</strong>',
+                        'actions' => '<a href="../gaming/receipt.php?id=' . $s['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> البون</a>'
+                    ];
+                }
+                $rawBs = getRows("SELECT bs.id, bs.started_at, bs.billing_mode as mode, bs.billable_minutes, bs.game_count, bs.gaming_charge, bs.cafe_orders_total, bs.total_amount, t.display_name as place FROM billiard_sessions bs JOIN billiard_tables t ON t.id = bs.table_id WHERE " . implode(' AND ', $bc2) . " ORDER BY bs.id DESC", $bp2);
+                foreach ($rawBs as $s) {
+                    $data[] = [
+                        'started_at' => $s['started_at'],
+                        'place' => '🎱 ' . htmlspecialchars($s['place']),
+                        'mode_lbl' => ($s['mode'] === 'per_game') ? '<span class="badge badge-warning">بالجيم</span>' : '<span class="badge badge-info">بالساعة</span>',
+                        'duration_lbl' => ($s['mode'] === 'per_game') ? ($s['game_count'] . ' جيم') : (($s['billable_minutes'] ?? 0) . ' دقيقة'),
+                        'charge_lbl' => formatCurrency($s['gaming_charge']),
+                        'cafe_lbl' => formatCurrency($s['cafe_orders_total']),
+                        'total_lbl' => '<strong>' . formatCurrency($s['total_amount']) . '</strong>',
+                        'actions' => '<a href="../billiards/receipt.php?id=' . $s['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> البون</a>'
+                    ];
                 }
                 break;
-                
-            case 'payments':
+
+            case 'collections':
                 $columns = [
-                    'payment_date' => 'التاريخ',
+                    'created_at' => 'التاريخ والوقت',
                     'payment_number' => 'رقم الإيصال',
-                    'type_label' => 'نوع الحركة',
-                    'entity_name' => 'الجهة / الاسم',
-                    'payment_method' => 'طريقة الدفع',
+                    'source_lbl' => 'المصدر',
                     'amount' => 'المبلغ',
-                    'notes' => 'البيان',
-                    'actions' => 'الإيصال'
+                    'method_lbl' => 'الطريقة'
                 ];
-                $p = $paramsUserPay;
-                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
-                $raw = getRows("SELECT p.* FROM payments p WHERE {$userWherePay} {$dateCondPay} ORDER BY p.payment_date DESC, p.id DESC", $p);
+                $pc2 = ["pr.payment_type = 'payment'"]; $pp2 = [];
+                if ($uid) { $pc2[] = "pr.created_by = ?"; $pp2[] = $uid; }
+                if ($dateFrom && $dateTo) { $pc2[] = "DATE(pr.created_at) BETWEEN ? AND ?"; array_push($pp2, $dateFrom, $dateTo); }
+                $srcMap = ['order' => 'طلب كافيه', 'gaming_session' => 'جلسة بلايستيشن', 'billiard_session' => 'جلسة بلياردو', 'table_session' => 'طاولة صالة'];
+                $mMap = ['cash' => '💵 كاش', 'card' => '💳 فيزا', 'instapay' => '⚡ إنستاباي', 'vodafone_cash' => '📱 فودافون كاش', 'wallet' => '👛 محفظة', 'other' => 'أخرى'];
+                $raw = getRows("SELECT pr.* FROM payment_records pr WHERE " . implode(' AND ', $pc2) . " ORDER BY pr.id DESC", $pp2);
                 foreach ($raw as $r) {
-                    $r['type_label'] = $r['type'] == 'customer' ? '<span class="text-success">قبض من عميل</span>' : '<span class="text-danger">صرف لمورد</span>';
-                    $printFile = $r['type'] == 'customer' ? '../payments/print_customer.php' : '../payments/print_supplier.php';
-                    $r['actions'] = '<a href="' . $printFile . '?id=' . $r['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> الإيصال</a>';
-                    $data[] = $r;
-                }
-                break;
-                
-            case 'installments':
-                $columns = [
-                    'paid_date' => 'تاريخ السداد',
-                    'payment_number' => 'رقم القسط',
-                    'entity_name' => 'العميل / المورد',
-                    'amount' => 'المبلغ المستحق',
-                    'paid_amount' => 'المبلغ المسدد',
-                    'payment_method' => 'طريقة الدفع',
-                    'status_label' => 'الحالة',
-                    'actions' => 'الخطة'
-                ];
-                $p = $paramsUserInst;
-                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
-                $raw = getRows("SELECT ip.*, pl.entity_name FROM installment_payments ip JOIN installment_plans pl ON ip.plan_id = pl.id WHERE ip.status IN ('paid', 'partial') AND {$userWhereInst} {$dateCondInst} ORDER BY ip.paid_date DESC, ip.id DESC", $p);
-                foreach ($raw as $r) {
-                    $r['status_label'] = $r['status'] == 'paid' ? '<span class="badge badge-success">مدفوع بالكامل</span>' : '<span class="badge badge-warning">مدفوع جزئياً</span>';
-                    $r['actions'] = '<a href="../installments/view.php?id=' . $r['plan_id'] . '" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-eye"></i> الخطة</a>';
-                    $data[] = $r;
-                }
-                break;
-                
-            case 'returns':
-                $columns = [
-                    'return_date' => 'التاريخ',
-                    'return_number' => 'رقم المرتجع',
-                    'type_label' => 'نوع المرتجع',
-                    'entity_name' => 'الاسم',
-                    'total_amount' => 'إجمالي المرتجع',
-                    'cash_refund' => 'المسترد نقداً',
-                    'deducted_from_balance' => 'مخصوم من الحساب',
-                    'actions' => 'معاينة'
-                ];
-                $p = $paramsUserRet;
-                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
-                $raw = getRows("SELECT r.*, CASE WHEN r.type='customer' THEN COALESCE(c.name, r.customer_name) ELSE COALESCE(s.name, r.supplier_name) END as entity_name FROM returns r LEFT JOIN customers c ON r.customer_id=c.id LEFT JOIN suppliers s ON r.supplier_id=s.id WHERE {$userWhereRet} {$dateCondRet} ORDER BY r.return_date DESC, r.id DESC", $p);
-                foreach ($raw as $r) {
-                    $r['type_label'] = $r['type'] == 'customer' ? 'مرتجع عميل' : 'مرتجع مورد';
-                    $printFile = $r['type'] == 'customer' ? '../returns/print.php' : '../returns/print_supplier.php';
-                    $r['actions'] = '<a href="' . $printFile . '?id=' . $r['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> معاينة</a>';
+                    $r['source_lbl'] = ($srcMap[$r['source_type']] ?? $r['source_type']) . ' #' . $r['source_id'];
+                    $r['method_lbl'] = $mMap[$r['payment_method']] ?? $r['payment_method'];
                     $data[] = $r;
                 }
                 break;
@@ -839,15 +792,17 @@ switch ($reportType) {
             case 'activity':
                 $columns = [
                     'created_at' => 'التاريخ والوقت',
-                    'user' => 'المستخدم',
+                    'user_name' => 'المستخدم',
                     'action' => 'العملية / الإجراء',
                     'description' => 'التفاصيل والبيان',
                     'ip_address' => 'عنوان IP'
                 ];
-                $p = $paramsUserAct;
-                if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
-                $raw = getRows("SELECT a.* FROM activity_log a WHERE {$userWhereAct} {$dateCondAct} ORDER BY a.created_at DESC, a.id DESC", $p);
+                $ac2 = ["1=1"]; $ap2 = [];
+                if ($uid) { $ac2[] = "a.user_id = ?"; $ap2[] = $uid; }
+                if ($dateFrom && $dateTo) { $ac2[] = "DATE(a.created_at) BETWEEN ? AND ?"; array_push($ap2, $dateFrom, $dateTo); }
+                $raw = getRows("SELECT a.*, u.full_name as user_name FROM activity_log a LEFT JOIN users u ON u.id = a.user_id WHERE " . implode(' AND ', $ac2) . " ORDER BY a.created_at DESC, a.id DESC LIMIT 200", $ap2);
                 foreach ($raw as $r) {
+                    $r['user_name'] = htmlspecialchars($r['user_name'] ?? 'النظام');
                     $data[] = $r;
                 }
                 break;
@@ -855,47 +810,42 @@ switch ($reportType) {
             case 'overview':
             default:
                 if (!$targetUser) {
-                    // Comparative Table of ALL users
+                    // Comparative Table of ALL users (real cafe metrics)
                     $columns = [
                         'user_name' => 'اسم الموظف / المستخدم',
                         'role_label' => 'الدور',
-                        'sales_count' => 'عدد فواتير البيع',
-                        'sales_total' => 'إجمالي المبيعات',
-                        'sales_cash' => 'كاش المبيعات المحصل',
-                        'purchases_total' => 'إجمالي المشتريات',
-                        'returns_total' => 'إجمالي المرتجعات',
-                        'actions_count' => 'سجل النشاط',
+                        'orders_count' => 'طلبات الكافيه',
+                        'orders_total' => 'إجمالي الطلبات',
+                        'sessions_count' => 'الجلسات المقفولة',
+                        'collected_total' => 'إجمالي المتحصلات',
                         'actions' => 'التقرير التفصيلي'
                     ];
-                    
+
                     foreach ($usersList as $u) {
-                        $pU = [$u['id'], $u['full_name'], $u['username']];
-                        $pSalesU = $pU; if ($dateFrom && $dateTo) { $pSalesU[] = $dateFrom; $pSalesU[] = $dateTo; }
-                        $sU = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(total_amount - discount), 0) as total, COALESCE(SUM(paid_amount), 0) as paid FROM invoices i WHERE i.type='sale' AND (i.user_id = ? OR i.handled_by = ? OR i.handled_by = ?) {$dateCondInv}", $pSalesU);
-                        
-                        $pPurU = $pU; if ($dateFrom && $dateTo) { $pPurU[] = $dateFrom; $pPurU[] = $dateTo; }
-                        $purU = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(total_amount - discount), 0) as total FROM invoices i WHERE i.type='purchase' AND (i.user_id = ? OR i.handled_by = ? OR i.handled_by = ?) {$dateCondInv}", $pPurU);
-                        
-                        $pRetU = $pU; if ($dateFrom && $dateTo) { $pRetU[] = $dateFrom; $pRetU[] = $dateTo; }
-                        $retU = getRow("SELECT COALESCE(SUM(total_amount), 0) as total FROM returns r WHERE (r.user_id = ? OR r.handled_by = ? OR r.handled_by = ?) {$dateCondRet}", $pRetU);
-                        
-                        $pActU = $pU; if ($dateFrom && $dateTo) { $pActU[] = $dateFrom; $pActU[] = $dateTo; }
-                        $actU = getRow("SELECT COUNT(*) as cnt FROM activity_log a WHERE (a.user_id = ? OR a.user = ? OR a.user = ?) {$dateCondAct}", $pActU);
-                        
+                        $uu = (int)$u['id'];
+                        $dpU = ($dateFrom && $dateTo) ? [$dateFrom, $dateTo] : [];
+                        $dOrdU = ($dateFrom && $dateTo) ? "AND DATE(o.created_at) BETWEEN ? AND ?" : "";
+                        $dGsU = ($dateFrom && $dateTo) ? "AND DATE(gs.started_at) BETWEEN ? AND ?" : "";
+                        $dBsU = ($dateFrom && $dateTo) ? "AND DATE(bs.started_at) BETWEEN ? AND ?" : "";
+                        $dPrU = ($dateFrom && $dateTo) ? "AND DATE(pr.created_at) BETWEEN ? AND ?" : "";
+
+                        $oU = getRow("SELECT COUNT(*) as cnt, COALESCE(SUM(o.total_amount), 0) as total FROM orders o WHERE o.status != 'cancelled' AND o.created_by = ? {$dOrdU}", array_merge([$uu], $dpU)) ?: ['cnt' => 0, 'total' => 0];
+                        $gU = getRow("SELECT COUNT(*) as cnt FROM gaming_sessions gs WHERE gs.status = 'completed' AND gs.closed_by = ? {$dGsU}", array_merge([$uu], $dpU)) ?: ['cnt' => 0];
+                        $bU = getRow("SELECT COUNT(*) as cnt FROM billiard_sessions bs WHERE bs.status = 'completed' AND bs.closed_by = ? {$dBsU}", array_merge([$uu], $dpU)) ?: ['cnt' => 0];
+                        $cU = getRow("SELECT COALESCE(SUM(pr.amount), 0) as total FROM payment_records pr WHERE pr.payment_type = 'payment' AND pr.created_by = ? {$dPrU}", array_merge([$uu], $dpU)) ?: ['total' => 0];
+
                         $data[] = [
                             'user_name' => '<strong>' . htmlspecialchars($u['full_name']) . '</strong> <small style="color:var(--gray);">(' . htmlspecialchars($u['username']) . ')</small>',
                             'role_label' => $u['role'] === 'admin' ? '<span class="badge" style="background:#4f46e5;">👑 مدير نظام</span>' : '<span class="badge" style="background:#0284c7;">👤 موظف</span>',
-                            'sales_count' => $sU['cnt'] . ' فاتورة',
-                            'sales_total' => formatCurrency($sU['total']),
-                            'sales_cash' => formatCurrency($sU['paid']),
-                            'purchases_total' => formatCurrency($purU['total']),
-                            'returns_total' => formatCurrency($retU['total']),
-                            'actions_count' => $actU['cnt'] . ' حركة',
+                            'orders_count' => $oU['cnt'] . ' طلب',
+                            'orders_total' => formatCurrency($oU['total']),
+                            'sessions_count' => ($gU['cnt'] + $bU['cnt']) . ' جلسة',
+                            'collected_total' => formatCurrency($cU['total']),
                             'actions' => '<a href="?type=users&user_id=' . $u['id'] . '&user_view=overview' . ($dateFrom ? "&date_from=$dateFrom&date_to=$dateTo" : "") . '" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-user-check"></i> عرض تقريره</a>'
                         ];
                     }
                 } else {
-                    // Selected user's recent operations
+                    // Selected user's recent operations feed (orders + sessions + collections)
                     $columns = [
                         'date_time' => 'التاريخ والوقت',
                         'type_badge' => 'نوع الحركة',
@@ -904,21 +854,60 @@ switch ($reportType) {
                         'amount_formatted' => 'المبلغ',
                         'actions' => 'تفاصيل'
                     ];
-                    
-                    $p = $paramsUserInv;
-                    if ($dateFrom && $dateTo) { $p[] = $dateFrom; $p[] = $dateTo; }
-                    $recentSales = getRows("SELECT i.date, i.created_at, i.invoice_number as ref, CONCAT('فاتورة بيع للعميل: ', COALESCE(c.name, i.customer_name)) as details, (i.total_amount - i.discount) as amount, 'sale' as itype, i.id FROM invoices i LEFT JOIN customers c ON i.customer_id = c.id WHERE i.type='sale' AND {$userWhereInv} {$dateCondInv} ORDER BY i.created_at DESC LIMIT 15", $p);
-                    
-                    foreach ($recentSales as $s) {
-                        $data[] = [
-                            'date_time' => date('Y-m-d h:i A', strtotime($s['created_at'] ?: $s['date'])),
-                            'type_badge' => '<span class="badge badge-success">فاتورة بيع</span>',
+
+                    $feed = [];
+                    $dpF = ($dateFrom && $dateTo) ? [$dateFrom, $dateTo] : [];
+                    $dOrdF = ($dateFrom && $dateTo) ? "AND DATE(o.created_at) BETWEEN ? AND ?" : "";
+                    $dGsF = ($dateFrom && $dateTo) ? "AND DATE(gs.started_at) BETWEEN ? AND ?" : "";
+                    $dBsF = ($dateFrom && $dateTo) ? "AND DATE(bs.started_at) BETWEEN ? AND ?" : "";
+                    $dPrF = ($dateFrom && $dateTo) ? "AND DATE(pr.created_at) BETWEEN ? AND ?" : "";
+
+                    $recentOrders = getRows("SELECT o.id, o.created_at, o.order_number as ref, o.total_amount as amount FROM orders o WHERE o.status != 'cancelled' AND o.created_by = ? {$dOrdF} ORDER BY o.id DESC LIMIT 15", array_merge([$uid], $dpF));
+                    foreach ($recentOrders as $s) {
+                        $feed[] = [
+                            'date_time' => $s['created_at'],
+                            'type_badge' => '<span class="badge badge-success">طلب كافيه</span>',
                             'ref_number' => $s['ref'],
-                            'details' => $s['details'],
+                            'details' => 'طلب كافيه #' . $s['ref'],
                             'amount_formatted' => formatCurrency($s['amount']),
-                            'actions' => '<a href="../invoices/print.php?id=' . $s['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> معاينة</a>'
+                            'actions' => '<a href="../pos/receipt.php?id=' . $s['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> معاينة</a>'
                         ];
                     }
+                    $recentPs = getRows("SELECT gs.id, gs.started_at as created_at, gs.total_amount as amount, d.display_name FROM gaming_sessions gs JOIN gaming_devices d ON d.id = gs.device_id WHERE gs.status = 'completed' AND gs.closed_by = ? {$dGsF} ORDER BY gs.id DESC LIMIT 15", array_merge([$uid], $dpF));
+                    foreach ($recentPs as $s) {
+                        $feed[] = [
+                            'date_time' => $s['created_at'],
+                            'type_badge' => '<span class="badge badge-info">جلسة بلايستيشن</span>',
+                            'ref_number' => 'PS-' . $s['id'],
+                            'details' => 'جلسة ' . htmlspecialchars($s['display_name']),
+                            'amount_formatted' => formatCurrency($s['amount']),
+                            'actions' => '<a href="../gaming/receipt.php?id=' . $s['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> معاينة</a>'
+                        ];
+                    }
+                    $recentBil = getRows("SELECT bs.id, bs.started_at as created_at, bs.total_amount as amount, t.display_name FROM billiard_sessions bs JOIN billiard_tables t ON t.id = bs.table_id WHERE bs.status = 'completed' AND bs.closed_by = ? {$dBsF} ORDER BY bs.id DESC LIMIT 15", array_merge([$uid], $dpF));
+                    foreach ($recentBil as $s) {
+                        $feed[] = [
+                            'date_time' => $s['created_at'],
+                            'type_badge' => '<span class="badge badge-warning">جلسة بلياردو</span>',
+                            'ref_number' => 'BL-' . $s['id'],
+                            'details' => 'جلسة ' . htmlspecialchars($s['display_name']),
+                            'amount_formatted' => formatCurrency($s['amount']),
+                            'actions' => '<a href="../billiards/receipt.php?id=' . $s['id'] . '" target="_blank" class="btn-submit" style="padding:4px 10px; font-size:12px; text-decoration:none;"><i class="fas fa-print"></i> معاينة</a>'
+                        ];
+                    }
+                    $recentPay = getRows("SELECT pr.id, pr.created_at, pr.payment_number as ref, pr.amount FROM payment_records pr WHERE pr.payment_type = 'payment' AND pr.created_by = ? {$dPrF} ORDER BY pr.id DESC LIMIT 15", array_merge([$uid], $dpF));
+                    foreach ($recentPay as $s) {
+                        $feed[] = [
+                            'date_time' => $s['created_at'],
+                            'type_badge' => '<span class="badge badge-success">تحصيل</span>',
+                            'ref_number' => $s['ref'],
+                            'details' => 'إيصال تحصيل ' . htmlspecialchars($s['ref']),
+                            'amount_formatted' => formatCurrency($s['amount']),
+                            'actions' => ''
+                        ];
+                    }
+                    usort($feed, function ($a, $b) { return strtotime($b['date_time']) - strtotime($a['date_time']); });
+                    $data = array_slice($feed, 0, 20);
                 }
                 break;
         }
@@ -1177,20 +1166,14 @@ include '../../includes/navbar.php';
         <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'overview'])); ?>" class="report-tab <?php echo $userSubView === 'overview' ? 'active' : ''; ?>">
             <i class="fas fa-chart-pie"></i> ملخص الأداء الشامل
         </a>
-        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'sales'])); ?>" class="report-tab <?php echo $userSubView === 'sales' ? 'active' : ''; ?>">
-            <i class="fas fa-shopping-cart"></i> فواتير المبيعات (<?php echo $userSales['cnt'] ?? 0; ?>)
+        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'orders'])); ?>" class="report-tab <?php echo $userSubView === 'orders' ? 'active' : ''; ?>">
+            <i class="fas fa-coffee"></i> طلبات الكافيه (<?php echo $userOrders['cnt'] ?? 0; ?>)
         </a>
-        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'purchases'])); ?>" class="report-tab <?php echo $userSubView === 'purchases' ? 'active' : ''; ?>">
-            <i class="fas fa-truck-loading"></i> فواتير المشتريات (<?php echo $userPurchases['cnt'] ?? 0; ?>)
+        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'sessions'])); ?>" class="report-tab <?php echo $userSubView === 'sessions' ? 'active' : ''; ?>">
+            <i class="fas fa-gamepad"></i> الجلسات المقفولة (<?php echo ($userPs['cnt'] ?? 0) + ($userBil['cnt'] ?? 0); ?>)
         </a>
-        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'payments'])); ?>" class="report-tab <?php echo $userSubView === 'payments' ? 'active' : ''; ?>">
-            <i class="fas fa-receipt"></i> المقبوضات والمدفوعات (<?php echo ($userCustPay['cnt'] ?? 0) + ($userSuppPay['cnt'] ?? 0); ?>)
-        </a>
-        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'installments'])); ?>" class="report-tab <?php echo $userSubView === 'installments' ? 'active' : ''; ?>">
-            <i class="fas fa-calendar-alt"></i> تحصيل الأقساط (<?php echo $userInstPay['cnt'] ?? 0; ?>)
-        </a>
-        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'returns'])); ?>" class="report-tab <?php echo $userSubView === 'returns' ? 'active' : ''; ?>">
-            <i class="fas fa-undo"></i> المرتجعات (<?php echo $userReturns['cnt'] ?? 0; ?>)
+        <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'collections'])); ?>" class="report-tab <?php echo $userSubView === 'collections' ? 'active' : ''; ?>">
+            <i class="fas fa-receipt"></i> المتحصلات (<?php echo $userCollected['cnt'] ?? 0; ?>)
         </a>
         <a href="?<?php echo http_build_query(array_merge($baseQuery, ['user_view' => 'activity'])); ?>" class="report-tab <?php echo $userSubView === 'activity' ? 'active' : ''; ?>">
             <i class="fas fa-history"></i> سجل النشاط (<?php echo $userActivity['cnt'] ?? 0; ?>)
@@ -1222,11 +1205,9 @@ include '../../includes/navbar.php';
                     if ($reportType === 'users') {
                         $viewNames = [
                             'overview' => 'ملخص الأداء والمقارنة',
-                            'sales' => 'فواتير المبيعات الصادرة',
-                            'purchases' => 'فواتير المشتريات',
-                            'payments' => 'المقبوضات والمدفوعات',
-                            'installments' => 'تحصيل الأقساط',
-                            'returns' => 'المرتجعات',
+                            'orders' => 'طلبات الكافيه',
+                            'sessions' => 'الجلسات المقفولة',
+                            'collections' => 'المتحصلات',
                             'activity' => 'سجل الحركات التفصيلي'
                         ];
                         $uTitle = ($targetUser ? htmlspecialchars($targetUser['full_name']) . ' - ' : '') . ($viewNames[$userSubView] ?? 'تقرير المستخدمين');

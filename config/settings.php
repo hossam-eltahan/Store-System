@@ -110,7 +110,7 @@ function formatNumber($number, $decimals = 2) {
 // Format currency
 function formatCurrency($amount) {
     $currency = getSetting('currency', 'جنيه');
-    return formatNumber($amount, 2) . ' ' . $currency;
+    return formatNumber((float)$amount, 2) . ' ' . $currency;
 }
 
 // Sanitize input
