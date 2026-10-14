@@ -55,11 +55,79 @@ body {
     box-sizing: border-box;
 }
 
+/* Keep side-by-side on ALL screen sizes: products (right) + cart (left).
+   Small cashier screens get a narrower cart and smaller cards — never stacked. */
 @media (max-width: 1024px) {
     .pos-container {
-        grid-template-columns: 1fr;
-        height: auto;
-        overflow: visible;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 10px;
+        padding: 10px 12px;
+    }
+    .pos-products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        padding: 12px;
+        gap: 10px;
+    }
+}
+
+@media (max-width: 768px) {
+    .pos-container {
+        grid-template-columns: minmax(0, 1fr) 280px;
+        gap: 8px;
+        padding: 8px 10px;
+        height: calc(100vh - 60px);
+    }
+    .pos-products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+        padding: 10px;
+        gap: 8px;
+    }
+    .pos-product-card {
+        padding: 9px;
+        min-height: 92px;
+    }
+    .product-name {
+        font-size: 12px;
+    }
+    .product-price {
+        font-size: 13px;
+    }
+    .pos-top-bar {
+        padding: 10px 12px;
+        gap: 8px;
+    }
+    .pos-categories-scroll {
+        padding: 8px 12px;
+    }
+    .category-pill {
+        padding: 6px 11px;
+        font-size: 12px;
+    }
+    .order-type-btn {
+        font-size: 10px;
+        padding: 7px 3px;
+    }
+    .cart-header {
+        padding: 10px 12px;
+    }
+    .cart-title {
+        font-size: 13px;
+    }
+    .btn-checkout {
+        padding: 10px;
+        font-size: 13px;
+    }
+    .grand-total-row {
+        font-size: 16px;
+    }
+}
+
+/* Very narrow screens: preserve exact positions via horizontal scroll
+   instead of stacking the cart below the products. */
+@media (max-width: 620px) {
+    .pos-container {
+        min-width: 600px;
+        grid-template-columns: minmax(0, 1fr) 280px;
     }
 }
 
@@ -912,7 +980,7 @@ function renderProductsGrid() {
             <div class="product-name">${escapeHtml(prod.name)}</div>
             <div class="product-footer">
                 <span class="product-price">${parseFloat(prod.price).toFixed(2)} ج.م</span>
-                ${prod.has_variants ? `<span class="variant-indicator">أحجام</span>` : ''}
+                ${prod.has_variants ? `<span class="variant-indicator">أحجام</span>` : (prod.has_modifiers ? `<span class="variant-indicator">إضافات</span>` : '')}
             </div>
         </div>
     `).join('');
