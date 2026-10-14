@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Gaming Session Thermal Receipt (80mm)
  * Ø¨ÙˆÙ† Ø¬Ù„Ø³Ø© Ø¨Ù„Ø§ÙŠØ³ØªÙŠØ´Ù† ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„
@@ -112,8 +112,8 @@ $durationFormatted = ($hours > 0 ? "$hours Ø³Ø§Ø¹Ø© Ùˆ " : "") . "$rem
 <body>
 
     <div class="no-print">
-        <button class="btn-print" onclick="window.print()">ðŸ–¨ï¸ Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„ÙØ§ØªÙˆØ±Ø© Ø§Ù„Ø¢Ù†</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">âœ–ï¸ Ø¥ØºÙ„Ø§Ù‚</button>
+        <button class="btn-print" onclick="window.print()">PRINT</button>
+        <button class="btn-print" style="background:#475569;" onclick="window.close()">CLOSE</button>
     </div>
 
     <div class="header">
@@ -219,9 +219,11 @@ $durationFormatted = ($hours > 0 ? "$hours Ø³Ø§Ø¹Ø© Ùˆ " : "") . "$rem
     </div>
 
     <script>
-        window.onload = function() {
-            setTimeout(function() { window.print(); }, 300);
-        };
+        if (window.self === window.top) {
+            window.onload = function() {
+                setTimeout(function() { window.print(); }, 300);
+            };
+        }
         window.onafterprint = function() {
             setTimeout(function() {
                 try {

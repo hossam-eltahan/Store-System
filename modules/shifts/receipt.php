@@ -61,8 +61,8 @@ $storePhone = getSetting('store_phone', '');
 <body>
 
     <div class="no-print">
-        <button class="btn-print" onclick="window.print()">🖨️ طباعة التقرير الآن</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">✖️ إغلاق</button>
+        <button class="btn-print" onclick="window.print()">PRINT</button>
+        <button class="btn-print" style="background:#475569;" onclick="window.close()">CLOSE</button>
     </div>
 
     <div class="header">
@@ -181,7 +181,9 @@ $storePhone = getSetting('store_phone', '');
     </div>
 
     <script>
-        window.onload = function() { setTimeout(function() { window.print(); }, 300); };
+        if (window.self === window.top) {
+            window.onload = function() { setTimeout(function() { window.print(); }, 300); };
+        }
         window.onafterprint = function() {
             setTimeout(function() {
                 try {

@@ -245,8 +245,8 @@ $receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - ن�
 <body>
 
     <div class="no-print">
-        <button class="btn-print" onclick="window.print()">🖨️ طباعة البون الآن</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">✖️ إغلاق</button>
+        <button class="btn-print" onclick="window.print()">PRINT</button>
+        <button class="btn-print" style="background:#475569;" onclick="window.close()">CLOSE</button>
         <a href="index.php" class="btn-print" style="background:#059669; text-decoration:none; display:inline-block;">🪑 الطاولات</a>
     </div>
 
@@ -407,11 +407,13 @@ $receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - ن�
 
     <script>
         // طباعة تلقائية عند فتح الصفحة
-        window.onload = function() {
-            setTimeout(function() {
-                window.print();
-            }, 400);
-        };
+        if (window.self === window.top) {
+            window.onload = function() {
+                setTimeout(function() {
+                    window.print();
+                }, 400);
+            };
+        }
         window.onafterprint = function() {
             setTimeout(function() {
                 try {

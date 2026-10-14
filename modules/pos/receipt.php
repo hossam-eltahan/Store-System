@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * POS Receipt Printing Template (Thermal 80mm / 57mm)
  * Ø¨ÙˆÙ† Ø·Ø¨Ø§Ø¹Ø© ÙƒØ§Ø´ÙŠØ± ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„
@@ -206,8 +206,8 @@ $isKitchen = ($type === 'kitchen');
 <body>
 
     <div class="no-print">
-        <button class="btn-print" onclick="window.print()">ðŸ–¨ï¸ Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„Ø¨ÙˆÙ† Ø§Ù„Ø¢Ù†</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">âœ–ï¸ Ø¥ØºÙ„Ø§Ù‚</button>
+        <button class="btn-print" onclick="window.print()">PRINT</button>
+        <button class="btn-print" style="background:#475569;" onclick="window.close()">CLOSE</button>
         <?php if (!$isKitchen): ?>
             <a href="receipt.php?id=<?php echo $orderId; ?>&type=kitchen" style="text-decoration:none; margin-right:8px;" class="btn-print" style="background:#e11d48;">ðŸ‘¨â€ðŸ³ Ø¨ÙˆÙ† Ø§Ù„Ø¨Ø§Ø±/Ø§Ù„Ù…Ø·Ø¨Ø®</a>
         <?php else: ?>
@@ -217,11 +217,11 @@ $isKitchen = ($type === 'kitchen');
 
     <div class="header text-center">
         <?php if ($isKitchen): ?>
-            <div class="kitchen-badge">ðŸ“‹ Ø¨ÙˆÙ† ØªØ­Ø¶ÙŠØ± (Ø§Ù„Ø¨Ø§Ø± / Ø§Ù„Ù…Ø·Ø¨Ø®)</div>
+            <div class="kitchen-badge">KITCHEN ORDER</div>
         <?php else: ?>
             <h1><?php echo htmlspecialchars($storeName); ?></h1>
             <?php if ($storeAddress): ?><p><?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>
-            <?php if ($storePhone): ?><p>Ù‡Ø§ØªÙ: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
+            <?php if ($storePhone): ?><p>Phone: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
             <?php if ($receiptHeader): ?><p style="margin-top:3px;"><?php echo htmlspecialchars($receiptHeader); ?></p><?php endif; ?>
         <?php endif; ?>
     </div>
@@ -363,11 +363,13 @@ $isKitchen = ($type === 'kitchen');
 
     <script>
         // Ø·Ø¨Ø§Ø¹Ø© ØªÙ„Ù‚Ø§Ø¦ÙŠØ© Ø¹Ù†Ø¯ Ø§Ù„ÙØªØ­
-        window.onload = function() {
-            setTimeout(function() {
-                window.print();
-            }, 300);
-        };
+        if (window.self === window.top) {
+            window.onload = function() {
+                setTimeout(function() {
+                    window.print();
+                }, 300);
+            };
+        }
         window.onafterprint = function() {
             setTimeout(function() {
                 try {
