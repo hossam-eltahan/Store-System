@@ -1,7 +1,6 @@
 <?php
 /**
  * Billiards Session Thermal Receipt (80mm)
- * Ø¨ÙˆÙ† Ø¬Ù„Ø³Ø© Ø¨Ù„ÙŠØ§Ø±Ø¯Ùˆ ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„
  */
 
 require_once '../../config/database.php';
@@ -26,7 +25,7 @@ $session = getRow(
 );
 
 if (!$session) {
-    die("Ø§Ù„Ø¬Ù„Ø³Ø© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©");
+    die("الجلسة غير موجودة");
 }
 
 $cafeOrders = getRows("SELECT * FROM orders WHERE billiard_session_id = ?", [$sessionId]);
@@ -46,21 +45,6 @@ foreach ($cafeOrders as $ord) {
 
 $firstOrder = $cafeOrders[0] ?? null;
 $orderNumber = $firstOrder['order_number'] ?? ('BILLIARDS-' . strval($sessionId));
-$cashierLabel = $firstOrder['cashier_name'] ?? ($session['opened_by_name'] ?? '???????');
-$sessionPayment = getRow("SELECT COALESCE(SUM(amount),0) AS total FROM payment_records WHERE source_type = 'billiard_session' AND source_id = ? AND payment_type = 'payment'", [$sessionId]);
-$paidAtClose = (float)($sessionPayment['total'] ?? 0);
-$paymentMethodCode = 'cash';
-foreach ($cafeOrders as $tmpOrder) {
-    $tmpPm = getRow("SELECT payment_method FROM payment_records WHERE source_type = 'order' AND source_id = ? ORDER BY id DESC LIMIT 1", [$tmpOrder['id']]);
-    if (!empty($tmpPm['payment_method'])) { $paymentMethodCode = $tmpPm['payment_method']; break; }
-}
-$tmpPmSession = getRow("SELECT payment_method FROM payment_records WHERE source_type = 'billiard_session' AND source_id = ? ORDER BY id DESC LIMIT 1", [$sessionId]);
-if (!empty($tmpPmSession['payment_method'])) { $paymentMethodCode = $tmpPmSession['payment_method']; }
-$paymentMethods = ['cash' => '????? (???)', 'card' => '????? / ???', 'instapay' => 'InstaPay', 'vodafone_cash' => 'Vodafone Cash'];
-$paymentMethodLabel = $paymentMethods[$paymentMethodCode] ?? $paymentMethodCode;
-
-$firstOrder = $cafeOrders[0] ?? null;
-$orderNumber = $firstOrder['order_number'] ?? ('BILLIARDS-' . strval($sessionId));
 $cashierLabel = $firstOrder['cashier_name'] ?? ($session['opened_by_name'] ?? 'الكاشير');
 $sessionPayment = getRow("SELECT COALESCE(SUM(amount),0) AS total FROM payment_records WHERE source_type = 'billiard_session' AND source_id = ? AND payment_type = 'payment'", [$sessionId]);
 $paidAtClose = (float)($sessionPayment['total'] ?? 0);
@@ -73,11 +57,11 @@ $tmpPmSession = getRow("SELECT payment_method FROM payment_records WHERE source_
 if (!empty($tmpPmSession['payment_method'])) { $paymentMethodCode = $tmpPmSession['payment_method']; }
 $paymentMethods = ['cash' => 'نقداً (كاش)', 'card' => 'بطاقة / كاش', 'instapay' => 'InstaPay', 'vodafone_cash' => 'Vodafone Cash'];
 $paymentMethodLabel = $paymentMethods[$paymentMethodCode] ?? $paymentMethodCode;
-$storeName = getSetting('store_name', 'ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„');
+$storeName = getSetting('store_name', 'كافيه عروسة النيل');
 $storeAddress = getSetting('store_address', '');
 $storePhone = getSetting('store_phone', '');
 $receiptHeader = getSetting('receipt_header', '');
-$receiptFooter = getSetting('receipt_footer', 'Ø´ÙƒØ±Ø§Ù‹ Ù„Ø²ÙŠØ§Ø±ØªÙƒÙ… - Ù†ØªÙ…Ù†Ù‰ Ù„ÙƒÙ… ÙˆÙ‚ØªØ§Ù‹ Ù…Ù…ØªØ¹Ø§Ù‹');
+$receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - نتمنى لكم وقتاً ممتعاً');
 
 $isHourly = ($session['billing_mode'] === 'hourly');
 $isCompleted = $session['status'] === 'completed';
@@ -107,10 +91,9 @@ if (!$isCompleted) {
 $grossTotal = max(0, $gamingCharge + $cafeGrossTotal - $discountAmount);
 $displayTotal = $isCompleted ? $sessionTotal : $grossTotal;
 $grandDue = max(0, $displayTotal - $prepaidCafeTotal - $paidAtClose);
-$grandDue = max(0, $displayTotal - $prepaidCafeTotal - $paidAtClose);
 $endedAtLabel = !empty($session['ended_at'])
     ? date('h:i A', strtotime($session['ended_at']))
-    : 'Ù„Ù… ØªÙØºÙ„Ù‚ Ø¨Ø¹Ø¯';
+    : 'غير منتهية';
 $hours = floor($minutes / 60);
 $remMinutes = $minutes % 60;
 $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
@@ -284,15 +267,13 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
     <div class="header">
         <h1><?php echo htmlspecialchars($storeName); ?></h1>
         <?php if ($storeAddress): ?><p><?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>
-        <?php if ($storePhone): ?><p><?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
+        <?php if ($storePhone): ?><p>هاتف: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
         <?php if ($receiptHeader): ?><p style="margin-top:3px;"><?php echo htmlspecialchars($receiptHeader); ?></p><?php endif; ?>
     </div>
 
     <div style="border-top:1px dashed #000;margin:6px 0;"></div>
 
     <table class="meta-table">
-            <table class="meta-table">
-            <table class="meta-table">
         <tr>
             <td class="fw-bold">رقم الطلب:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($orderNumber); ?></td>
@@ -301,27 +282,13 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
             <td class="fw-bold">الكاشير:</td>
             <td class="text-left"><?php echo htmlspecialchars($cashierLabel); ?></td>
         </tr>
-    <?php if (!empty($cafeOrders)): ?>
+        <?php if (!empty($cafeOrders)): ?>
         <tr>
             <td class="fw-bold">عدد الطلبات:</td>
             <td class="text-left fw-bold"><?php echo count($cafeOrders); ?> طلب</td>
         </tr>
-    <?php endif; ?>
-<tr>
-            <td class="fw-bold">??? ?????:</td>
-            <td class="text-left fw-bold"><?php echo htmlspecialchars($orderNumber); ?></td>
-        </tr>
+        <?php endif; ?>
         <tr>
-            <td class="fw-bold">???????:</td>
-            <td class="text-left"><?php echo htmlspecialchars($cashierLabel); ?></td>
-        </tr>
-    <?php if (!empty($cafeOrders)): ?>
-        <tr>
-            <td class="fw-bold">??? ???????:</td>
-            <td class="text-left fw-bold"><?php echo count($cafeOrders); ?> ???</td>
-        </tr>
-    <?php endif; ?>
-<tr>
             <td class="fw-bold">الطاولة:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($session['table_name']); ?></td>
         </tr>
@@ -329,7 +296,6 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
             <td>نظام الحساب:</td>
             <td class="text-left"><?php echo $isHourly ? 'بالساعة' : 'بالجيم'; ?></td>
         </tr>
-        <?php if ($isHourly): ?>
         <tr>
             <td>وقت البدء:</td>
             <td class="text-left"><?php echo date('Y-m-d h:i A', strtotime($session['started_at'])); ?></td>
@@ -338,9 +304,10 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
             <td>وقت الإنهاء:</td>
             <td class="text-left"><?php echo $endedAtLabel; ?></td>
         </tr>
+        <?php if ($isHourly): ?>
         <tr>
-                        <td>الوقت (دقيقة):</td>
-            <td class="text-left fw-bold"><?php echo (int)$minutes; ?> دقيقة</td>
+            <td>المدة:</td>
+            <td class="text-left fw-bold"><?php echo htmlspecialchars($durationFormatted); ?></td>
         </tr>
         <tr>
             <td>السعر/ساعة:</td>
@@ -362,11 +329,7 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
             <td class="text-left"><?php echo htmlspecialchars($session['customer_name']); ?></td>
         </tr>
         <?php endif; ?>
-            <tr>
-            <td>وقت الإنهاء:</td>
-            <td class="text-left"><?php echo $endedAtLabel; ?></td>
-        </tr>
-</table>
+    </table>
 
     <div style="border-top:2px solid #000;margin:6px 0;"></div>
 
@@ -434,21 +397,6 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
         </tr>
         <tr>
             <td>طريقة الدفع:</td>
-            <td class="text-left fw-bold"><?php echo htmlspecialchars($paymentMethodLabel); ?></td>
-        </tr>
-
-        <?php if ($paidAtClose > 0): ?>
-        <tr>
-            <td>????? ??? ???????:</td>
-            <td class="text-left"><?php echo number_format($paidAtClose, 2); ?> ?.?</td>
-        </tr>
-        <?php endif; ?>
-        <tr style="font-weight: 900; color: <?php echo $grandDue > 0 ? '#d97706' : '#059669'; ?>;">
-            <td>??????? ???????:</td>
-            <td class="text-left"><?php echo number_format($grandDue, 2); ?> ?.?</td>
-        </tr>
-        <tr>
-            <td>????? ?????:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($paymentMethodLabel); ?></td>
         </tr>
 

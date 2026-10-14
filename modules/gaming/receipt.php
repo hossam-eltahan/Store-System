@@ -269,7 +269,6 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
     <div style="border-top:1px dashed #000;margin:6px 0;"></div>
 
     <table class="meta-table">
-            <table class="meta-table">
         <tr>
             <td class="fw-bold">رقم الطلب:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($orderNumber); ?></td>
