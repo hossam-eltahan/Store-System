@@ -1514,7 +1514,13 @@ function closeCheckoutModal() {
 }
 
 function coTaxAmount(netAfterDiscount) {
-    return Math.round(netAfterDiscount * ((SVC_RATES.vat + SVC_RATES.service) / 100) * 100) / 100;
+    // Hall service applies to everything EXCEPT takeaway (same rule as the backend)
+    const rate = SVC_RATES.vat + (currentOrderType === 'takeaway' ? 0 : SVC_RATES.service);
+    return Math.round(netAfterDiscount * (rate / 100) * 100) / 100;
+}
+
+function coTaxPct() {
+    return SVC_RATES.vat + (currentOrderType === 'takeaway' ? 0 : SVC_RATES.service);
 }
 
 function updateCoNetTotal(baseTotal) {
@@ -1524,7 +1530,7 @@ function updateCoNetTotal(baseTotal) {
     const net = Math.max(0, baseTotal - disc);
     const tax = coTaxAmount(net);
     document.getElementById('coNetTotalDisplay').textContent = `${net.toFixed(2)} ج.م`;
-    document.getElementById('coTaxPct').textContent = `${(SVC_RATES.vat + SVC_RATES.service).toFixed(2)}`;
+    document.getElementById('coTaxPct').textContent = `${coTaxPct().toFixed(2)}`;
     document.getElementById('coTaxDisplay').textContent = `${tax.toFixed(2)} ج.م`;
     document.getElementById('coFinalTotalDisplay').textContent = `${(net + tax).toFixed(2)} ج.م`;
 }

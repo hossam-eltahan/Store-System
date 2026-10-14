@@ -244,14 +244,19 @@ try {
             $cafeOrders = getRows("SELECT * FROM orders WHERE gaming_session_id = ?", [$sessionId]);
             $cafeTotal = 0;
             $cafePaid = 0;
+            $cafeTaxIncluded = 0;
             foreach ($cafeOrders as $ord) {
                 $cafeTotal += floatval($ord['total_amount']);
+                $cafeTaxIncluded += floatval($ord['tax_amount'] ?? 0);
                 $orderPayment = getRow("SELECT COALESCE(SUM(amount), 0) AS total FROM payment_records WHERE source_type = 'order' AND source_id = ? AND payment_type = 'payment'", [$ord['id']]);
                 $cafePaid += (float)($orderPayment['total'] ?? 0);
             }
 
             $grandTotal = $timeCharge + $cafeTotal;
             $amountDue = max(0, $timeCharge + $cafeTotal - $cafePaid);
+            // VAT + hall service apply to the session bill, excluding tax already charged inside linked cafe orders
+            $taxPct = max(0, (float)getSetting('vat_rate', 0)) + max(0, (float)getSetting('service_charge', 0));
+            $previewTax = round(max(0, $amountDue - $cafeTaxIncluded) * ($taxPct / 100), 2);
 
             echo json_encode([
                 'success' => true,
@@ -264,7 +269,10 @@ try {
                 'cafe_total' => $cafeTotal,
                 'cafe_paid' => $cafePaid,
                 'amount_due' => $amountDue,
-                'grand_total' => $grandTotal
+                'grand_total' => $grandTotal,
+                'cafe_tax_included' => $cafeTaxIncluded,
+                'tax_pct' => $taxPct,
+                'tax_amount' => $previewTax
             ], JSON_UNESCAPED_UNICODE);
             break;
 
@@ -310,15 +318,17 @@ try {
             $gamingCharge = round(($billableMinutes / 60) * $hourlyRate, 2);
 
             // طلبات الكافيه المرتبطة
-            $cafeOrders = getRows("SELECT id, total_amount, paid_amount FROM orders WHERE gaming_session_id = ?", [$sessionId]);
+            $cafeOrders = getRows("SELECT id, total_amount, tax_amount, paid_amount, payment_status FROM orders WHERE gaming_session_id = ?", [$sessionId]);
             $cafeTotal = 0;
             $cafeDue = 0;
+            $cafeTaxIncluded = 0;
             foreach ($cafeOrders as $o) {
                 $orderTotal = (float)$o['total_amount'];
                 $orderPaid = ($o['payment_status'] ?? '') === 'paid'
                     ? $orderTotal
                     : min($orderTotal, max(0, (float)$o['paid_amount']));
                 $cafeTotal += $orderTotal;
+                $cafeTaxIncluded += (float)($o['tax_amount'] ?? 0);
                 $cafeDue += max(0, $orderTotal - $orderPaid);
                 if ($orderTotal > $orderPaid) {
                     execute("UPDATE orders SET payment_status = 'paid', status = 'completed', paid_amount = total_amount WHERE id = ?", [$o['id']]);
@@ -327,7 +337,12 @@ try {
 
             $discountAmount = min($discountAmount, $gamingCharge + $cafeDue);
 
-            $totalAmount = max(0, ($gamingCharge + $cafeDue) - $discountAmount);
+            // VAT + hall service on the untaxed remainder (time charge + due cafe amounts minus tax already inside cafe orders)
+            $taxPct = max(0, (float)getSetting('vat_rate', 0)) + max(0, (float)getSetting('service_charge', 0));
+            $taxBase = max(0, $gamingCharge + $cafeDue - $cafeTaxIncluded - $discountAmount);
+            $taxAmount = round($taxBase * ($taxPct / 100), 2);
+
+            $totalAmount = max(0, ($gamingCharge + $cafeDue) - $discountAmount + $taxAmount);
 
             // جلب الشيفت المفتوح الحالي
             $currentShift = getRow("SELECT id FROM shifts WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1", [getCurrentUserId()]);
@@ -341,6 +356,7 @@ try {
                     gaming_charge = ?,
                     cafe_orders_total = ?,
                     discount_amount = ?,
+                    tax_amount = ?,
                     total_amount = ?,
                     paid_amount = ?,
                     status = 'completed',
@@ -348,7 +364,7 @@ try {
                  WHERE id = ?",
                 [
                     $billableMinutes, $gamingCharge, $cafeTotal, $discountAmount,
-                    $totalAmount, $totalAmount, getCurrentUserId(), $sessionId
+                    $taxAmount, $totalAmount, $totalAmount, getCurrentUserId(), $sessionId
                 ]
             );
 

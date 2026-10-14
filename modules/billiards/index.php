@@ -569,10 +569,16 @@ async function openEndBilliardModal(sessionId) {
                 <div style="display:flex; justify-content:space-between; margin-top:6px; color:#059669; font-weight:800;">
                     <span>المطلوب بعد الخصم:</span><span id="endBilliardNetTotal">${parseFloat(data.amount_due).toFixed(2)} ج.م</span>
                 </div>
+                <div style="display:flex; justify-content:space-between; margin-top:4px; color:#475569;">
+                    <span>ضريبة + خدمة (${parseFloat(data.tax_pct).toFixed(2)}%):</span><span id="endBilliardTax">${parseFloat(data.tax_amount).toFixed(2)} ج.م</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:4px; font-weight:900; font-size:15px;">
+                    <span>المطلوب تحصيله:</span><span style="color:#059669;" id="endBilliardFinal">${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)} ج.م</span>
+                </div>
             </div>
                 <div style="margin-bottom:12px;">
                 <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">الخصم من المتبقي:</label>
-                <input type="number" id="billiardDiscInput" value="0" min="0" max="${parseFloat(data.amount_due)}" oninput="updateBilliardNet(${data.amount_due})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-weight:bold;">
+                <input type="number" id="billiardDiscInput" value="0" min="0" max="${parseFloat(data.amount_due)}" oninput="updateBilliardNet(${data.amount_due}, ${data.cafe_tax_included}, ${data.tax_pct})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-weight:bold;">
             </div>
             <div style="margin-bottom:14px;">
                 <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">طريقة الدفع:</label>
@@ -590,11 +596,15 @@ async function openEndBilliardModal(sessionId) {
     }
 }
 
-function updateBilliardNet(base) {
+function updateBilliardNet(base, cafeTax, taxPct) {
     const input = document.getElementById('billiardDiscInput');
     const disc = Math.min(base, Math.max(0, parseFloat(input.value) || 0));
     input.value = disc;
-    document.getElementById('endBilliardNetTotal').textContent = `${Math.max(0, base - disc).toFixed(2)} ج.م`;
+    const net = Math.max(0, base - disc);
+    const tax = Math.round(Math.max(0, net - (parseFloat(cafeTax) || 0)) * (parseFloat(taxPct) || 0)) / 100;
+    document.getElementById('endBilliardNetTotal').textContent = `${net.toFixed(2)} ج.م`;
+    document.getElementById('endBilliardTax').textContent = `${tax.toFixed(2)} ج.م`;
+    document.getElementById('endBilliardFinal').textContent = `${(net + tax).toFixed(2)} ج.م`;
 }
 
 async function submitEndBilliard() {

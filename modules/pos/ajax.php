@@ -194,7 +194,8 @@ try {
 
             $discountedSubtotal = max(0, $subtotal - $discountAmount);
             $vatRate = max(0, (float)getSetting('vat_rate', 0));
-            $serviceRate = max(0, (float)getSetting('service_charge', 0));
+            // Hall service applies to everything EXCEPT takeaway
+            $serviceRate = ($orderType === 'takeaway') ? 0 : max(0, (float)getSetting('service_charge', 0));
             $taxAmount = round($discountedSubtotal * (($vatRate + $serviceRate) / 100), 2);
             $totalAmount = $discountedSubtotal + $taxAmount;
 

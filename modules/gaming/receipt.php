@@ -359,6 +359,13 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
             <td class="text-left">-<?php echo number_format($discountAmount, 2); ?> ج.م</td>
         </tr>
         <?php endif; ?>
+        <?php $taxAmount = (float)($session['tax_amount'] ?? 0); ?>
+        <?php if ($taxAmount > 0): ?>
+        <tr>
+            <td>ضريبة + خدمة:</td>
+            <td class="text-left"><?php echo number_format($taxAmount, 2); ?> ج.م</td>
+        </tr>
+        <?php endif; ?>
         <?php
             $total = $sessionTotal > 0 ? $sessionTotal : ($gamingCharge + $cafeGrossTotal - $discountAmount);
             $grandDue = max(0, $total - $prepaidCafeTotal - $paidAtClose);
