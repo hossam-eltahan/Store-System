@@ -62,7 +62,7 @@ $storePhone = getSetting('store_phone', '');
 
     <div class="no-print">
         <button class="btn-print" onclick="window.print()">PRINT</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">CLOSE</button>
+        <button class="btn-print" style="background:#475569;" onclick="if(window.self===window.top){window.close();}else if(window.parent&&typeof window.parent.closeReceiptModal==='function'){window.parent.closeReceiptModal();}">CLOSE</button>
     </div>
 
     <div class="header">

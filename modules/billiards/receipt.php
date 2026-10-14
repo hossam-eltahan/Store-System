@@ -89,27 +89,157 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>إيصال بلياردو - <?php echo htmlspecialchars($session['table_name']); ?></title>
     <style>
-        @page { size: 80mm auto; margin: 0; }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Cairo', 'Courier New', monospace, sans-serif; -webkit-print-color-adjust: exact; }
-        body { width: 80mm; max-width: 80mm; margin: 0 auto; padding: 8px 10px; background: #fff; color: #000; font-size: 12px; line-height: 1.4; direction: rtl; }
+        @page {
+            size: 80mm auto;
+            margin: 0;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Cairo', 'Courier New', monospace, sans-serif;
+            -webkit-print-color-adjust: exact;
+        }
+        body {
+            width: 80mm;
+            max-width: 80mm;
+            margin: 0 auto;
+            padding: 8px 10px;
+            background: #fff;
+            color: #000;
+            font-size: 12px;
+            line-height: 1.4;
+            direction: rtl;
+        }
         .text-center { text-align: center; }
         .text-left { text-align: left; }
+        .text-right { text-align: right; }
         .fw-bold { font-weight: 700; }
-        .divider { border-top: 1px dashed #000; margin: 6px 0; }
-        .header { margin-bottom: 8px; text-align: center; }
-        .header h1 { font-size: 17px; font-weight: 900; margin-bottom: 3px; }
-        .header p { font-size: 11px; color: #222; }
-        .meta-table { width: 100%; font-size: 11px; margin-bottom: 6px; }
-        .meta-table td { padding: 2px 0; }
-        .items-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .items-table th { border-bottom: 1px solid #000; padding: 4px 2px; font-size: 11px; }
-        .items-table td { padding: 4px 2px; }
-        .totals-table { width: 100%; margin-top: 6px; font-size: 12px; }
-        .totals-table td { padding: 2px 0; }
-        .grand-total { font-size: 15px; font-weight: 900; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 0 !important; }
-        .no-print { background: #f1f5f9; padding: 10px; text-align: center; margin-bottom: 10px; }
-        .btn-print { background: #059669; color: #fff; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; }
-        @media print { .no-print { display: none !important; } body { padding: 0; } }
+        .divider {
+            border-top: 1px dashed #000;
+            margin: 6px 0;
+        }
+        .double-divider {
+            border-top: 2px solid #000;
+            margin: 6px 0;
+        }
+        .header {
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 17px;
+            font-weight: 900;
+            margin-bottom: 3px;
+        }
+        .header p {
+            font-size: 11px;
+            color: #222;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            background: #000;
+            color: #fff;
+            font-size: 12px;
+            font-weight: bold;
+            border-radius: 4px;
+            margin: 4px 0;
+        }
+        .meta-table {
+            width: 100%;
+            font-size: 11px;
+            margin-bottom: 6px;
+        }
+        .meta-table td {
+            padding: 2px 0;
+        }
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .items-table th {
+            border-bottom: 1px solid #000;
+            padding: 4px 2px;
+            font-size: 11px;
+        }
+        .items-table td {
+            padding: 4px 2px;
+            vertical-align: top;
+        }
+        .item-row {
+            border-bottom: 1px dotted #ccc;
+        }
+        .variant-tag {
+            font-size: 10.5px;
+            color: #444;
+            display: block;
+        }
+        .mod-tag {
+            font-size: 10px;
+            color: #555;
+            padding-right: 8px;
+            display: block;
+        }
+        .note-tag {
+            font-size: 10px;
+            font-style: italic;
+            color: #d32f2f;
+            display: block;
+        }
+        .totals-table {
+            width: 100%;
+            margin-top: 6px;
+            font-size: 12px;
+        }
+        .totals-table td {
+            padding: 2px 0;
+        }
+        .grand-total {
+            font-size: 15px;
+            font-weight: 900;
+            border-top: 1px solid #000;
+            border-bottom: 1px solid #000;
+            padding: 4px 0 !important;
+        }
+        .footer {
+            margin-top: 10px;
+            font-size: 10.5px;
+            text-align: center;
+        }
+        .order-separator {
+            text-align: center;
+            font-size: 10px;
+            color: #666;
+            margin: 4px 0;
+            border-top: 1px dotted #999;
+            padding-top: 3px;
+        }
+        .no-print {
+            background: #f1f5f9;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #cbd5e1;
+            margin-bottom: 10px;
+        }
+        .btn-print {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .btn-print:hover {
+            opacity: 0.9;
+        }
+        @media print {
+            .no-print { display: none !important; }
+            body { padding: 0; }
+        }
     </style>
 </head>
 <body>
