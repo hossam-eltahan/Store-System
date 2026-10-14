@@ -30,7 +30,8 @@ INSERT INTO `categories` (`id`, `name`, `icon`, `color`, `sort_order`) VALUES
 (15, 'سلطة فواكه', '🍓', '#4CAF50', 15),
 (16, 'آيس كريم', '🍦', '#00BCD4', 16),
 (17, 'صودا ومشروبات غازية', '🥤', '#3F51B5', 17),
-(18, 'إضافات وصوصات', '➕', '#607D8B', 18);
+(18, 'إضافات وصوصات', '➕', '#607D8B', 18),
+(19, 'خدمات وتسوية يدوية', '🧾', '#0ea5e9', 19);
 
 -- 2. إدخال الإضافات العامة (Modifiers)
 INSERT INTO `product_modifiers` (`id`, `name`, `modifier_group`, `price`, `is_available`, `applies_to_category_id`, `display_order`) VALUES
@@ -332,8 +333,8 @@ INSERT INTO `expense_categories` (`id`, `name`, `description`) VALUES
 
 SET FOREIGN_KEY_CHECKS = 1;
 
--- 8. تفعيل نافذة الإضافات لكل الأصناف + أصناف قسم الإضافات والصوصات (تباع منفصلة)
-UPDATE `products` SET `has_modifiers` = 1;
+-- 8. تفعيل نافذة الإضافات لكل الأصناف (ما عدا الخدمات) + أصناف قسم الإضافات والصوصات (تباع منفصلة)
+UPDATE `products` SET `has_modifiers` = 1 WHERE `is_service` = 0;
 INSERT INTO `products` (`category_id`, `code`, `name`, `price`, `has_modifiers`, `display_order`) VALUES
 (18, 'EXT-01', 'صوص بلوبيري', 25.00, 0, 1),
 (18, 'EXT-02', 'صوص فراولة', 25.00, 0, 2),
@@ -345,3 +346,10 @@ INSERT INTO `products` (`category_id`, `code`, `name`, `price`, `has_modifiers`,
 (18, 'EXT-08', 'حليب إضافي', 25.00, 0, 8),
 (18, 'EXT-09', 'شوت إسبريسو إضافي', 20.00, 0, 9),
 (18, 'EXT-10', 'ميكس صوص إضافي للوافل/البان كيك', 15.00, 0, 10);
+
+-- 9. خدمات التسوية اليدوية (أسعارها الابتدائية من الإعدادات وتتحدث مع كل حفظ للإعدادات)
+INSERT INTO `products` (`category_id`, `code`, `name`, `price`, `has_modifiers`, `is_service`, `display_order`) VALUES
+(19, 'SRV-PS-SINGLE', 'ساعة بلايستيشن فردي', 30.00, 0, 1, 1),
+(19, 'SRV-PS-MULTI', 'ساعة بلايستيشن زوجي', 40.00, 0, 1, 2),
+(19, 'SRV-BL-HOUR', 'ساعة بلياردو', 40.00, 0, 1, 3),
+(19, 'SRV-BL-GAME', 'جيم بلياردو', 10.00, 0, 1, 4);

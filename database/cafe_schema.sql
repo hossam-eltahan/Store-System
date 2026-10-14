@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS `products` (
     `is_available` TINYINT(1) NOT NULL DEFAULT 1,
     `has_variants` TINYINT(1) NOT NULL DEFAULT 0,
     `has_modifiers` TINYINT(1) NOT NULL DEFAULT 0,
+    `is_service` TINYINT(1) NOT NULL DEFAULT 0,
     `preparation_time_min` INT DEFAULT 5,
     `display_order` INT NOT NULL DEFAULT 0,
     `calories` INT DEFAULT NULL,

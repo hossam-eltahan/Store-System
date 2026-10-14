@@ -849,6 +849,42 @@ body {
     </div>
 </div>
 
+<!-- Modal: Manual Service Settlement (no timer/session) -->
+<div class="pos-modal-backdrop" id="serviceModal">
+    <div class="pos-modal" style="max-width: 380px;">
+        <div class="modal-header">
+            <div>
+                <h3 id="serviceModalTitle" style="font-size: 15px; font-weight: 800; color: #0f172a; margin: 0;">تسوية يدوية</h3>
+                <div id="serviceModalRate" style="font-size: 12px; color: var(--pos-primary); font-weight: 700;"></div>
+            </div>
+            <button type="button" onclick="closeServiceModal()" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b;">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="serviceMinutesBox">
+                <div class="options-group-title">المدة بالدقائق:</div>
+                <input type="number" id="serviceMinutesInput" value="60" min="1" step="1" oninput="updateServiceTotal()" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 15px; font-family: inherit; font-weight: 800;">
+                <div style="display: flex; gap: 6px; margin-top: 8px;">
+                    <button type="button" onclick="setServiceMinutes(30)" style="flex:1; padding: 7px; border-radius: 8px; border: 1px solid #e2e8f0; background: #f8fafc; font-weight: 700; font-size: 12px; cursor: pointer;">نص ساعة</button>
+                    <button type="button" onclick="setServiceMinutes(60)" style="flex:1; padding: 7px; border-radius: 8px; border: 1px solid #e2e8f0; background: #f8fafc; font-weight: 700; font-size: 12px; cursor: pointer;">ساعة</button>
+                    <button type="button" onclick="setServiceMinutes(120)" style="flex:1; padding: 7px; border-radius: 8px; border: 1px solid #e2e8f0; background: #f8fafc; font-weight: 700; font-size: 12px; cursor: pointer;">ساعتين</button>
+                </div>
+            </div>
+            <div id="serviceCountBox" style="display: none;">
+                <div class="options-group-title">عدد الأجيام:</div>
+                <input type="number" id="serviceCountInput" value="1" min="1" step="1" oninput="updateServiceTotal()" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 15px; font-family: inherit; font-weight: 800;">
+            </div>
+        </div>
+        <div style="padding: 12px 18px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 16px; font-weight: 900; color: var(--pos-primary);" id="serviceTotalCalculated">
+                0.00 ج.م
+            </div>
+            <button type="button" onclick="confirmServiceAdd()" style="background: var(--pos-primary); color: white; border: none; border-radius: 8px; padding: 10px 22px; font-weight: 800; cursor: pointer; font-size: 13.5px;">
+                إضافة للسلة
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Modal: Discount Input -->
 <div class="pos-modal-backdrop" id="discountModal">
     <div class="pos-modal" style="max-width: 340px;">
@@ -980,7 +1016,7 @@ function renderProductsGrid() {
             <div class="product-name">${escapeHtml(prod.name)}</div>
             <div class="product-footer">
                 <span class="product-price">${parseFloat(prod.price).toFixed(2)} ج.م</span>
-                ${prod.has_variants ? `<span class="variant-indicator">أحجام</span>` : (prod.has_modifiers ? `<span class="variant-indicator">إضافات</span>` : '')}
+                ${prod.is_service ? `<span class="variant-indicator">خدمة</span>` : (prod.has_variants ? `<span class="variant-indicator">أحجام</span>` : (prod.has_modifiers ? `<span class="variant-indicator">إضافات</span>` : ''))}
             </div>
         </div>
     `).join('');
@@ -1089,6 +1125,12 @@ async function onProductClick(productId) {
     const prod = products.find(p => p.id === productId);
     if (!prod) return;
 
+    // Manual service (settlement without timer/session) → duration/count modal
+    if (prod.is_service) {
+        openServiceModal(prod);
+        return;
+    }
+
     if (prod.has_variants || prod.has_modifiers) {
         // Open Variant/Modifier modal
         try {
@@ -1189,6 +1231,70 @@ document.getElementById('modalAddToCartBtn').addEventListener('click', () => {
     addToCart(activeProductModal, selectedVariant, [...selectedModifiers], note);
     closeVariantModal();
 });
+
+// Manual Service Settlement (per-game services are billed by count, hourly by minutes)
+let activeService = null;
+const SERVICE_BY_COUNT = ['SRV-BL-GAME'];
+
+function openServiceModal(prod) {
+    activeService = prod;
+    const byCount = SERVICE_BY_COUNT.includes(prod.code);
+    document.getElementById('serviceModalTitle').textContent = prod.name;
+    document.getElementById('serviceModalRate').textContent = byCount
+        ? `${parseFloat(prod.price).toFixed(2)} ج.م / جيم`
+        : `${parseFloat(prod.price).toFixed(2)} ج.م / ساعة`;
+    document.getElementById('serviceMinutesBox').style.display = byCount ? 'none' : 'block';
+    document.getElementById('serviceCountBox').style.display = byCount ? 'block' : 'none';
+    document.getElementById('serviceMinutesInput').value = 60;
+    document.getElementById('serviceCountInput').value = 1;
+    updateServiceTotal();
+    document.getElementById('serviceModal').style.display = 'flex';
+}
+
+function closeServiceModal() {
+    document.getElementById('serviceModal').style.display = 'none';
+    activeService = null;
+}
+
+function setServiceMinutes(mins) {
+    document.getElementById('serviceMinutesInput').value = mins;
+    updateServiceTotal();
+}
+
+function calcServiceTotal() {
+    if (!activeService) return { total: 0, qty: 1, note: '' };
+    const rate = parseFloat(activeService.price);
+    if (SERVICE_BY_COUNT.includes(activeService.code)) {
+        const count = Math.max(1, parseInt(document.getElementById('serviceCountInput').value) || 1);
+        return { total: rate * count, qty: count, unitPrice: rate, note: `${count} جيم` };
+    }
+    const minutes = Math.max(1, parseInt(document.getElementById('serviceMinutesInput').value) || 1);
+    const total = Math.round((rate / 60) * minutes * 100) / 100;
+    return { total, qty: 1, unitPrice: total, note: `${minutes} دقيقة` };
+}
+
+function updateServiceTotal() {
+    const { total } = calcServiceTotal();
+    document.getElementById('serviceTotalCalculated').textContent = `${total.toFixed(2)} ج.م`;
+}
+
+function confirmServiceAdd() {
+    if (!activeService) return;
+    const { qty, unitPrice, note } = calcServiceTotal();
+    cart.push({
+        itemKey: `${activeService.id}_svc_${Date.now()}`,
+        product_id: activeService.id,
+        product_name: activeService.name,
+        variant_id: null,
+        variant_name: null,
+        unit_price: unitPrice,
+        quantity: qty,
+        modifiers: [],
+        notes: note
+    });
+    closeServiceModal();
+    renderCart();
+}
 
 // Add Item To Cart
 function addToCart(product, variant, modifiers, note) {
