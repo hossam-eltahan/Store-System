@@ -4,7 +4,7 @@
 
 #define MyAppName "Store System"
 #define MyAppNameAr "نظام إدارة المحل"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "Store System Inc."
 #define MyAppExeName "StoreSystem.vbs"
 

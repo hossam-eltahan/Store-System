@@ -127,7 +127,7 @@ REM ====================================================
 REM 7. Verify Database tables exist and are accessible
 REM ====================================================
 if !MYSQL_READY!==1 (
-    "%MYSQL_DIR%\bin\mysql.exe" --host=127.0.0.1 --port=%MYSQL_PORT% -u root -e "SELECT id FROM store_management.users LIMIT 1;" >nul 2>&1
+    "%MYSQL_DIR%\bin\mysql.exe" --host=127.0.0.1 --port=%MYSQL_PORT% -u root -e "SELECT id FROM cafe_management.users LIMIT 1;" >nul 2>&1
     if errorlevel 1 (
         call "%SCRIPTS_DIR%\init_db.bat" %MYSQL_PORT%
     )
