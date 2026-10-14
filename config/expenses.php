@@ -15,7 +15,7 @@ if (!function_exists('getRow')) {
  */
 function getExpenseCategories($activeOnly = true) {
     $where = $activeOnly ? "WHERE is_active = 1" : "";
-    return getRows("SELECT * FROM expense_categories {$where} ORDER BY sort_order ASC, name ASC");
+    return getRows("SELECT * FROM expense_categories {$where} ORDER BY name ASC");
 }
 
 /**
@@ -23,15 +23,9 @@ function getExpenseCategories($activeOnly = true) {
  * @return string
  */
 function generateExpenseNumber() {
-    $lastExpense = getRow("SELECT expense_number FROM expenses ORDER BY id DESC LIMIT 1");
-    if ($lastExpense && !empty($lastExpense['expense_number'])) {
-        // Extract numeric portion
-        $numPart = preg_replace('/[^0-9]/', '', $lastExpense['expense_number']);
-        $nextNum = intval($numPart) + 1;
-    } else {
-        $nextNum = 1;
-    }
-    return 'EXP-' . str_pad($nextNum, 5, '0', STR_PAD_LEFT);
+    // No expense_number column exists — derive the next number from MAX(id)
+    $last = getRow("SELECT COALESCE(MAX(id), 0) as max_id FROM expenses");
+    return 'EXP-' . str_pad(((int)($last['max_id'] ?? 0)) + 1, 5, '0', STR_PAD_LEFT);
 }
 
 /**
@@ -47,14 +41,14 @@ function getTotalExpenses($dateFrom = null, $dateTo = null, $categoryId = null, 
     $params = [];
 
     if ($dateFrom && $dateTo) {
-        $conditions[] = "expense_date BETWEEN ? AND ?";
+        $conditions[] = "date BETWEEN ? AND ?";
         $params[] = $dateFrom;
         $params[] = $dateTo;
     } elseif ($dateFrom) {
-        $conditions[] = "expense_date >= ?";
+        $conditions[] = "date >= ?";
         $params[] = $dateFrom;
     } elseif ($dateTo) {
-        $conditions[] = "expense_date <= ?";
+        $conditions[] = "date <= ?";
         $params[] = $dateTo;
     }
 
@@ -63,10 +57,7 @@ function getTotalExpenses($dateFrom = null, $dateTo = null, $categoryId = null, 
         $params[] = $categoryId;
     }
 
-    if ($payMethod) {
-        $conditions[] = "payment_method = ?";
-        $params[] = $payMethod;
-    }
+    // NOTE: expenses has no payment_method column — $payMethod is accepted for BC and ignored.
 
     $where = implode(" AND ", $conditions);
     $row = getRow("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE {$where}", $params);
@@ -84,7 +75,7 @@ function getExpensesSummaryByCategory($dateFrom = null, $dateTo = null) {
     $params = [];
 
     if ($dateFrom && $dateTo) {
-        $conditions[] = "e.expense_date BETWEEN ? AND ?";
+        $conditions[] = "e.date BETWEEN ? AND ?";
         $params[] = $dateFrom;
         $params[] = $dateTo;
     }
@@ -94,13 +85,13 @@ function getExpensesSummaryByCategory($dateFrom = null, $dateTo = null) {
         SELECT 
             COALESCE(c.id, 0) as category_id,
             COALESCE(c.name, 'غير مصنف') as category_name,
-            COALESCE(c.icon, '💸') as category_icon,
+            '💸' as category_icon,
             COUNT(e.id) as count_items,
             COALESCE(SUM(e.amount), 0) as total_amount
         FROM expenses e
         LEFT JOIN expense_categories c ON e.category_id = c.id
         WHERE {$where}
-        GROUP BY c.id, c.name, c.icon
+        GROUP BY c.id, c.name
         ORDER BY total_amount DESC
     ", $params);
 }

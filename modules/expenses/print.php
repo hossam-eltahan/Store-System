@@ -14,9 +14,10 @@ requireAnyPermission(['expenses.view', 'expenses.add', 'expenses.edit']);
 $id = intval($_GET['id'] ?? 0);
 
 $expense = getRow("
-    SELECT e.*, c.name as category_name, c.icon as category_icon
+    SELECT e.*, c.name as category_name, u.full_name as recorded_by
     FROM expenses e
     LEFT JOIN expense_categories c ON e.category_id = c.id
+    LEFT JOIN users u ON e.user_id = u.id
     WHERE e.id = ?
 ", [$id]);
 
@@ -32,7 +33,7 @@ $storePhone2 = $settings['store_phone2'] ?? '';
 $storeLogo = $settings['store_logo'] ?? '';
 $currency = $settings['currency'] ?? 'جنيه';
 
-$pageTitle = 'سند صرف مصروف رقم ' . $expense['expense_number'];
+$pageTitle = 'سند صرف مصروف رقم EXP-' . str_pad($expense['id'], 5, '0', STR_PAD_LEFT);
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -157,17 +158,17 @@ $pageTitle = 'سند صرف مصروف رقم ' . $expense['expense_number'];
     <!-- Title Badge -->
     <div class="voucher-badge">
         <span>سند صرف نقدية / مصروفات</span>
-        <span style="font-family: monospace; font-size: 15px;"><?php echo htmlspecialchars($expense['expense_number']); ?></span>
+        <span style="font-family: monospace; font-size: 15px;">EXP-<?php echo str_pad($expense['id'], 5, '0', STR_PAD_LEFT); ?></span>
     </div>
 
     <!-- Details Table -->
     <table class="data-table">
         <tr>
             <td class="label">تاريخ الصرف:</td>
-            <td class="val" style="font-weight: 700;"><?php echo date('Y-m-d', strtotime($expense['expense_date'])); ?></td>
+            <td class="val" style="font-weight: 700;"><?php echo date('Y-m-d', strtotime($expense['date'])); ?></td>
             <td class="label">بند المصروف:</td>
             <td class="val">
-                <?php echo $expense['category_icon'] ?: '💸'; ?>
+                💸
                 <strong><?php echo htmlspecialchars($expense['category_name'] ?: 'مصروف عام'); ?></strong>
             </td>
         </tr>
@@ -180,21 +181,9 @@ $pageTitle = 'سند صرف مصروف رقم ' . $expense['expense_number'];
         <tr>
             <td class="label">وذلك عن (البيان):</td>
             <td class="val" colspan="3" style="font-size: 13px; font-weight: 600; color: #1e3a8a;">
-                <?php echo htmlspecialchars($expense['title']); ?>
+                <?php echo htmlspecialchars($expense['description'] ?: '—'); ?>
             </td>
         </tr>
-        <tr>
-            <td class="label">طريقة الدفع:</td>
-            <td class="val"><?php echo htmlspecialchars($expense['payment_method']); ?></td>
-            <td class="label">رقم الإيصال الورقي:</td>
-            <td class="val"><?php echo htmlspecialchars($expense['receipt_number'] ?: '—'); ?></td>
-        </tr>
-        <?php if (!empty($expense['notes'])): ?>
-        <tr>
-            <td class="label">ملاحظات:</td>
-            <td class="val" colspan="3"><?php echo nl2br(htmlspecialchars($expense['notes'])); ?></td>
-        </tr>
-        <?php endif; ?>
     </table>
 
     <!-- Amount Highlight Box -->
@@ -219,7 +208,7 @@ $pageTitle = 'سند صرف مصروف رقم ' . $expense['expense_number'];
         <div class="sig-box">
             <span>المحاسب / أمين الخزينة</span>
             <div class="sig-line"></div>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;"><?php echo htmlspecialchars($expense['handled_by'] ?: 'المسؤول'); ?></div>
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;"><?php echo htmlspecialchars($expense['recorded_by'] ?: 'المسؤول'); ?></div>
         </div>
         <div class="sig-box">
             <span>اعتماد الإدارة</span>

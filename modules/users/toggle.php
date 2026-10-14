@@ -34,9 +34,9 @@ if ($user['role'] === 'admin' && $user['is_active']) {
 $newStatus = $user['is_active'] ? 0 : 1;
 execute("UPDATE users SET is_active = ? WHERE id = ?", [$newStatus, $userId]);
 
-// If deactivating, invalidate their sessions
+// If deactivating, invalidate their sessions (delete rows — user_sessions has no status columns)
 if (!$newStatus) {
-    execute("UPDATE user_sessions SET is_active = 0, logout_at = NOW() WHERE user_id = ? AND is_active = 1", [$userId]);
+    execute("DELETE FROM user_sessions WHERE user_id = ?", [$userId]);
 }
 
 $action = $newStatus ? 'تفعيل' : 'تعطيل';

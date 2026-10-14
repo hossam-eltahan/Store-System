@@ -30,8 +30,8 @@ function getNotifications() {
         }
     }
     
-    // 2. Today's due installments (only if installments.view)
-    if (hasPermission('installments.view')) {
+    // 2. Today's due installments (legacy store module — skip if tables don't exist)
+    if (hasPermission('installments.view') && tableExists('installment_payments') && tableExists('installment_plans')) {
         $dueInstallments = getRows("
             SELECT ipy.*, ip.entity_name, ip.type, ip.id as plan_id
             FROM installment_payments ipy
@@ -71,8 +71,8 @@ function getNotifications() {
         }
     }
     
-    // 4. Tomorrow's suppliers (only if suppliers.view)
-    if (hasPermission('suppliers.view')) {
+    // 4. Tomorrow's suppliers (legacy store module — skip if column doesn't exist)
+    if (hasPermission('suppliers.view') && columnExists('suppliers', 'visit_days')) {
         $tomorrowDay = getTomorrowDayName();
         $tomorrowSuppliers = getRows("SELECT id, name, phone, expected_products FROM suppliers WHERE visit_days LIKE ?", ["%$tomorrowDay%"]);
         foreach ($tomorrowSuppliers as $supplier) {
@@ -153,12 +153,12 @@ function getNotificationCount() {
         $lowStock = getRow("SELECT COUNT(*) as count FROM products WHERE stock_quantity <= min_stock_level");
         $count += ($lowStock['count'] ?? 0);
     }
-    if (hasPermission('installments.view')) {
+    if (hasPermission('installments.view') && tableExists('installment_payments')) {
         $dueToday = getRow("SELECT COUNT(*) as count FROM installment_payments WHERE due_date = CURDATE() AND status = 'pending'");
         $overdue = getRow("SELECT COUNT(*) as count FROM installment_payments WHERE status = 'overdue'");
         $count += ($dueToday['count'] ?? 0) + ($overdue['count'] ?? 0);
     }
-    if (hasPermission('suppliers.view')) {
+    if (hasPermission('suppliers.view') && columnExists('suppliers', 'visit_days')) {
         $tomorrowDay = getTomorrowDayName();
         $tomorrowSuppliers = getRow("SELECT COUNT(*) as count FROM suppliers WHERE visit_days LIKE ?", ["%$tomorrowDay%"]);
         $count += ($tomorrowSuppliers['count'] ?? 0);

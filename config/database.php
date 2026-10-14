@@ -97,6 +97,32 @@ function execute($sql, $params = []) {
 }
 
 /**
+ * Check if a table exists in the current database (cached per request).
+ * Used to skip legacy queries when optional tables were never created.
+ */
+function tableExists($table) {
+    static $cache = [];
+    if (!array_key_exists($table, $cache)) {
+        $r = getRow("SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", [$table]);
+        $cache[$table] = (bool)$r;
+    }
+    return $cache[$table];
+}
+
+/**
+ * Check if a column exists on a table (cached per request).
+ */
+function columnExists($table, $column) {
+    static $cache = [];
+    $key = $table . '.' . $column;
+    if (!array_key_exists($key, $cache)) {
+        $r = getRow("SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?", [$table, $column]);
+        $cache[$key] = (bool)$r;
+    }
+    return $cache[$key];
+}
+
+/**
  * Begin transaction
  */
 function beginTransaction() {

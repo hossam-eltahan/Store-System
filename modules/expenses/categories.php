@@ -49,9 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Create or Update
     $name = sanitize(trim($_POST['name'] ?? ''));
-    $icon = sanitize(trim($_POST['icon'] ?? '💸'));
     $description = sanitize(trim($_POST['description'] ?? ''));
-    $sortOrder = intval($_POST['sort_order'] ?? 0);
     $isActive = isset($_POST['is_active']) ? 1 : 0;
 
     if (empty($name)) {
@@ -66,18 +64,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'update') {
             execute("
                 UPDATE expense_categories 
-                SET name = ?, icon = ?, description = ?, sort_order = ?, is_active = ?
+                SET name = ?, description = ?, is_active = ?
                 WHERE id = ?
-            ", [$name, $icon, $description, $sortOrder, $isActive, $categoryId]);
+            ", [$name, $description, $isActive, $categoryId]);
 
             logActivity('تعديل بند مصروف', "تم تعديل بند المصروف: $name");
             setSuccess('تم تحديث بيانات البند بنجاح.');
             redirect('categories.php');
         } else {
             insert("
-                INSERT INTO expense_categories (name, icon, description, sort_order, is_active)
-                VALUES (?, ?, ?, ?, ?)
-            ", [$name, $icon, $description, $sortOrder, $isActive]);
+                INSERT INTO expense_categories (name, description, is_active)
+                VALUES (?, ?, ?)
+            ", [$name, $description, $isActive]);
 
             logActivity('إضافة بند مصروف', "تمت إضافة بند مصروف جديد: $name");
             setSuccess('تمت إضافة بند المصروف الجديد بنجاح.');
@@ -94,7 +92,7 @@ $categories = getRows("
     FROM expense_categories c
     LEFT JOIN expenses e ON c.id = e.category_id
     GROUP BY c.id
-    ORDER BY c.sort_order ASC, c.name ASC
+    ORDER BY c.name ASC
 ");
 
 include '../../includes/header.php';
@@ -133,21 +131,6 @@ include '../../includes/navbar.php';
                         <input type="text" name="name" class="form-control" required 
                                value="<?php echo htmlspecialchars($editingCategory['name'] ?? ''); ?>"
                                placeholder="مثال: فاتورة الإنترنت، صيانة أجهزة، إكراميات...">
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label">الأيقونة التعبيرية</label>
-                            <input type="text" name="icon" class="form-control" 
-                                   value="<?php echo htmlspecialchars($editingCategory['icon'] ?? '💸'); ?>"
-                                   placeholder="مثال: ⚡ أو 🏢 أو 👥">
-                        </div>
-
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label">الترتيب في القائمة</label>
-                            <input type="number" name="sort_order" class="form-control" 
-                                   value="<?php echo intval($editingCategory['sort_order'] ?? 10); ?>">
-                        </div>
                     </div>
 
                     <div class="form-group">
@@ -205,7 +188,7 @@ include '../../includes/navbar.php';
                             <?php foreach ($categories as $c): ?>
                             <tr>
                                 <td style="text-align: center; font-size: 1.3rem;">
-                                    <?php echo $c['icon'] ?: '💸'; ?>
+                                    💸
                                 </td>
                                 <td>
                                     <strong><?php echo htmlspecialchars($c['name']); ?></strong>

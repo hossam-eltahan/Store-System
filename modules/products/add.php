@@ -106,13 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
-                // Add to warehouse_stock table for compatibility
-                insert("
-                    INSERT INTO warehouse_stock (warehouse_id, product_id, quantity, min_stock_level)
-                    VALUES (1, ?, 999, 5)
-                    ON DUPLICATE KEY UPDATE quantity = 999
-                ", [$productId]);
-
+                // Products carry their own stock_quantity — no warehouse_stock table in this setup
                 logActivity('إضافة صنف', "تم إضافة صنف جديد للمنيو: $name (كود: $code)");
                 setSuccess('تم إضافة الصنف للمنيو بنجاح!');
                 redirect('index.php');

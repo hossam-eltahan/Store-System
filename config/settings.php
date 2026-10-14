@@ -164,16 +164,13 @@ function hasError() {
     return isset($_SESSION['error']) && !empty($_SESSION['error']);
 }
 
-// Log activity
+// Log activity (activity_log has no username column — actor is tracked via user_id)
 function logActivity($action, $description, $user = null) {
-    if ($user === null) {
-        $user = (isset($_SESSION['full_name']) && !empty($_SESSION['full_name'])) ? $_SESSION['full_name'] : 'النظام';
-    }
     $userId = $_SESSION['user_id'] ?? null;
     $ip = $_SERVER['REMOTE_ADDR'] ?? '';
     return insert(
-        "INSERT INTO activity_log (user_id, action, description, user, ip_address) VALUES (?, ?, ?, ?, ?)",
-        [$userId, $action, $description, $user, $ip]
+        "INSERT INTO activity_log (user_id, action, description, ip_address) VALUES (?, ?, ?, ?)",
+        [$userId, $action, $description, $ip]
     );
 }
 

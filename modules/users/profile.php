@@ -72,8 +72,8 @@ $user = getRow("SELECT * FROM users WHERE id = ?", [$userId]);
 
 // Get recent activity
 $recentActivity = getRows(
-    "SELECT * FROM activity_log WHERE user_id = ? OR user = ? ORDER BY created_at DESC LIMIT 10",
-    [$userId, $user['full_name']]
+    "SELECT * FROM activity_log WHERE user_id = ? ORDER BY created_at DESC LIMIT 10",
+    [$userId]
 );
 
 include '../../includes/header.php';

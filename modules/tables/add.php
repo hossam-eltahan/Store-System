@@ -13,7 +13,25 @@ $pageTitle = 'إضافة طاولة جديدة';
 
 $sections = ['main_hall', 'outdoor'];
 
+// Auto-generate the next table number (T-01, T-02, ...) — always unique
+function generateCafeTableNumber() {
+    $max = 0;
+    $rows = getRows("SELECT table_number FROM cafe_tables");
+    foreach ($rows as $r) {
+        if (preg_match('/(\d+)\s*$/', $r['table_number'] ?? '', $m)) {
+            $max = max($max, (int)$m[1]);
+        }
+    }
+    do {
+        $max++;
+        $candidate = 'T-' . str_pad($max, 2, '0', STR_PAD_LEFT);
+        $exists = getRow("SELECT id FROM cafe_tables WHERE table_number = ?", [$candidate]);
+    } while ($exists);
+    return $candidate;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $table_number = generateCafeTableNumber();
     $display_name = sanitize(trim($_POST['display_name'] ?? ''));
     $section = sanitize(trim($_POST['section'] ?? 'main_hall'));
     $capacity = max(1, intval($_POST['capacity'] ?? 4));
@@ -33,9 +51,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setError('اسم الطاولة مسجل مسبقاً في نفس القسم');
         } else {
             $tableId = insert(
-                "INSERT INTO cafe_tables (display_name, section, capacity, display_order, status, is_active)
-                 VALUES (?, ?, ?, ?, 'available', ?)",
-                [$display_name, $section, $capacity, $display_order, $is_active]
+                "INSERT INTO cafe_tables (table_number, display_name, section, capacity, display_order, status, is_active)
+                 VALUES (?, ?, ?, ?, ?, 'available', ?)",
+                [$table_number, $display_name, $section, $capacity, $display_order, $is_active]
             );
 
             if ($tableId) {

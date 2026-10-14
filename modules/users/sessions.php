@@ -23,11 +23,11 @@ if ($filterUser) {
 }
 
 $sessions = getRows(
-    "SELECT s.*, u.full_name, u.username, u.role, u.avatar 
+    "SELECT s.*, u.full_name, u.username, u.role
      FROM user_sessions s 
      JOIN users u ON s.user_id = u.id 
      $where
-     ORDER BY s.login_at DESC 
+     ORDER BY s.created_at DESC 
      LIMIT 100",
     $params
 );
@@ -103,11 +103,11 @@ include '../../includes/navbar.php';
                                 <?php echo $session['role'] === 'admin' ? '<span style="color: #f59e0b;">👑 مدير</span>' : '<span style="color: #3b82f6;">👤 موظف</span>'; ?>
                             </td>
                             <td style="font-size: 0.85em;">
-                                <?php echo date('Y/m/d h:i:s A', strtotime($session['login_at'])); ?>
+                                <?php echo date('Y/m/d h:i:s A', strtotime($session['created_at'])); ?>
                             </td>
                             <td style="font-size: 0.85em;">
-                                <?php if ($session['logout_at']): ?>
-                                    <?php echo date('Y/m/d h:i:s A', strtotime($session['logout_at'])); ?>
+                                <?php if (!empty($session['expires_at'])): ?>
+                                    <?php echo date('Y/m/d h:i:s A', strtotime($session['expires_at'])); ?>
                                 <?php else: ?>
                                     <span style="color: #6b7280;">-</span>
                                 <?php endif; ?>
@@ -116,7 +116,7 @@ include '../../includes/navbar.php';
                                 <?php echo htmlspecialchars($session['ip_address'] ?? '-'); ?>
                             </td>
                             <td>
-                                <?php if ($session['is_active']): ?>
+                                <?php if (!empty($session['expires_at']) && strtotime($session['expires_at']) > time()): ?>
                                     <span style="color: #10b981; font-weight: 600; font-size: 0.85em;">🟢 نشطة</span>
                                 <?php else: ?>
                                     <span style="color: #6b7280; font-size: 0.85em;">⚫ منتهية</span>
