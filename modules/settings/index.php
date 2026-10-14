@@ -106,22 +106,34 @@ $settings = getAllSettings();
 include '../../includes/header.php';
 include '../../includes/navbar.php';
 ?>
-
 <style>
-.card-header { padding: 12px 18px !important; font-size: 0.95em !important; }
-.form-group { margin-bottom: 12px !important; }
-.form-label { font-size: 0.88em !important; margin-bottom: 5px !important; }
-.remove-logo-label input[type="checkbox"]:checked + .btn {
-    background: #16a34a;
-}
-.remove-logo-label input[type="checkbox"]:checked + .btn::before {
-    content: '✓ ';
-}
+.set-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.set-head h1 { margin: 0; font-size: 1.05rem; font-weight: 800; }
+.set-grid { display: grid; grid-template-columns: minmax(0,1fr) 290px; gap: 12px; align-items: start; }
+@media (max-width: 920px) { .set-grid { grid-template-columns: 1fr; } }
+.set-card { border-radius: 10px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.04); margin-bottom: 12px; }
+.set-card .card-header { padding: 8px 14px !important; font-size: 0.85em !important; font-weight: 800; }
+.set-card .card-body { padding: 12px 14px !important; }
+.sec { background: #f8fafc; padding: 10px 12px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 10px; }
+.sec h3 { font-size: 13px !important; font-weight: 800; margin: 0 0 8px 0 !important; }
+.sec .form-group { margin-bottom: 8px !important; }
+.sec .form-label { font-size: 0.8em !important; margin-bottom: 3px !important; font-weight: 700; }
+.sec .form-control, .sec select.form-control, .sec input.form-control { padding: 5px 9px !important; font-size: 0.85em !important; height: auto !important; }
+.f2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 560px) { .f2 { grid-template-columns: 1fr; } }
+.chk2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+.chk2 label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.8em; }
+.save-row { display: flex; gap: 8px; flex-wrap: wrap; position: sticky; bottom: 0; background: #f8fafc; padding: 10px 12px; border-radius: 8px; border: 1px solid #e2e8f0; }
+.save-row .btn { font-weight: 800; padding: 8px 16px; border-radius: 8px; font-size: 0.85em; }
+.lic-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 14px; margin-bottom: 12px; font-size: 0.82em; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }
+.lic-strip details { font-size: 0.85em; }
+.lic-strip summary { cursor: pointer; color: #7c3aed; font-weight: 700; }
+.remove-logo-label input[type="checkbox"]:checked + .btn { background: #16a34a; }
+.remove-logo-label input[type="checkbox"]:checked + .btn::before { content: '✓ '; }
 </style>
 
 <div class="container">
 
-<!-- License & Subscription Details Card -->
 <?php
 require_once __DIR__ . '/../../config/license.php';
 $licInfo = function_exists('getFullLicenseInfo') ? getFullLicenseInfo() : (function_exists('getLicenseDetails') ? getLicenseDetails() : []);
@@ -134,7 +146,6 @@ $hwid = $licInfo['hwid'] ?? (function_exists('getMachineFingerprint') ? getMachi
 $code = $licInfo['code'] ?? '';
 $daysLeft = (int)($licInfo['days_left'] ?? 0);
 $minsLeft = (int)($licInfo['mins_left'] ?? 0);
-$activatedDate = !empty($licInfo['activated_at']) ? (is_numeric($licInfo['activated_at']) ? date('Y-m-d H:i', $licInfo['activated_at']) : $licInfo['activated_at']) : 'غير مسجل';
 $rawExp = $licInfo['expires_at'] ?? '';
 if (is_numeric($rawExp) && $rawExp > 0) {
     $expiryDate = date('Y-m-d H:i:s', $rawExp);
@@ -151,334 +162,209 @@ $statusBadgeBorder = $isLife ? '#a7f3d0' : ($isDev ? '#bfdbfe' : ($licStatus ===
 $statusText = $isLife ? '💎 ترخيص دائم مدى الحياة' : ($isDev ? '🛠️ وضع المطور' : ($licStatus === 'valid' ? ($isTest ? '🧪 فترة اختبار (' . $minsLeft . ' دقيقة)' : ($isTrial ? '🎁 نسخة تجريبية (' . $daysLeft . ' يوم)' : '✅ اشتراك نشط وساري')) : '❌ منتهي الصلاحية'));
 ?>
 
-<div class="card" style="margin-bottom: 20px; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
-    <div class="card-header" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: white; display: flex; align-items: center; justify-content: space-between; padding: 12px 18px;">
-        <div style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1rem;">
-            <span style="font-size: 18px;">🛡️</span>
-            <span>بيانات ترخيص النظام والاشتراك</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="background: <?php echo $statusBadgeBg; ?>; color: <?php echo $statusBadgeColor; ?>; border: 1px solid <?php echo $statusBadgeBorder; ?>; padding: 4px 12px; border-radius: 20px; font-size: 11.5px; font-weight: 700;">
-                <?php echo $statusText; ?>
-            </span>
-            <a href="<?php echo BASE_URL; ?>activate.php" class="btn btn-sm" style="background: linear-gradient(135deg, #7c3aed, #6d28d9); color: white; border: none; font-size: 11.5px; font-weight: 700; padding: 5px 14px; border-radius: 6px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(124,58,237,0.3);">
-                <span>🔑</span> تجديد الاشتراك / إدخال كود جديد
-            </a>
-        </div>
-    </div>
-    <div class="card-body" style="background: #ffffff; padding: 18px;">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
-            <!-- Box 1: HWID -->
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
-                <div style="font-size: 11px; color: #64748b; margin-bottom: 5px; font-weight: 600;">معرف الجهاز الخاص بك (Hardware ID):</div>
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-                    <code style="font-family: monospace; font-size: 13px; font-weight: 700; color: #0f172a; background: #e2e8f0; padding: 4px 8px; border-radius: 4px;"><?php echo htmlspecialchars($hwid); ?></code>
-                    <button type="button" onclick="navigator.clipboard.writeText('<?php echo htmlspecialchars($hwid); ?>'); alert('تم نسخ معرف الجهاز بنجاح!');" class="btn btn-sm" style="background: #e2e8f0; color: #334155; padding: 3px 8px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer;" title="نسخ المعرف">
-                        📋 نسخ
-                    </button>
-                </div>
-            </div>
-
-            <!-- Box 2: Duration & Status -->
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
-                <div style="font-size: 11px; color: #64748b; margin-bottom: 5px; font-weight: 600;">نوع ومدة الاشتراك:</div>
-                <div style="font-size: 13.5px; font-weight: 700; color: #1e293b;">
-                    <?php echo htmlspecialchars($durationLabel); ?>
-                </div>
-            </div>
-
-            <!-- Box 3: Expiry Date -->
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
-                <div style="font-size: 11px; color: #64748b; margin-bottom: 5px; font-weight: 600;">موعد التجديد القادم:</div>
-                <div style="font-size: 13.5px; font-weight: 700; color: <?php echo ($daysLeft <= 7 && !$isLife) ? '#dc2626' : '#059669'; ?>;">
-                    <?php echo htmlspecialchars($expiryDate); ?>
-                    <?php if (!$isLife && $daysLeft > 0): ?>
-                        <span style="font-size: 11px; font-weight: normal; color: #64748b;">(متبقي <?php echo $daysLeft; ?> يوم)</span>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <!-- Box 4: Current Code -->
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
-                <div style="font-size: 11px; color: #64748b; margin-bottom: 5px; font-weight: 600;">كود التفعيل المسجل:</div>
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-                    <code style="font-family: monospace; font-size: 11px; color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;"><?php echo htmlspecialchars($code ?: 'غير متوفر'); ?></code>
-                    <?php if (!empty($code)): ?>
-                    <button type="button" onclick="navigator.clipboard.writeText('<?php echo htmlspecialchars($code); ?>'); alert('تم نسخ كود التفعيل!');" class="btn btn-sm" style="background: #e2e8f0; color: #334155; padding: 3px 8px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer;" title="نسخ الكود">
-                        📋 نسخ
-                    </button>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </div>
-
-        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e2e8f0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-            <div style="font-size: 12px; color: #64748b;">
-                💡 لتجديد الاشتراك أو ترقية نسختك، يمكنك التواصل مع الدعم الفني وإرسال معرف جهازك لإصدار كود التجديد فوراً.
-            </div>
-            <div style="display: flex; gap: 8px;">
-                <a href="https://wa.me/201271191616?text=<?php echo urlencode("مرحباً، أود تجديد اشتراك نظام إدارة الأجهزة.\nمعرف جهازي: " . $hwid); ?>" target="_blank" class="btn btn-sm" style="background: #25d366; color: white; font-weight: 700; text-decoration: none; padding: 6px 14px; font-size: 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(37,211,102,0.25);">
-                    <span>💬</span> تواصل لتجديد الاشتراك (واتساب)
-                </a>
-                <a href="<?php echo BASE_URL; ?>activate.php" class="btn btn-sm" style="background: #7c3aed; color: white; font-weight: 700; text-decoration: none; padding: 6px 14px; font-size: 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(124,58,237,0.25);">
-                    <span>🔑</span> شاشة إدخال كود التفعيل
-                </a>
-            </div>
-        </div>
-    </div>
-</div>
-    <div class="card" style="border-radius: 12px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.04); margin-bottom: 25px;">
-        <div class="card-header" style="background: linear-gradient(135deg, #ea580c, #c2410c); color: white; padding: 14px 20px; font-weight: 800; font-size: 1.05rem; display: flex; justify-content: space-between; align-items: center;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span>⚙️</span> إعدادات كافيه وصالة ألعاب عروسة النيل
-            </div>
-            <a href="../../index.php" style="background: rgba(255,255,255,0.2); color: white; text-decoration: none; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">
-                🔙 الرئيسية
-            </a>
-        </div>
-        <div class="card-body" style="padding: 20px;">
-            <form method="POST" enctype="multipart/form-data">
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
-                    
-                    <!-- 1. معلومات الكافيه الأساسية -->
-                    <div style="background: #f8fafc; padding: 18px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                        <h3 style="color: #ea580c; font-size: 15px; font-weight: 800; margin: 0 0 12px 0;">☕ معلومات الكافيه والشعار</h3>
-                        
-                        <div class="form-group mb-3">
-                            <label class="form-label" style="font-weight: 700;">اسم الكافيه / المحل *</label>
-                            <input type="text" name="store_name" class="form-control" 
-                                   value="<?php echo htmlspecialchars($settings['store_name'] ?? ''); ?>" required>
-                        </div>
-                        
-                        <div class="form-group mb-3">
-                            <label class="form-label" style="font-weight: 700;">العنوان</label>
-                            <input type="text" name="store_address" class="form-control" 
-                                   value="<?php echo htmlspecialchars($settings['store_address'] ?? ''); ?>">
-                        </div>
-                        
-                        <div class="form-group mb-3">
-                            <label class="form-label" style="font-weight: 700;">رقم الهاتف الرئيسي</label>
-                            <input type="text" name="store_phone" class="form-control" 
-                                   value="<?php echo htmlspecialchars($settings['store_phone'] ?? ''); ?>">
-                        </div>
-                        
-                        <div class="form-group mb-3">
-                            <label class="form-label" style="font-weight: 700;">رقم هاتف إضافي (اختياري)</label>
-                            <input type="text" name="store_phone2" class="form-control" 
-                                   value="<?php echo htmlspecialchars($settings['store_phone2'] ?? ''); ?>">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label" style="font-weight: 700;">شعار الكافيه</label>
-                            <?php if (!empty($settings['store_logo'])): ?>
-                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                                    <img src="../../assets/uploads/<?php echo $settings['store_logo']; ?>" 
-                                         alt="Logo" style="max-width: 60px; max-height: 50px; object-fit: contain; border: 1px solid #ddd; border-radius: 8px;">
-                                    <label class="remove-logo-label" style="cursor: pointer;">
-                                        <input type="checkbox" name="remove_logo" value="1" style="display: none;">
-                                        <span class="btn btn-danger btn-sm">🗑️ حذف الشعار</span>
-                                    </label>
-                                </div>
-                            <?php endif; ?>
-                            <input type="file" name="store_logo" class="form-control" accept="image/*">
-                        </div>
-                    </div>
-
-                    <!-- 2. أسعار صالة البلايستيشن والبلياردو -->
-                    <div style="background: #f8fafc; padding: 18px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                        <h3 style="color: #2563eb; font-size: 15px; font-weight: 800; margin: 0 0 12px 0;">🎮 أسعار صالة الألعاب (PlayStation & Billiards)</h3>
-                        
-                        <div class="row mb-3">
-                            <div class="col-6">
-                                <label class="form-label" style="font-weight: 700;">ساعة بلايستيشن فردي (Single)</label>
-                                <input type="number" step="0.5" name="ps_default_rate_single" class="form-control" 
-                                       value="<?php echo htmlspecialchars($settings['ps_default_rate_single'] ?? '30.00'); ?>" required>
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label" style="font-weight: 700;">ساعة بلايستيشن زوجي (Multi)</label>
-                                <input type="number" step="0.5" name="ps_default_rate_multi" class="form-control" 
-                                       value="<?php echo htmlspecialchars($settings['ps_default_rate_multi'] ?? '40.00'); ?>" required>
-                            </div>
-                        </div>
-
-                        <div class="row mb-3">
-                            <div class="col-6">
-                                <label class="form-label" style="font-weight: 700;">ساعة بلياردو / سنوكر</label>
-                                <input type="number" step="0.5" name="billiard_default_rate_hour" class="form-control" 
-                                       value="<?php echo htmlspecialchars($settings['billiard_default_rate_hour'] ?? '40.00'); ?>" required>
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label" style="font-weight: 700;">سعر جيم البلياردو (Per Game)</label>
-                                <input type="number" step="0.5" name="billiard_default_rate_game" class="form-control" 
-                                       value="<?php echo htmlspecialchars($settings['billiard_default_rate_game'] ?? '10.00'); ?>" required>
-                            </div>
-                        </div>
-
-                        <div class="row mb-3">
-                            <div class="col-6">
-                                <label class="form-label" style="font-weight: 700;">الضريبة المضافة (%)</label>
-                                <input type="number" step="0.1" name="vat_rate" class="form-control" 
-                                       value="<?php echo htmlspecialchars($settings['vat_rate'] ?? '0.00'); ?>">
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label" style="font-weight: 700;">خدمة الصالة (%)</label>
-                                <input type="number" step="0.1" name="service_charge" class="form-control" 
-                                       value="<?php echo htmlspecialchars($settings['service_charge'] ?? '0.00'); ?>">
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label" style="font-weight: 700;">العملة المعروضة</label>
-                            <input type="text" name="currency" class="form-control" 
-                                   value="<?php echo htmlspecialchars($settings['currency'] ?? 'ج.م'); ?>" required>
-                        </div>
-                    </div>
-
-                    <!-- 3. النسخ الاحتياطي التلقائي -->
-                    <div style="background: #f0fdf4; padding: 18px; border-radius: 12px; border: 1px solid #bbf7d0; margin-bottom: 20px;">
-                        <h3 style="color: #15803d; font-size: 15px; font-weight: 800; margin: 0 0 12px 0;">⏰ النسخ الاحتياطي التلقائي</h3>
-
-                        <div class="form-check mb-2">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9em;">
-                                <input type="checkbox" name="auto_backup_enabled" value="1"
-                                       <?php echo ($settings['auto_backup_enabled'] ?? '0') == '1' ? 'checked' : ''; ?>>
-                                <span>تفعيل النسخ الاحتياطي التلقائي أثناء العمل (بدون أي تدخل)</span>
-                            </label>
-                        </div>
-
-                        <div class="row mb-3">
-                            <div class="col-6">
-                                <label class="form-label" style="font-weight: 700;">كل فترة</label>
-                                <select name="auto_backup_interval_hours" class="form-control">
-                                    <option value="24" <?php echo ($settings['auto_backup_interval_hours'] ?? '24') == '24' ? 'selected' : ''; ?>>يومي (كل 24 ساعة)</option>
-                                    <option value="72" <?php echo ($settings['auto_backup_interval_hours'] ?? '24') == '72' ? 'selected' : ''; ?>>كل 3 أيام</option>
-                                    <option value="168" <?php echo ($settings['auto_backup_interval_hours'] ?? '24') == '168' ? 'selected' : ''; ?>>أسبوعي</option>
-                                </select>
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label" style="font-weight: 700;">الاحتفاظ بآخر (نسخة)</label>
-                                <input type="number" min="1" max="30" name="auto_backup_keep" class="form-control"
-                                       value="<?php echo htmlspecialchars($settings['auto_backup_keep'] ?? '7'); ?>">
-                            </div>
-                        </div>
-
-                        <div style="font-size: 0.85em; color: #166534;">
-                            آخر نسخة تلقائية: <strong><?php echo !empty($settings['last_auto_backup_ts']) ? date('Y/m/d H:i', (int)$settings['last_auto_backup_ts']) : 'لم تعمل بعد'; ?></strong>
-                            — النسخ اليدوية لا تُحذف تلقائياً أبداً.
-                        </div>
-                    </div>
-
-                    <!-- 4. بونات الطباعة والخيارات العامة -->
-                    <div style="background: #f8fafc; padding: 18px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                        <h3 style="color: #059669; font-size: 15px; font-weight: 800; margin: 0 0 12px 0;">🧾 إعدادات الفواتير والطباعة والتحكم</h3>
-                        
-                        <div class="form-group mb-3">
-                            <label class="form-label" style="font-weight: 700;">ترويسة الفاتورة (Header)</label>
-                            <input type="text" name="receipt_header" class="form-control" 
-                                   value="<?php echo htmlspecialchars($settings['receipt_header'] ?? 'أهلاً بكم في كافيه عروسة النيل'); ?>">
-                        </div>
-
-                        <div class="form-group mb-3">
-                            <label class="form-label" style="font-weight: 700;">تذييل الفاتورة (Footer)</label>
-                            <input type="text" name="receipt_footer" class="form-control" 
-                                   value="<?php echo htmlspecialchars($settings['receipt_footer'] ?? 'شكراً لزيارتكم - نتمنى لكم وقتاً ممتعاً'); ?>">
-                        </div>
-
-                        <div class="form-check mb-2">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9em;">
-                                <input type="checkbox" name="enable_stock_alerts" value="1" 
-                                       <?php echo ($settings['enable_stock_alerts'] ?? '1') == '1' ? 'checked' : ''; ?>>
-                                <span>تنبيهات نواقص الخامات والمخزون</span>
-                            </label>
-                        </div>
-
-                        <div class="form-check mb-2">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9em;">
-                                <input type="checkbox" name="enable_sound_alerts" value="1" 
-                                       <?php echo ($settings['enable_sound_alerts'] ?? '1') == '1' ? 'checked' : ''; ?>>
-                                <span>التنبيهات الصوتية للطلبات والتايمرات</span>
-                            </label>
-                        </div>
-
-                        <div class="form-check mb-2">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9em;">
-                                <input type="checkbox" name="allow_edit_invoices" value="1" 
-                                       <?php echo ($settings['allow_edit_invoices'] ?? '0') == '1' ? 'checked' : ''; ?>>
-                                <span>السماح للمدير بتعديل الطلبات السابقة</span>
-                            </label>
-                        </div>
-
-                        <div class="form-check mb-3">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9em;">
-                                <input type="checkbox" name="allow_delete_invoices" value="1" 
-                                       <?php echo ($settings['allow_delete_invoices'] ?? '0') == '1' ? 'checked' : ''; ?>>
-                                <span>السماح بحذف الفواتير الملغاة بصلاحية إدارية</span>
-                            </label>
-                        </div>
-
-                        <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button type="submit" class="btn btn-primary" style="background: #ea580c; border-color: #ea580c; font-weight: 800; padding: 10px 22px; border-radius: 8px;">
-                                💾 حفظ كافة الإعدادات
-                            </button>
-                            <a href="backup.php" class="btn btn-success" style="font-weight: 700; padding: 10px 18px; border-radius: 8px;">
-                                💾 نسخ احتياطي
-                            </a>
-                            <a href="update.php" class="btn" style="background: #0284c7; color: white; border: none; font-weight: 700; padding: 10px 18px; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
-                                <span>🔄</span> التحديثات
-                            </a>
-                        </div>
-                    </div>
-
-                </div>
-            </form>
-        </div>
+<!-- Page header -->
+<div class="set-head">
+    <h1>⚙️ إعدادات النظام</h1>
+    <div style="display: flex; gap: 8px; align-items: center;">
+        <span style="background: #e0f2fe; color: #0284c7; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;">v<?php echo defined('APP_VERSION') ? APP_VERSION : '1.0.0'; ?></span>
+        <a href="../../index.php" class="btn btn-secondary btn-sm">🏠 الرئيسية</a>
     </div>
 </div>
 
-
-    <!-- بطاقة إصدار النظام والتحديثات -->
-    <div class="card" style="margin-top: 20px;">
-        <div class="card-header" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: white; display: flex; justify-content: space-between; align-items: center;">
-            <div style="font-weight: 700;">🔄 إصدار وتحديثات النظام</div>
-            <span style="background: rgba(255,255,255,0.25); padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
-                الإصدار الحالي: v<?php echo defined('APP_VERSION') ? APP_VERSION : '1.0.0'; ?>
-            </span>
+<!-- Slim license strip -->
+<div class="lic-strip">
+    <span style="font-weight: 800;">🛡️ الترخيص:</span>
+    <span style="background: <?php echo $statusBadgeBg; ?>; color: <?php echo $statusBadgeColor; ?>; border: 1px solid <?php echo $statusBadgeBorder; ?>; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;"><?php echo $statusText; ?></span>
+    <span style="color: #64748b;">التجديد: <strong><?php echo htmlspecialchars($expiryDate); ?></strong><?php if (!$isLife && $daysLeft > 0): ?> (متبقي <?php echo $daysLeft; ?> يوم)<?php endif; ?></span>
+    <a href="<?php echo BASE_URL; ?>activate.php" class="btn btn-sm" style="background: #7c3aed; color: white; border: none; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 6px; text-decoration: none;">🔑 تجديد / كود جديد</a>
+    <details>
+        <summary>تفاصيل الجهاز والتواصل</summary>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap;">
+            <span>المعرف: <code style="font-family: monospace; font-size: 12px; font-weight: 700; background: #e2e8f0; padding: 2px 6px; border-radius: 4px;"><?php echo htmlspecialchars($hwid); ?></code></span>
+            <button type="button" onclick="navigator.clipboard.writeText('<?php echo htmlspecialchars($hwid); ?>'); alert('تم نسخ معرف الجهاز بنجاح!');" class="btn btn-sm" style="background: #e2e8f0; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">📋 نسخ</button>
+            <a href="https://wa.me/201271191616?text=<?php echo urlencode("مرحباً، أود تجديد اشتراك نظام إدارة الأجهزة.\nمعرف جهازي: " . $hwid); ?>" target="_blank" class="btn btn-sm" style="background: #25d366; color: white; font-weight: 700; text-decoration: none; padding: 4px 12px; font-size: 11px; border-radius: 6px;">💬 واتساب التجديد</a>
         </div>
+    </details>
+</div>
+
+<form method="POST" enctype="multipart/form-data">
+<div class="set-grid">
+
+    <!-- Main settings -->
+    <div class="card set-card">
+        <div class="card-header" style="background: linear-gradient(135deg, #ea580c, #c2410c); color: white;">☕ إعدادات كافيه وصالة ألعاب عروسة النيل</div>
         <div class="card-body">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-                <div>
-                    <h4 style="margin: 0 0 6px 0; color: #1e293b; font-size: 15px;">نظام إدارة كافيه وصالة ألعاب عروسة النيل</h4>
-                    <div style="font-size: 13px; color: #64748b; display: flex; gap: 12px; flex-wrap: wrap;">
-                        <span>📦 رقم الإصدار: <strong style="color: #0284c7;">v<?php echo defined('APP_VERSION') ? APP_VERSION : '2.0.0'; ?></strong></span>
-                        <span>📅 تاريخ البناء: <strong><?php echo defined('APP_BUILD_DATE') ? APP_BUILD_DATE : '2026-09-17'; ?></strong></span>
-                        <span>🗄️ هيكل قاعدة البيانات: <strong>#<?php echo defined('DB_SCHEMA_VERSION') ? DB_SCHEMA_VERSION : '1'; ?></strong></span>
+
+            <!-- 1. معلومات الكافيه -->
+            <div class="sec">
+                <h3 style="color: #ea580c;">☕ معلومات الكافيه والشعار</h3>
+                <div class="form-group">
+                    <label class="form-label">اسم الكافيه / المحل *</label>
+                    <input type="text" name="store_name" class="form-control"
+                           value="<?php echo htmlspecialchars($settings['store_name'] ?? ''); ?>" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">العنوان</label>
+                    <input type="text" name="store_address" class="form-control"
+                           value="<?php echo htmlspecialchars($settings['store_address'] ?? ''); ?>">
+                </div>
+                <div class="f2">
+                    <div class="form-group">
+                        <label class="form-label">رقم الهاتف الرئيسي</label>
+                        <input type="text" name="store_phone" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['store_phone'] ?? ''); ?>">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">رقم هاتف إضافي</label>
+                        <input type="text" name="store_phone2" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['store_phone2'] ?? ''); ?>">
                     </div>
                 </div>
-                <div>
-                    <a href="update.php" class="btn" style="background: #0284c7; color: white; border: none; font-weight: 700; padding: 8px 18px; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; box-shadow: 0 2px 6px rgba(2,132,199,0.3);">
-                        <span>🚀</span> فتح مركز التحديثات
-                    </a>
+                <div class="form-group" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 180px;">
+                        <label class="form-label">شعار الكافيه</label>
+                        <input type="file" name="store_logo" class="form-control" accept="image/*">
+                    </div>
+                    <?php if (!empty($settings['store_logo'])): ?>
+                        <img src="../../assets/uploads/<?php echo $settings['store_logo']; ?>"
+                             alt="Logo" style="max-width: 52px; max-height: 42px; object-fit: contain; border: 1px solid #ddd; border-radius: 8px;">
+                        <label class="remove-logo-label" style="cursor: pointer;">
+                            <input type="checkbox" name="remove_logo" value="1" style="display: none;">
+                            <span class="btn btn-danger btn-sm">🗑️ حذف الشعار</span>
+                        </label>
+                    <?php endif; ?>
                 </div>
             </div>
+
+            <!-- 2. الأسعار والضرائب -->
+            <div class="sec">
+                <h3 style="color: #2563eb;">🎮 أسعار الصالة والضرائب</h3>
+                <div class="f2">
+                    <div class="form-group">
+                        <label class="form-label">ساعة بلايستيشن فردي</label>
+                        <input type="number" step="0.5" name="ps_default_rate_single" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['ps_default_rate_single'] ?? '30.00'); ?>" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">ساعة بلايستيشن زوجي</label>
+                        <input type="number" step="0.5" name="ps_default_rate_multi" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['ps_default_rate_multi'] ?? '40.00'); ?>" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">ساعة بلياردو / سنوكر</label>
+                        <input type="number" step="0.5" name="billiard_default_rate_hour" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['billiard_default_rate_hour'] ?? '40.00'); ?>" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">سعر جيم البلياردو</label>
+                        <input type="number" step="0.5" name="billiard_default_rate_game" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['billiard_default_rate_game'] ?? '10.00'); ?>" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">الضريبة المضافة (%)</label>
+                        <input type="number" step="0.1" name="vat_rate" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['vat_rate'] ?? '0.00'); ?>">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">خدمة الصالة (%)</label>
+                        <input type="number" step="0.1" name="service_charge" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['service_charge'] ?? '0.00'); ?>">
+                    </div>
+                </div>
+                <div class="form-group" style="max-width: 220px;">
+                    <label class="form-label">العملة المعروضة</label>
+                    <input type="text" name="currency" class="form-control"
+                           value="<?php echo htmlspecialchars($settings['currency'] ?? 'ج.م'); ?>" required>
+                </div>
+            </div>
+
+            <!-- 3. الفواتير والتحكم -->
+            <div class="sec">
+                <h3 style="color: #059669;">🧾 الفواتير والتحكم</h3>
+                <div class="f2">
+                    <div class="form-group">
+                        <label class="form-label">ترويسة الفاتورة</label>
+                        <input type="text" name="receipt_header" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['receipt_header'] ?? 'أهلاً بكم في كافيه عروسة النيل'); ?>">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">تذييل الفاتورة</label>
+                        <input type="text" name="receipt_footer" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['receipt_footer'] ?? 'شكراً لزيارتكم - نتمنى لكم وقتاً ممتعاً'); ?>">
+                    </div>
+                </div>
+                <div class="chk2">
+                    <label><input type="checkbox" name="enable_stock_alerts" value="1"
+                               <?php echo ($settings['enable_stock_alerts'] ?? '1') == '1' ? 'checked' : ''; ?>>
+                        <span>تنبيهات نواقص المخزون</span></label>
+                    <label><input type="checkbox" name="enable_sound_alerts" value="1"
+                               <?php echo ($settings['enable_sound_alerts'] ?? '1') == '1' ? 'checked' : ''; ?>>
+                        <span>التنبيهات الصوتية</span></label>
+                    <label><input type="checkbox" name="allow_edit_invoices" value="1"
+                               <?php echo ($settings['allow_edit_invoices'] ?? '0') == '1' ? 'checked' : ''; ?>>
+                        <span>تعديل الطلبات السابقة</span></label>
+                    <label><input type="checkbox" name="allow_delete_invoices" value="1"
+                               <?php echo ($settings['allow_delete_invoices'] ?? '0') == '1' ? 'checked' : ''; ?>>
+                        <span>حذف الفواتير بصلاحية إدارية</span></label>
+                </div>
+            </div>
+
+            <div class="save-row">
+                <button type="submit" class="btn btn-primary" style="background: #ea580c; border-color: #ea580c;">💾 حفظ كافة الإعدادات</button>
+                <a href="backup.php" class="btn btn-success">💾 نسخ احتياطي</a>
+                <a href="update.php" class="btn" style="background: #0284c7; color: white; border: none; text-decoration: none; display: inline-flex; align-items: center;">🔄 التحديثات</a>
+            </div>
+
         </div>
     </div>
 
-    <!-- منطقة الخطر: إعادة ضبط المصنع -->
-    <?php if (hasPermission('settings.reset')): ?>
-    <div class="card" style="margin-top: 20px; border: 2px solid #ef4444;">
-        <div class="card-header" style="background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; font-weight: 700;">
-            ⚠️ منطقة الخطر
-        </div>
-        <div class="card-body" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-            <div style="font-size: 0.9em; color: #7f1d1d;">
-                <strong>إعادة ضبط المصنع:</strong> مسح كل بيانات النظام (المبيعات، المستخدمون، المخزون، الإعدادات)
-                والعودة لحالة التثبيت الجديد — بعد التأكد من وجود نسخة احتياطية حديثة.
+    <!-- Side column -->
+    <div>
+        <!-- النسخ التلقائي -->
+        <div class="card set-card">
+            <div class="card-header" style="background: linear-gradient(135deg, #10b981, #059669); color: white;">⏰ النسخ التلقائي</div>
+            <div class="card-body">
+                <div class="sec" style="margin-bottom: 0;">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.82em; font-weight: 700; margin-bottom: 8px;">
+                        <input type="checkbox" name="auto_backup_enabled" value="1"
+                               <?php echo ($settings['auto_backup_enabled'] ?? '0') == '1' ? 'checked' : ''; ?>>
+                        <span>تفعيل النسخ التلقائي</span>
+                    </label>
+                    <div class="form-group">
+                        <label class="form-label">كل فترة</label>
+                        <select name="auto_backup_interval_hours" class="form-control">
+                            <option value="24" <?php echo ($settings['auto_backup_interval_hours'] ?? '24') == '24' ? 'selected' : ''; ?>>يومي</option>
+                            <option value="72" <?php echo ($settings['auto_backup_interval_hours'] ?? '24') == '72' ? 'selected' : ''; ?>>كل 3 أيام</option>
+                            <option value="168" <?php echo ($settings['auto_backup_interval_hours'] ?? '24') == '168' ? 'selected' : ''; ?>>أسبوعي</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 4px;">
+                        <label class="form-label">احتفاظ بآخر (نسخ)</label>
+                        <input type="number" min="1" max="30" name="auto_backup_keep" class="form-control"
+                               value="<?php echo htmlspecialchars($settings['auto_backup_keep'] ?? '7'); ?>">
+                    </div>
+                    <div style="font-size: 0.78em; color: #166534; margin-top: 6px;">
+                        آخر نسخة: <strong><?php echo !empty($settings['last_auto_backup_ts']) ? date('Y/m/d H:i', (int)$settings['last_auto_backup_ts']) : 'لم تعمل بعد'; ?></strong>
+                    </div>
+                </div>
             </div>
-            <a href="reset.php" class="btn btn-danger" style="font-weight: 800; padding: 10px 22px; border-radius: 8px; text-decoration: none;">
-                🗑️ إعادة ضبط المصنع
-            </a>
         </div>
+
+        <!-- منطقة الخطر -->
+        <?php if (hasPermission('settings.reset')): ?>
+        <div class="card set-card" style="border: 2px solid #ef4444;">
+            <div class="card-header" style="background: linear-gradient(135deg, #ef4444, #b91c1c); color: white;">⚠️ منطقة الخطر</div>
+            <div class="card-body" style="font-size: 0.82em; color: #7f1d1d;">
+                <div style="margin-bottom: 8px;">مسح كل البيانات والعودة لحالة التثبيت الجديد (بعد نسخة احتياطية).</div>
+                <a href="reset.php" class="btn btn-danger btn-sm" style="font-weight: 800; text-decoration: none;">🗑️ إعادة ضبط المصنع</a>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
-    <?php endif; ?>
+
+</div>
+</form>
+
+</div>
 
 <?php include '../../includes/footer.php'; ?>
