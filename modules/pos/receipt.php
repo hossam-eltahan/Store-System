@@ -85,14 +85,14 @@ $isKitchen = ($type === 'kitchen');
 </head>
 <body>
     <div class="no-print">
-        <button class="btn-print" onclick="window.print()">PRINT</button>
-        <button class="btn-print" style="background:#475569;" onclick="window.close()">CLOSE</button>
+        <button class="btn-print" onclick="window.print()">طباعة</button>
+        <button class="btn-print" style="background:#475569;" onclick="window.close()">إغلاق</button>
     </div>
 
     <div class="header text-center">
         <h1><?php echo htmlspecialchars($storeName); ?></h1>
         <?php if ($storeAddress): ?><p><?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>
-        <?php if ($storePhone): ?><p>Phone: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
+        <?php if ($storePhone): ?><p>هاتف: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
         <?php if ($receiptHeader): ?><p style="margin-top:3px;"><?php echo htmlspecialchars($receiptHeader); ?></p><?php endif; ?>
     </div>
 
@@ -100,24 +100,24 @@ $isKitchen = ($type === 'kitchen');
 
     <table class="meta-table">
         <tr>
-            <td class="fw-bold">Order No:</td>
+            <td class="fw-bold">رقم الطلب:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($order['order_number']); ?></td>
         </tr>
         <tr>
-            <td>Date/Time:</td>
+            <td>التاريخ والوقت:</td>
             <td class="text-left"><?php echo date('Y-m-d h:i A', strtotime($order['created_at'])); ?></td>
         </tr>
         <tr>
-            <td>Cashier:</td>
+            <td>الكاشير:</td>
             <td class="text-left"><?php echo htmlspecialchars($order['cashier_name'] ?? 'Cashier'); ?></td>
         </tr>
         <tr>
-            <td>Order Type:</td>
+            <td>نوع الطلب:</td>
             <td class="text-left fw-bold"><?php echo htmlspecialchars($order['order_type']); ?></td>
         </tr>
         <?php if (!empty($order['notes'])): ?>
         <tr>
-            <td>Notes:</td>
+            <td>ملاحظات:</td>
             <td class="text-left"><?php echo htmlspecialchars($order['notes']); ?></td>
         </tr>
         <?php endif; ?>
@@ -129,10 +129,10 @@ $isKitchen = ($type === 'kitchen');
     <table class="items-table">
         <thead>
             <tr>
-                <th class="text-right">Item</th>
-                <th class="text-center">Qty</th>
-                <th class="text-center">Price</th>
-                <th class="text-left">Total</th>
+                <th class="text-right">الصنف</th>
+                <th class="text-center">العدد</th>
+                <th class="text-center">السعر</th>
+                <th class="text-left">الإجمالي</th>
             </tr>
         </thead>
         <tbody>
@@ -160,45 +160,45 @@ $isKitchen = ($type === 'kitchen');
         </tbody>
     </table>
     <?php else: ?>
-    <div style="text-align:center; padding:10px; font-size:12px; color:#666;">No items on this order.</div>
+    <div style="text-align:center; padding:10px; font-size:12px; color:#666;">لا توجد أصناف في هذا الطلب.</div>
     <?php endif; ?>
 
     <div class="divider"></div>
     <table class="totals-table">
         <tr>
-            <td>Subtotal:</td>
-            <td class="text-left"><?php echo number_format($order['subtotal'] ?? 0, 2); ?> JOD</td>
+            <td>المجموع الفرعي:</td>
+            <td class="text-left"><?php echo number_format($order['subtotal'] ?? 0, 2); ?> ج.م</td>
         </tr>
         <?php if (!empty($order['discount_amount']) && $order['discount_amount'] > 0): ?>
         <tr style="color:#dc2626;">
-            <td>Discount:</td>
-            <td class="text-left">-<?php echo number_format($order['discount_amount'], 2); ?> JOD</td>
+            <td>الخصم:</td>
+            <td class="text-left">-<?php echo number_format($order['discount_amount'], 2); ?> ج.م</td>
         </tr>
         <?php endif; ?>
         <?php if (!empty($order['tax_amount']) && $order['tax_amount'] > 0): ?>
         <tr>
-            <td>Tax:</td>
-            <td class="text-left"><?php echo number_format($order['tax_amount'], 2); ?> JOD</td>
+            <td>الضريبة:</td>
+            <td class="text-left"><?php echo number_format($order['tax_amount'], 2); ?> ج.م</td>
         </tr>
         <?php endif; ?>
         <tr class="grand-total">
-            <td>Total:</td>
-            <td class="text-left"><?php echo number_format($order['total_amount'], 2); ?> JOD</td>
+            <td>المجموع:</td>
+            <td class="text-left"><?php echo number_format($order['total_amount'], 2); ?> ج.م</td>
         </tr>
         <tr>
-            <td>Paid:</td>
-            <td class="text-left"><?php echo number_format($order['paid_amount'] ?? $order['total_amount'], 2); ?> JOD</td>
+            <td>المدفوع:</td>
+            <td class="text-left"><?php echo number_format($order['paid_amount'] ?? $order['total_amount'], 2); ?> ج.م</td>
         </tr>
         <tr>
-            <td>Payment Method:</td>
-            <td class="text-left fw-bold"><?php $methods = ['cash' => 'Cash', 'card' => 'Card', 'instapay' => 'InstaPay', 'vodafone_cash' => 'Vodafone Cash']; $pm = $order['payment_method'] ?? 'cash'; echo $methods[$pm] ?? $pm; ?></td>
+            <td>طريقة الدفع:</td>
+            <td class="text-left fw-bold"><?php $methods = ['cash' => 'نقداً (كاش)', 'card' => 'فيزا / بطاقة', 'instapay' => 'إنستاباي', 'vodafone_cash' => 'فودافون كاش']; $pm = $order['payment_method'] ?? 'cash'; echo $methods[$pm] ?? $pm; ?></td>
         </tr>
     </table>
 
     <div class="footer">
         <div class="divider"></div>
         <p><?php echo htmlspecialchars($receiptFooter); ?></p>
-        <p style="font-size:9.5px; opacity:0.7; margin-top:4px;">POS v2.0</p>
+        <p style="font-size:9.5px; opacity:0.7; margin-top:4px;">نظام كاشير عروسة النيل v2.0</p>
     </div>
 
     <script>
