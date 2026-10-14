@@ -611,6 +611,25 @@ CREATE TABLE IF NOT EXISTS `backups` (
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 35b. سجل المدفوعات (تحصيل من العملاء / دفع للموردين)
+CREATE TABLE IF NOT EXISTS `payments` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `payment_number` VARCHAR(50) NOT NULL UNIQUE,
+    `type` ENUM('customer','supplier') NOT NULL DEFAULT 'customer',
+    `entity_id` INT DEFAULT NULL,
+    `entity_name` VARCHAR(255) DEFAULT NULL,
+    `amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    `old_balance` DECIMAL(10,2) DEFAULT 0.00,
+    `new_balance` DECIMAL(10,2) DEFAULT 0.00,
+    `payment_date` DATE DEFAULT NULL,
+    `payment_method` VARCHAR(50) DEFAULT NULL,
+    `reference` VARCHAR(100) DEFAULT NULL,
+    `notes` TEXT DEFAULT NULL,
+    `handled_by` VARCHAR(100) DEFAULT NULL,
+    `user_id` INT DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 36. تتبع التحديثات (Schema Migrations)
 CREATE TABLE IF NOT EXISTS `schema_migrations` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,

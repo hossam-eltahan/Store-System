@@ -333,7 +333,7 @@ include '../../includes/navbar.php';
                                 $editPage = $invoice['type'] === 'purchase' ? 'edit_purchase.php' : 'edit_sale.php';
 
                                 $canPrintThis = $invoice['type'] === 'purchase' ? hasPermission('invoices.purchase.view') : hasPermission('invoices.sale.view');
-                                $canReturnThis = $invoice['type'] === 'purchase' ? hasPermission('returns.create_supplier') : hasPermission('returns.create_customer');
+                                $canReturnThis = ($invoice['type'] === 'purchase' ? hasPermission('returns.create_supplier') : hasPermission('returns.create_customer')) && tableExists('returns');
                                 $canEditThis = ($invoice['type'] === 'purchase' ? hasPermission('invoices.purchase.edit') : hasPermission('invoices.sale.edit')) && (($settings['allow_edit_invoices'] ?? '0') === '1');
                                 $canDeleteThis = ($invoice['type'] === 'purchase' ? hasPermission('invoices.purchase.delete') : hasPermission('invoices.sale.delete')) && (($settings['allow_delete_invoices'] ?? '0') === '1');
                                 ?>

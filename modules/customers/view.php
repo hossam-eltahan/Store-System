@@ -27,7 +27,7 @@ $invoices = getRows(
 );
 
 // Get customer installment plans (from new table)
-$installments = getRows(
+$installments = tableExists('installment_plans') ? getRows(
     "SELECT ip.*, 
             (SELECT COUNT(*) FROM installment_payments WHERE plan_id = ip.id AND status = 'paid') as paid_count,
             (SELECT COUNT(*) FROM installment_payments WHERE plan_id = ip.id AND status = 'overdue') as overdue_count,
@@ -36,7 +36,7 @@ $installments = getRows(
      WHERE ip.type = 'customer' AND ip.entity_id = ? 
      ORDER BY ip.created_at DESC",
     [$id]
-);
+) : [];
 
 // Calculate totals
 $totalPurchases = 0;
@@ -258,7 +258,9 @@ include '../../includes/navbar.php';
     <div class="card">
         <div class="card-header d-flex justify-between align-center">
             <span>🔄 المرتجعات (<?php echo count($returns); ?>)</span>
+            <?php if (tableExists('returns')): ?>
             <a href="../returns/create.php" class="btn btn-warning">+ مرتجع جديد</a>
+            <?php endif; ?>
         </div>
         <div class="card-body">
             <?php if (empty($returns)): ?>

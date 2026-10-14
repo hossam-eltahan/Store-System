@@ -1083,3 +1083,22 @@ ON DUPLICATE KEY UPDATE quantity = VALUES(quantity), min_stock_level = VALUES(mi
 
 UPDATE users SET default_warehouse_id = 1 WHERE default_warehouse_id IS NULL;
 UPDATE invoices SET warehouse_id = 1 WHERE warehouse_id IS NULL;
+
+-- ---------- payments ledger (create only, no seed) ----------
+CREATE TABLE IF NOT EXISTS payments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    payment_number VARCHAR(50) NOT NULL UNIQUE,
+    type ENUM('customer','supplier') NOT NULL DEFAULT 'customer',
+    entity_id INT DEFAULT NULL,
+    entity_name VARCHAR(255) DEFAULT NULL,
+    amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    old_balance DECIMAL(10,2) DEFAULT 0.00,
+    new_balance DECIMAL(10,2) DEFAULT 0.00,
+    payment_date DATE DEFAULT NULL,
+    payment_method VARCHAR(50) DEFAULT NULL,
+    reference VARCHAR(100) DEFAULT NULL,
+    notes TEXT DEFAULT NULL,
+    handled_by VARCHAR(100) DEFAULT NULL,
+    user_id INT DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

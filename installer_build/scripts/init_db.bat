@@ -1,57 +1,24 @@
 @echo off
-setlocal EnableDelayedExpansion
-chcp 65001 >nul 2>&1
-
-REM ============================================
-REM  Store System - Database Initialization
-REM  Called automatically on first run
-REM ============================================
+echo =======================================
+echo Initializing Database for Store System
+echo =======================================
+cd /d "%~dp0\..\..\.."
+REM When installed, scripts live at {app}\scripts so ROOT is passed explicitly
+set "ROOT_DIR=%~2"
+if not "%ROOT_DIR%"=="" cd /d "%ROOT_DIR%"
 
 set "MYSQL_PORT=%1"
-if "%MYSQL_PORT%"=="" set "MYSQL_PORT=3306"
+if "%MYSQL_PORT%"=="" set "MYSQL_PORT=3307"
 
-set "ROOT_DIR=%~dp0.."
-pushd "%ROOT_DIR%"
-set "ROOT_DIR=%CD%"
-popd
+echo Starting MySQL server on port %MYSQL_PORT%...
+start /B "" "mysql\bin\mysqld.exe" --defaults-file=mysql\bin\my.ini --standalone
 
-set "MYSQL_DIR=%ROOT_DIR%\mysql"
-set "SQL_FILE=%ROOT_DIR%\htdocs\Store-System\installer_build\store_system.sql"
+echo Waiting for MySQL to initialize...
+ping -n 11 127.0.0.1 >nul
 
-echo.
-echo ==================================================
-echo   Database Initialization
-echo ==================================================
-echo.
+echo Creating Database and Importing Tables...
+mysql\bin\mysql.exe --host=127.0.0.1 --port=%MYSQL_PORT% -u root --default-character-set=utf8mb4 -e "CREATE DATABASE IF NOT EXISTS cafe_management CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql\bin\mysql.exe --host=127.0.0.1 --port=%MYSQL_PORT% -u root --default-character-set=utf8mb4 cafe_management < "htdocs\Store-System\installer_build\fresh_install.sql"
 
-REM Check if SQL file exists
-if not exist "%SQL_FILE%" (
-    echo [ERROR] SQL file not found: %SQL_FILE%
-    echo Please make sure the installation is complete.
-    pause
-    exit /b 1
-)
-
-echo [....] Creating database...
-"%MYSQL_DIR%\bin\mysql.exe" --host=127.0.0.1 --port=%MYSQL_PORT% -u root --default-character-set=utf8mb4 -e "CREATE DATABASE IF NOT EXISTS store_management CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-
-if errorlevel 1 (
-    echo [ERROR] Failed to create database!
-    pause
-    exit /b 1
-)
-echo [OK] Database created
-
-echo [....] Importing tables and data...
-"%MYSQL_DIR%\bin\mysql.exe" --host=127.0.0.1 --port=%MYSQL_PORT% -u root --default-character-set=utf8mb4 store_management < "%SQL_FILE%"
-
-if errorlevel 1 (
-    echo [ERROR] Failed to import data!
-    pause
-    exit /b 1
-)
-echo [OK] Tables and data imported successfully
-
-echo.
-echo [OK] Database initialization complete!
-echo.
+echo Import complete. MySQL left running for the app.
+echo Initialization Finished!
