@@ -774,30 +774,9 @@ body {
 
         <!-- Cart Footer & Checkout -->
         <div class="cart-footer">
-            <div class="totals-breakdown">
-                <div class="totals-row">
-                    <span>المجموع الفرعي:</span>
-                    <span id="subtotalDisplay">0.00 ج.م</span>
-                </div>
-                <div class="totals-row" style="color: #dc2626; display: flex; align-items: center; justify-content: space-between;">
-                    <span>
-                        الخصم: 
-                        <button type="button" id="openDiscountBtn" style="background:#fee2e2; border:none; color:#dc2626; font-size:10px; padding:2px 6px; border-radius:4px; cursor:pointer; font-weight:bold;">تعديل</button>
-                    </span>
-                    <span id="discountDisplay">0.00 ج.م</span>
-                </div>
-                <div class="grand-total-row">
-                    <span>الإجمالي:</span>
-                    <span class="amount" id="grandTotalDisplay">0.00 ج.م</span>
-                </div>
-            </div>
-
-            <!-- Payment Methods -->
-            <div class="payment-methods-grid">
-                <div class="pay-btn active" data-method="cash">💵 كاش</div>
-                <div class="pay-btn" data-method="card">💳 فيزا</div>
-                <div class="pay-btn" data-method="instapay">⚡ إنستاباي</div>
-                <div class="pay-btn" data-method="vodafone_cash">📱 فودافون</div>
+            <div class="grand-total-row">
+                <span>الإجمالي:</span>
+                <span class="amount" id="grandTotalDisplay">0.00 ج.م</span>
             </div>
 
             <!-- Checkout Buttons -->
@@ -919,19 +898,15 @@ body {
     </div>
 </div>
 
-<!-- Modal: Discount Input -->
-<div class="pos-modal-backdrop" id="discountModal">
-    <div class="pos-modal" style="max-width: 340px;">
+<!-- Modal: POS Checkout -->
+<div class="pos-modal-backdrop" id="checkoutModal">
+    <div class="pos-modal">
         <div class="modal-header">
-            <h3 style="font-size: 15px; font-weight: 800; color: #0f172a; margin: 0;">تطبيق خصم</h3>
-            <button type="button" onclick="document.getElementById('discountModal').style.display='none'" style="background:none; border:none; font-size:20px; cursor:pointer;">&times;</button>
+            <h3 style="font-size: 15px; font-weight: 800; color: #0f172a; margin: 0;">🧾 محاسبة الطلب</h3>
+            <button type="button" onclick="closeCheckoutModal()" style="background:none; border:none; font-size:20px; cursor:pointer;">&times;</button>
         </div>
-        <div class="modal-body" style="padding: 18px;">
-            <label style="font-size: 12px; font-weight: 700; color: #475569; display: block; margin-bottom: 6px;">قيمة الخصم بالجنيه:</label>
-            <input type="number" id="discountAmountInput" min="0" step="1" value="0" style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 16px; font-weight: bold;">
-        </div>
-        <div style="padding: 12px 18px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: left;">
-            <button type="button" onclick="applyDiscount()" style="background:#dc2626; color:white; border:none; border-radius:8px; padding:8px 18px; font-weight:800; cursor:pointer;">تطبيق الخصم</button>
+        <div class="modal-body" id="checkoutModalBody">
+            جاري حساب الفاتورة...
         </div>
     </div>
 </div>
@@ -942,8 +917,6 @@ let products = [];
 let cart = [];
 let currentCategory = '';
 let currentOrderType = 'takeaway';
-let currentPaymentMethod = 'cash';
-let discountAmount = 0;
 let destinations = { gaming_sessions: [], billiard_sessions: [], table_sessions: [], available_tables: [] };
 
 // Manual settlement rates (live from Settings)
@@ -996,33 +969,17 @@ function setupEventListeners() {
         });
     });
 
-    // Payment methods
-    document.querySelectorAll('.pay-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            currentPaymentMethod = btn.dataset.method;
-        });
-    });
-
     // Clear cart
     document.getElementById('clearCartBtn').addEventListener('click', () => {
         if (cart.length === 0) return;
         if (confirm('هل تريد مسح جميع الأصناف من السلة؟')) {
             cart = [];
-            discountAmount = 0;
             renderCart();
         }
     });
 
-    // Open discount modal
-    document.getElementById('openDiscountBtn').addEventListener('click', () => {
-        document.getElementById('discountAmountInput').value = discountAmount;
-        document.getElementById('discountModal').style.display = 'flex';
-    });
-
-    // Checkout button
-    document.getElementById('checkoutBtn').addEventListener('click', () => processCheckout(false));
+    // Checkout button → opens the checkout modal (discount + payment live there)
+    document.getElementById('checkoutBtn').addEventListener('click', () => openCheckoutModal());
     
     // Defer button
     document.getElementById('deferBtn').addEventListener('click', () => processCheckout(true));
@@ -1420,8 +1377,6 @@ function renderCart() {
                 <div style="font-size: 11px; margin-top: 4px;">اضغط على أي صنف من المنيو لإضافته هنا</div>
             </div>
         `;
-        document.getElementById('subtotalDisplay').textContent = '0.00 ج.م';
-        document.getElementById('discountDisplay').textContent = '0.00 ج.م';
         document.getElementById('grandTotalDisplay').textContent = '0.00 ج.م';
         checkoutBtn.disabled = true;
         return;
@@ -1460,10 +1415,8 @@ function renderCart() {
         `;
     }).join('');
 
-    let grandTotal = Math.max(0, subtotal - discountAmount);
+    let grandTotal = subtotal;
 
-    document.getElementById('subtotalDisplay').textContent = `${subtotal.toFixed(2)} ج.م`;
-    document.getElementById('discountDisplay').textContent = `${discountAmount.toFixed(2)} ج.م`;
     document.getElementById('grandTotalDisplay').textContent = `${grandTotal.toFixed(2)} ج.م`;
 }
 
@@ -1481,20 +1434,87 @@ function removeItem(index) {
     renderCart();
 }
 
-function applyDiscount() {
-    const val = parseFloat(document.getElementById('discountAmountInput').value) || 0;
-    const subtotal = cart.reduce((acc, item) => {
-        const modifiersTotal = item.modifiers.reduce((sum, modifier) => sum + (parseFloat(modifier.price) * (modifier.quantity || 1)), 0);
-        return acc + (item.unit_price * item.quantity) + (modifiersTotal * item.quantity);
+// Checkout modal (POS version of the gaming end-session modal)
+function cartSubtotal() {
+    return cart.reduce((acc, item) => {
+        const modsTotal = item.modifiers.reduce((sum, m) => sum + (parseFloat(m.price) * (m.quantity || 1)), 0);
+        return acc + (parseFloat(item.unit_price) * item.quantity) + (modsTotal * item.quantity);
     }, 0);
-    discountAmount = Math.min(subtotal, Math.max(0, val));
-    document.getElementById('discountAmountInput').value = discountAmount;
-    document.getElementById('discountModal').style.display = 'none';
-    renderCart();
 }
 
-// Process Checkout & Payment
-async function processCheckout(isDeferred) {
+function orderTypeLabel() {
+    return { takeaway: '🛍️ تيك أواي', dine_in: '🪑 طاولة صالة', gaming_ps: '🎮 بلايستيشن', gaming_billiard: '🎱 بلياردو' }[currentOrderType] || currentOrderType;
+}
+
+function openCheckoutModal() {
+    if (cart.length === 0) return;
+    const subtotal = cartSubtotal();
+    const itemCount = cart.reduce((acc, it) => acc + it.quantity, 0);
+    const customer = document.getElementById('customerNameInput').value.trim();
+    const body = document.getElementById('checkoutModalBody');
+
+    body.innerHTML = `
+        <div style="background:#f8fafc; border-radius:10px; padding:12px; margin-bottom:14px; font-size:12.5px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                <span>نوع الطلب:</span>
+                <strong>${orderTypeLabel()}${customer ? ` — ${escapeHtml(customer)}` : ''}</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                <span>عدد الأصناف:</span>
+                <strong>${itemCount}</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                <span>إجمالي الطلب:</span>
+                <strong style="color:#ea580c;">${subtotal.toFixed(2)} ج.م</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-top:6px; border-top:1px dashed #cbd5e1; padding-top:6px; color:#059669; font-weight:800; font-size:15px;">
+                <span>المطلوب بعد الخصم:</span>
+                <span id="coNetTotalDisplay">${subtotal.toFixed(2)} ج.م</span>
+            </div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+            <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">قيمة الخصم:</label>
+            <input type="number" id="coDiscountInput" value="0" min="0" max="${subtotal}" step="1" oninput="updateCoNetTotal(${subtotal})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:14px; font-weight:bold;">
+        </div>
+
+        <div style="margin-bottom:14px;">
+            <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:6px;">طريقة الدفع:</label>
+            <select id="coPaymentMethod" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:13px; font-family:inherit;">
+                <option value="cash">💵 نقداً (كاش)</option>
+                <option value="card">💳 فيزا / بطاقة</option>
+                <option value="instapay">⚡ إنستاباي (InstaPay)</option>
+                <option value="vodafone_cash">📱 فودافون كاش</option>
+            </select>
+        </div>
+
+        <button onclick="submitPosCheckout()" style="width:100%; background:linear-gradient(135deg, #ea580c, #c2410c); color:white; border:none; border-radius:10px; padding:12px; font-size:15px; font-weight:800; cursor:pointer;">
+            🏁 تحصيل الفاتورة وطباعة البون
+        </button>
+    `;
+    document.getElementById('checkoutModal').style.display = 'flex';
+}
+
+function closeCheckoutModal() {
+    document.getElementById('checkoutModal').style.display = 'none';
+}
+
+function updateCoNetTotal(baseTotal) {
+    const input = document.getElementById('coDiscountInput');
+    const disc = Math.min(baseTotal, Math.max(0, parseFloat(input.value) || 0));
+    input.value = disc;
+    document.getElementById('coNetTotalDisplay').textContent = `${Math.max(0, baseTotal - disc).toFixed(2)} ج.م`;
+}
+
+async function submitPosCheckout() {
+    const disc = Math.max(0, parseFloat(document.getElementById('coDiscountInput').value) || 0);
+    const method = document.getElementById('coPaymentMethod').value;
+    closeCheckoutModal();
+    await processCheckout(false, disc, method);
+}
+
+// Process Checkout & Payment (discount & method come from the checkout modal)
+async function processCheckout(isDeferred, disc = 0, method = 'cash') {
     if (cart.length === 0) return;
 
     const checkoutBtn = document.getElementById('checkoutBtn');
@@ -1532,8 +1552,8 @@ async function processCheckout(isDeferred) {
         table_session_id: tableSessionId,
         table_id: tableId,
         items: cart,
-        discount_amount: discountAmount,
-        payment_method: currentPaymentMethod,
+        discount_amount: disc,
+        payment_method: method,
         customer_name: document.getElementById('customerNameInput').value.trim(),
         notes: document.getElementById('orderNotesInput').value.trim(),
         pay_now: !isDeferred
@@ -1555,7 +1575,6 @@ async function processCheckout(isDeferred) {
 
             // Reset Cart
             cart = [];
-            discountAmount = 0;
             document.getElementById('customerNameInput').value = '';
             document.getElementById('orderNotesInput').value = '';
             renderCart();
