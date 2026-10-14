@@ -1,0 +1,1 @@
+'<div class="header">\n        <h1><?php echo htmlspecialchars($storeName); ?></h1>\n        <?php if ($storeAddress): ?><p><?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>\n        <?php if ($storePhone): ?><p><?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>\n        <?php if ($receiptHeader'

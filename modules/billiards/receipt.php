@@ -45,7 +45,9 @@ foreach ($cafeOrders as $ord) {
 }
 
 $storeName = getSetting('store_name', 'ÙƒØ§ÙÙŠÙ‡ Ø¹Ø±ÙˆØ³Ø© Ø§Ù„Ù†ÙŠÙ„');
+$storeAddress = getSetting('store_address', '');
 $storePhone = getSetting('store_phone', '');
+$receiptHeader = getSetting('receipt_header', '');
 $receiptFooter = getSetting('receipt_footer', 'Ø´ÙƒØ±Ø§Ù‹ Ù„Ø²ÙŠØ§Ø±ØªÙƒÙ… - Ù†ØªÙ…Ù†Ù‰ Ù„ÙƒÙ… ÙˆÙ‚ØªØ§Ù‹ Ù…Ù…ØªØ¹Ø§Ù‹');
 
 $isHourly = ($session['billing_mode'] === 'hourly');
@@ -250,8 +252,9 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
 
     <div class="header">
         <h1><?php echo htmlspecialchars($storeName); ?></h1>
-        <?php if ($storePhone): ?><p>هاتف: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
-        <?php if ($receiptFooter): ?><p style="margin-top:3px;"><?php echo htmlspecialchars($receiptFooter); ?></p><?php endif; ?>
+        <?php if ($storeAddress): ?><p><?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>
+        <?php if ($storePhone): ?><p><?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
+        <?php if ($receiptHeader): ?><p style="margin-top:3px;"><?php echo htmlspecialchars($receiptHeader); ?></p><?php endif; ?>
     </div>
 
     <div style="border-top:1px dashed #000;margin:6px 0;"></div>
@@ -305,6 +308,7 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
             <tr>
                 <th class="text-right">الصنف</th>
                 <th class="text-center">العدد</th>
+                <th class="text-center">السعر</th>
                 <th class="text-left">الإجمالي</th>
             </tr>
         </thead>
@@ -313,6 +317,7 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
             <tr>
                 <td class="text-right"><?php echo htmlspecialchars($it['product_name']); ?></td>
                 <td class="text-center">x<?php echo $it['quantity']; ?></td>
+                <td class="text-center"><?php echo number_format($it['unit_price'], 2); ?></td>
                 <td class="text-left"><?php echo number_format($it['line_total'], 2); ?> ج.م</td>
             </tr>
             <?php endforeach; ?>
