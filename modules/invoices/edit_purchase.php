@@ -219,21 +219,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         if (isset($_POST['save_only'])) {
             setSuccess('تم تعديل الفاتورة بنجاح');
-            header("Location: list.php");
+            header("Location: list.php?type=purchase");
             exit;
         }
 
-        // Redirect to print with remaining info for installment prompt
-        $redirectUrl = "print.php?id=$invoiceId";
-        
-        // Calculate total remaining including old debt
-        $oldDebt = $supplierOldBalance < 0 ? abs($supplierOldBalance) : 0;
-        $totalRemaining = $remainingAmount + $oldDebt;
-        
-        if ($totalRemaining > 0 && $supplierId) {
-            $redirectUrl .= "&remaining=$totalRemaining&new_amount=$remainingAmount&old_amount=$oldDebt&supplier_id=$supplierId&show_installment=1";
-        }
-        header("Location: $redirectUrl");
+        // Back to the list and open the thermal receipt in a modal
+        header("Location: list.php?type=purchase&printed=$invoiceId");
         exit;
         
     } catch (Exception $e) {

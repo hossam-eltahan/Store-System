@@ -28,7 +28,7 @@ if (!empty($result['success'])) {
         logActivity('اعتماد فاتورة شراء', 'تم اعتماد فاتورة شراء رقم ' . ($result['invoice_number'] ?? $invoiceId), $_SESSION['full_name'] ?? '');
         setSuccess('تم اعتماد الفاتورة وإضافة الأصناف للمخزون بنجاح');
     }
-    redirect('print_purchase.php?id=' . $invoiceId);
+    redirect('list.php?type=purchase&printed=' . $invoiceId);
 } else {
     setError('تعذر الاعتماد: ' . ($result['error'] ?? 'خطأ غير معروف'));
     redirect('list.php?type=purchase&status=draft');

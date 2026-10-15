@@ -431,3 +431,14 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <?php include '../../includes/footer.php'; ?>
+
+<?php if (!empty($_GET['printed']) && (int)$_GET['printed'] > 0): ?>
+<script>
+// Open the just-saved/approved purchase receipt in the standard modal
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof openReceiptModal === 'function') {
+        openReceiptModal('print_purchase.php?id=<?php echo (int)$_GET['printed']; ?>');
+    }
+});
+</script>
+<?php endif; ?>

@@ -83,7 +83,7 @@ $isDraft = (($invoice['status'] ?? 'approved') === 'draft');
 <body>
     <div class="no-print">
         <button class="btn-print" onclick="window.print()">طباعة</button>
-        <button class="btn-print" style="background:#475569;" onclick="if(window.self===window.top){window.close();}else if(window.parent&&typeof window.parent.closeReceiptModal==='function'){window.parent.closeReceiptModal();}">إغلاق</button>
+        <button class="btn-print" style="background:#475569;" onclick="if(window.self!==window.top&&window.parent&&typeof window.parent.closeReceiptModal==='function'){window.parent.closeReceiptModal();}else if(window.history.length>1){window.history.back();}else{window.close();}">إغلاق</button>
     </div>
 
     <div class="header text-center">
@@ -151,7 +151,7 @@ $isDraft = (($invoice['status'] ?? 'approved') === 'draft');
                     <span class="fw-bold"><?php echo htmlspecialchars($itemName); ?></span>
                     <span class="unit-tag"><?php echo htmlspecialchars($pUnit) . $factorTxt; ?><?php echo $stockTxt !== '' ? ' ← ' . htmlspecialchars($stockTxt) : ''; ?></span>
                 </td>
-                <td class="text-center fw-bold" style="font-size: 13px;">x<?php echo $item['quantity']; ?></td>
+                <td class="text-center fw-bold" style="font-size: 13px;">x<?php echo rtrim(rtrim(number_format((float)$item['quantity'], 2), '0'), '.'); ?></td>
                 <td class="text-center"><?php echo number_format($item['unit_price'], 2); ?></td>
                 <td class="text-left fw-bold"><?php echo number_format($item['total'], 2); ?></td>
             </tr>

@@ -185,21 +185,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         if (isset($_POST['save_only'])) {
             setSuccess('تم حفظ الفاتورة بنجاح');
-            header("Location: purchase.php");
+            header("Location: list.php?type=purchase");
             exit;
         }
 
-        // Redirect to print with remaining info for installment prompt
-        $redirectUrl = "print_purchase.php?id=$invoiceId";
-        
-        // Calculate total remaining including old debt we owe supplier
-        $oldDebt = $supplierOldBalance > 0 ? $supplierOldBalance : 0;
-        $totalRemaining = $remainingAmount + $oldDebt;
-        
-        if ($totalRemaining > 0 && $supplierId) {
-            $redirectUrl .= "&remaining=$totalRemaining&new_amount=$remainingAmount&old_amount=$oldDebt&supplier_id=$supplierId&show_installment=1";
-        }
-        header("Location: $redirectUrl");
+        // Stay on the same page and open the thermal receipt in a modal
+        // (same flow as all other receipts: طباعة / إغلاق inside the modal)
+        header("Location: purchase.php?printed=$invoiceId");
         exit;
         
     } catch (Exception $e) {
@@ -1068,3 +1060,14 @@ function onProductCreated(data, productData) {
 </script>
 
 <?php include '../../includes/footer.php'; ?>
+
+<?php if (!empty($_GET['printed']) && (int)$_GET['printed'] > 0): ?>
+<script>
+// Open the just-saved purchase receipt in the standard modal (same page)
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof openReceiptModal === 'function') {
+        openReceiptModal('print_purchase.php?id=<?php echo (int)$_GET['printed']; ?>');
+    }
+});
+</script>
+<?php endif; ?>
