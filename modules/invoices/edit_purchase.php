@@ -54,18 +54,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $notes = sanitize($_POST['notes'] ?? '');
         
         // === REVERSE OLD INVOICE ===
-        // 1. Reverse inventory for the old warehouse
+        // Drafts never touched stock or supplier balance, so there is nothing to reverse.
+        $isDraft = (($oldInvoice['status'] ?? 'approved') === 'draft');
+        // 1. Reverse inventory for the old warehouse (approved invoices only)
         $oldWarehouseId = (int)($oldInvoice['warehouse_id'] ?? 1);
         $oldItems = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
-        foreach ($oldItems as $item) {
-            updateWarehouseStock($oldWarehouseId, $item['product_id'], $item['quantity'], 'subtract');
+        if (!$isDraft) {
+            foreach ($oldItems as $item) {
+                $reverseQty = ($item['stock_quantity'] !== null) ? (int)$item['stock_quantity'] : (int)$item['quantity'];
+                updateWarehouseStock($oldWarehouseId, $item['product_id'], $reverseQty, 'subtract');
+                $oldProd = getRow("SELECT unit FROM products WHERE id = ?", [(int)$item['product_id']]);
+                recordProductMovement((int)$item['product_id'], $oldWarehouseId, 'reversal', 0, $reverseQty,
+                    $oldProd ? $oldProd['unit'] : ($item['unit'] ?? null), 'purchase_invoice', $invoiceId,
+                    'عكس فاتورة شراء قبل التعديل ' . $oldInvoice['invoice_number']);
+            }
+
+            // 2. Reverse supplier balance
+            if ($oldInvoice['supplier_id']) {
+                execute("UPDATE suppliers SET balance = balance - ? WHERE id = ?", [$oldInvoice['remaining_amount'], $oldInvoice['supplier_id']]);
+            }
         }
-        
-        // 2. Reverse supplier balance
-        if ($oldInvoice['supplier_id']) {
-            execute("UPDATE suppliers SET balance = balance - ? WHERE id = ?", [$oldInvoice['remaining_amount'], $oldInvoice['supplier_id']]);
-        }
-        
+
         // 3. Delete old items
         execute("DELETE FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
         
@@ -83,11 +92,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $supplierOldBalance = floatval($supplierData['balance'] ?? 0);
         }
         
-        // Calculate totals
-        $items = json_decode($_POST['items'], true);
+        // Calculate totals + validate items server-side with unit snapshots
+        $rawItems = json_decode($_POST['items'] ?? '[]', true);
+        if (empty($rawItems) || !is_array($rawItems)) {
+            throw new Exception('يرجى إضافة صنف واحد على الأقل');
+        }
         $totalAmount = 0;
-        foreach ($items as $item) {
-            $totalAmount += $item['quantity'] * $item['price'];
+        $preparedItems = [];
+        foreach ($rawItems as $raw) {
+            $productId = (int)($raw['product_id'] ?? $raw['id'] ?? 0);
+            $purchaseQty = (int)($raw['quantity'] ?? 0);
+            $unitPrice = floatval($raw['price'] ?? 0);
+            if ($productId <= 0 || $purchaseQty <= 0 || $unitPrice < 0) {
+                throw new Exception('بيانات صنف غير صالحة في الفاتورة');
+            }
+            $product = getRow("SELECT id, code, name, unit, purchase_unit, units_per_purchase FROM products WHERE id = ?", [$productId]);
+            if (!$product) {
+                throw new Exception('صنف غير موجود في الفاتورة');
+            }
+            $factor = isset($raw['factor']) && (float)$raw['factor'] > 0
+                ? (float)$raw['factor']
+                : (float)($product['units_per_purchase'] ?: 1);
+            if ($factor <= 0) {
+                throw new Exception('معامل التحويل غير صالح للصنف: ' . $product['name']);
+            }
+            $stockQty = purchaseToStockQty($purchaseQty, $factor);
+            $purchaseUnit = sanitize(trim($raw['purchase_unit'] ?? '')) !== ''
+                ? sanitize(trim($raw['purchase_unit']))
+                : ($product['purchase_unit'] ?: $product['unit']);
+            $totalAmount += $purchaseQty * $unitPrice;
+            $preparedItems[] = [
+                'product_id' => $productId,
+                'code' => $product['code'],
+                'name' => $product['name'],
+                'unit' => $product['unit'],
+                'purchase_unit' => $purchaseUnit,
+                'factor' => $factor,
+                'quantity' => $purchaseQty,
+                'stock_quantity' => $stockQty,
+                'price' => $unitPrice,
+            ];
         }
 
         $discount = min(max(0, $discount), $totalAmount);
@@ -126,16 +170,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             [$supplierId, $supplierName, $supplierPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $supplierOldBalance, $paymentMethod, $paymentStatus, $handledBy, $userId, $warehouseId, $notes, $invoiceId]
         );
         
-        // Insert items and update stock
-        foreach ($items as $item) {
+        // Insert items and update stock (stock moves only for approved invoices)
+        foreach ($preparedItems as $item) {
             insert(
-                "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, unit, quantity, unit_price, total) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [$invoiceId, $item['id'], $item['code'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price']]
+                "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, item_name, unit, quantity, unit_price, total, purchase_unit, conversion_factor, stock_quantity)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price'],
+                 $item['purchase_unit'], $item['factor'], $item['stock_quantity']]
             );
-            
-            // Add stock to selected warehouse
-            updateWarehouseStock($warehouseId, $item['id'], $item['quantity'], 'add');
+
+            if (!$isDraft) {
+                // Add stock to selected warehouse
+                addProductStock($item['product_id'], $warehouseId, $item['stock_quantity'], 'purchase', 'purchase_invoice', $invoiceId, 'فاتورة شراء بعد التعديل ' . $invoiceNumber);
+            }
         }
         
         // Auto-add supplier if not registered and has phone number
@@ -155,8 +202,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             execute("UPDATE invoices SET supplier_id = ? WHERE id = ?", [$supplierId, $invoiceId]);
         }
         
-        // Update supplier balance:
-        if ($supplierId) {
+        // Update supplier balance (approved invoices only):
+        if ($supplierId && !$isDraft) {
             execute(
                 "UPDATE suppliers SET balance = balance + ? WHERE id = ?",
                 [$remainingAmount, $supplierId]
@@ -193,7 +240,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get suppliers and products for autocomplete with balance
 $suppliers = getRows("SELECT id, name, phone, balance FROM suppliers ORDER BY name");
-$products = getRows("SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
+$products = getRows("SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
+$knownUnitsEdit = getKnownUnits();
+$isDraftEdit = (($oldInvoice['status'] ?? 'approved') === 'draft');
 $warehouses = getAllWarehouses(true);
 $currentInvoiceWarehouseId = (int)($oldInvoice['warehouse_id'] ?? 1);
 
@@ -431,6 +480,15 @@ include '../../includes/navbar.php';
                     </div>
                 </div>
             </div>
+            <?php if ($isDraftEdit): ?>
+            <div style="display: flex; justify-content: space-between; align-items: center; background: #fef3c7; border: 2px dashed #d97706; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px;">
+                <span style="font-weight: 700; color: #92400e;">📝 هذه مسودة — لم تحرّك المخزون ولا حساب المورد بعد</span>
+                <form method="POST" action="approve_purchase.php" style="margin: 0;" onsubmit="return confirm('اعتماد هذه الفاتورة؟ سيتم إضافة الأصناف للمخزون وتحديث حساب المورد.');">
+                    <input type="hidden" name="id" value="<?php echo (int)$oldInvoice['id']; ?>">
+                    <button type="submit" class="btn btn-success">✅ اعتماد الفاتورة الآن</button>
+                </form>
+            </div>
+            <?php endif; ?>
             
             <!-- supplier Section -->
             <div class="supplier-section">
@@ -481,22 +539,29 @@ include '../../includes/navbar.php';
                 <table class="items-table" id="itemsTable">
                     <thead>
                         <tr>
-                            <th style="width: 40px;">م</th>
-                            <th style="width: 80px;">الكود</th>
+                            <th style="width: 30px;">م</th>
+                            <th style="width: 70px;">الكود</th>
                             <th>الصنف</th>
-                            <th style="width: 60px;">الوحدة</th>
-                            <th style="width: 80px;">الكمية</th>
-                            <th style="width: 100px;">السعر</th>
-                            <th style="width: 100px;">الإجمالي</th>
-                            <th style="width: 50px;"></th>
+                            <th style="width: 70px;">وحدة الشراء</th>
+                            <th style="width: 70px;">الكمية</th>
+                            <th style="width: 60px;">المعامل</th>
+                            <th style="width: 90px;">الناتج بالمخزون</th>
+                            <th style="width: 90px;">السعر</th>
+                            <th style="width: 90px;">الإجمالي</th>
+                            <th style="width: 40px;"></th>
                         </tr>
                     </thead>
                     <tbody id="itemsBody">
                         <tr id="emptyRow">
-                            <td colspan="8" style="padding: 30px; color: #9ca3af;">ابحث عن صنف لإضافته للفاتورة</td>
+                            <td colspan="10" style="padding: 30px; color: #9ca3af;">ابحث عن صنف لإضافته للفاتورة</td>
                         </tr>
                     </tbody>
                 </table>
+                <datalist id="purchaseUnitsListEdit">
+                    <?php foreach ($knownUnitsEdit as $u): ?>
+                        <option value="<?php echo htmlspecialchars($u); ?>"></option>
+                    <?php endforeach; ?>
+                </datalist>
             </div>
             
             <!-- Totals Section -->
@@ -581,14 +646,24 @@ let items = [];
 let itemCounter = 1;
 
 <?php
-$oldItemsForJs = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
+$oldItemsForJs = getRows("SELECT ii.*, p.unit AS p_unit, p.purchase_unit AS p_purchase_unit, p.units_per_purchase AS p_factor
+                          FROM invoice_items ii LEFT JOIN products p ON p.id = ii.product_id
+                          WHERE ii.invoice_id = ?", [$invoiceId]);
 $jsItems = [];
 foreach ($oldItemsForJs as $item) {
+    $jsFactor = ($item['conversion_factor'] !== null && (float)$item['conversion_factor'] > 0)
+        ? (float)$item['conversion_factor']
+        : (float)($item['p_factor'] ?: 1);
+    $jsPurchaseUnit = ($item['purchase_unit'] !== null && $item['purchase_unit'] !== '')
+        ? $item['purchase_unit']
+        : ($item['p_purchase_unit'] ?: ($item['p_unit'] ?: $item['unit']));
     $jsItems[] = [
         'id' => $item['product_id'],
         'code' => $item['product_code'],
         'name' => $item['product_name'],
-        'unit' => $item['unit'],
+        'unit' => $item['p_unit'] ?: $item['unit'],
+        'purchase_unit' => $jsPurchaseUnit,
+        'factor' => $jsFactor,
         'price' => floatval($item['unit_price']),
         'quantity' => floatval($item['quantity']),
         'stock_quantity' => 999999
@@ -604,6 +679,8 @@ initialItems.forEach(item => {
         code: item.code,
         name: item.name,
         unit: item.unit,
+        purchase_unit: item.purchase_unit,
+        factor: item.factor,
         price: item.price,
         quantity: item.quantity,
         max_qty: item.stock_quantity // bypass max qty limit for old items
@@ -695,7 +772,7 @@ productSearch.addEventListener('input', function() {
                 <strong>${p.name}</strong> (${p.code})
                 ${p.stock_quantity <= 0 ? '<span style="color: #dc2626; font-weight: bold; margin-right: 8px;">⚠️ نفذ</span>' : ''}
                 <br>
-                <small style="color: #6b7280;">السعر: ${p.price} جنيه - المخزون: ${p.stock_quantity <= 0 ? '<span style="color: #dc2626;">0</span>' : p.stock_quantity}</small>
+                <small style="color: #6b7280;">السعر: ${p.price} جنيه - شراء: ${p.purchase_unit || p.unit} - المخزون: ${p.stock_quantity <= 0 ? '<span style="color: #dc2626;">0</span>' : p.stock_quantity}</small>
             </div>
         `).join('');
         productResults.style.display = 'block';
@@ -722,6 +799,8 @@ function addProduct(product) {
         code: product.code,
         name: product.name,
         unit: product.unit,
+        purchase_unit: product.purchase_unit || product.unit,
+        factor: parseFloat(product.units_per_purchase) > 0 ? parseFloat(product.units_per_purchase) : 1,
         quantity: 1,
         price: parseFloat(product.price),
         stock: parseInt(product.stock_quantity)
@@ -737,33 +816,60 @@ function renderItems() {
     const tbody = document.getElementById('itemsBody');
     
     if (items.length === 0) {
-        tbody.innerHTML = '<tr id="emptyRow"><td colspan="8" style="padding: 30px; color: #9ca3af;">ابحث عن صنف لإضافته للفاتورة</td></tr>';
+        tbody.innerHTML = '<tr id="emptyRow"><td colspan="10" style="padding: 30px; color: #9ca3af;">ابحث عن صنف لإضافته للفاتورة</td></tr>';
         calculateTotals();
         return;
     }
     
-    tbody.innerHTML = items.map((item, index) => `
+    tbody.innerHTML = items.map((item, index) => {
+        const stockOut = Math.round((parseFloat(item.quantity) || 0) * (parseFloat(item.factor) || 0));
+        return `
         <tr>
             <td>${index + 1}</td>
             <td style="font-size: 0.9em;">${item.code}</td>
-            <td style="text-align: center;"><strong>${item.name}</strong></td>
-            <td>${item.unit}</td>
+            <td style="text-align: center;"><strong>${item.name}</strong><br><small style="color:#6b7280;">وحدة المخزون: ${item.unit}</small></td>
             <td>
-                <input type="number" min="1" value="${item.quantity}" 
+                <input type="text" list="purchaseUnitsListEdit" value="${item.purchase_unit || item.unit}"
+                       onchange="updatePurchaseUnit(${item.id}, this.value)" style="width: 70px;">
+            </td>
+            <td>
+                <input type="number" min="1" value="${item.quantity}"
                        onchange="updateQuantity(${item.id}, this.value)">
             </td>
             <td>
-                <input type="number" step="0.01" value="${item.price}" 
+                <input type="number" step="any" min="0" value="${item.factor || 1}"
+                       onchange="updateFactor(${item.id}, this.value)" style="width: 60px;">
+            </td>
+            <td style="font-weight: bold; color: #059669;">${stockOut} ${item.unit}</td>
+            <td>
+                <input type="number" step="0.01" value="${item.price}"
                        onchange="updatePrice(${item.id}, this.value)">
             </td>
             <td style="font-weight: bold;">${(item.quantity * item.price).toFixed(2)}</td>
             <td>
                 <button type="button" class="remove-btn" onclick="removeItem(${item.id})">✕</button>
             </td>
-        </tr>
-    `).join('');
-    
+        </tr>`;
+    }).join('');
+
     calculateTotals();
+}
+
+function updatePurchaseUnit(id, val) {
+    const item = items.find(i => i.id === id);
+    if (item && val.trim() !== '') {
+        item.purchase_unit = val.trim();
+        renderItems();
+    }
+}
+
+function updateFactor(id, val) {
+    const item = items.find(i => i.id === id);
+    if (item) {
+        const f = parseFloat(val);
+        item.factor = (f > 0) ? f : 1;
+        renderItems();
+    }
 }
 
 function updateQuantity(id, qty) {

@@ -150,6 +150,10 @@ CREATE TABLE IF NOT EXISTS `products` (
     `cost_price` DECIMAL(10,2) DEFAULT 0.00,
     `stock_quantity` INT NOT NULL DEFAULT 999,
     `min_stock_level` INT NOT NULL DEFAULT 5,
+    `purchase_unit` VARCHAR(50) DEFAULT NULL,
+    `units_per_purchase` DECIMAL(12,4) NOT NULL DEFAULT 1,
+    `track_stock` TINYINT(1) NOT NULL DEFAULT 0,
+    `is_direct_sale` TINYINT(1) NOT NULL DEFAULT 1,
     `is_available` TINYINT(1) NOT NULL DEFAULT 1,
     `has_variants` TINYINT(1) NOT NULL DEFAULT 0,
     `has_modifiers` TINYINT(1) NOT NULL DEFAULT 0,
@@ -430,8 +434,10 @@ CREATE TABLE IF NOT EXISTS `orders` (
     `created_by` INT DEFAULT NULL,
     `cancelled_by` INT DEFAULT NULL,
     `cancel_reason` TEXT DEFAULT NULL,
+    `client_key` VARCHAR(64) DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY `unique_client_key` (`client_key`),
     FOREIGN KEY (`table_session_id`) REFERENCES `table_sessions`(`id`) ON DELETE SET NULL,
     FOREIGN KEY (`gaming_session_id`) REFERENCES `gaming_sessions`(`id`) ON DELETE SET NULL,
     FOREIGN KEY (`billiard_session_id`) REFERENCES `billiard_sessions`(`id`) ON DELETE SET NULL,
@@ -573,6 +579,7 @@ CREATE TABLE IF NOT EXISTS `invoices` (
     `handled_by` VARCHAR(100) DEFAULT NULL,
     `user_id` INT DEFAULT NULL,
     `notes` TEXT DEFAULT NULL,
+    `status` ENUM('draft','approved','cancelled') NOT NULL DEFAULT 'approved',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (`customer_id`) REFERENCES `customers`(`id`) ON DELETE SET NULL,
@@ -587,11 +594,37 @@ CREATE TABLE IF NOT EXISTS `invoice_items` (
     `product_id` INT DEFAULT NULL,
     `ingredient_id` INT DEFAULT NULL,
     `item_name` VARCHAR(255) NOT NULL,
+    `product_code` VARCHAR(50) DEFAULT NULL,
+    `product_name` VARCHAR(255) DEFAULT NULL,
     `unit` VARCHAR(50) DEFAULT 'قطعة',
     `quantity` DECIMAL(10,2) NOT NULL,
     `unit_price` DECIMAL(10,2) NOT NULL,
     `total` DECIMAL(10,2) NOT NULL,
+    `purchase_unit` VARCHAR(50) DEFAULT NULL,
+    `conversion_factor` DECIMAL(12,4) DEFAULT NULL,
+    `stock_quantity` INT DEFAULT NULL,
     FOREIGN KEY (`invoice_id`) REFERENCES `invoices`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 33b. سجل حركات مخزون الأصناف (Product Stock Movements — append-only)
+CREATE TABLE IF NOT EXISTS `product_stock_movements` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `product_id` INT NOT NULL,
+    `warehouse_id` INT DEFAULT NULL,
+    `movement_type` ENUM('opening','purchase','sale','customer_return','supplier_return','adjustment','transfer_in','transfer_out','reversal') NOT NULL DEFAULT 'adjustment',
+    `qty_in` INT NOT NULL DEFAULT 0,
+    `qty_out` INT NOT NULL DEFAULT 0,
+    `balance_after` INT NOT NULL DEFAULT 0,
+    `unit` VARCHAR(50) DEFAULT NULL,
+    `reference_type` VARCHAR(30) DEFAULT NULL,
+    `reference_id` INT DEFAULT NULL,
+    `reason` VARCHAR(255) DEFAULT NULL,
+    `user_id` INT DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_psm_product` (`product_id`),
+    INDEX `idx_psm_type` (`movement_type`),
+    INDEX `idx_psm_created` (`created_at`),
+    INDEX `idx_psm_ref` (`reference_type`, `reference_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 34. سجل الرقابة والتدقيق (Audit Logs)
@@ -661,7 +694,8 @@ INSERT INTO `settings` (`setting_key`, `setting_value`, `description`) VALUES
 ('billiard_default_rate_hour', '40.00', 'سعر ساعة البلياردو الافتراضي'),
 ('billiard_default_rate_game', '10.00', 'سعر جيم البلياردو الافتراضي'),
 ('vat_rate', '0.00', 'نسبة الضريبة'),
-('service_charge', '0.00', 'نسبة الخدمة');
+('service_charge', '0.00', 'نسبة الخدمة'),
+('prevent_negative_stock', '0', 'منع البيع بأكثر من المخزون المتاح');
 
 -- نقل مستخدم الأدمن الحالي
 INSERT INTO `users` (`id`, `username`, `password`, `full_name`, `phone`, `role`, `is_active`)

@@ -19,6 +19,7 @@ $canViewPurchases = hasPermission('invoices.purchase.view');
 $search = trim($_GET['search'] ?? '');
 $filterType = $_GET['type'] ?? '';
 $filterPayment = $_GET['payment'] ?? '';
+$filterStatus = $_GET['status'] ?? '';
 $filterWarehouse = (int)($_GET['warehouse_id'] ?? 0);
 $dateFrom = $_GET['date_from'] ?? '';
 $dateTo = $_GET['date_to'] ?? '';
@@ -57,6 +58,17 @@ if ($canViewSales && !$canViewPurchases) {
 if ($filterPayment !== '') {
     $sql .= " AND i.payment_status = ?";
     $params[] = $filterPayment;
+}
+
+if ($filterStatus !== '') {
+    $sql .= " AND i.status = ?";
+    $params[] = $filterStatus;
+}
+
+if ($search !== '') {
+    $sql .= " AND (i.invoice_number LIKE ? OR i.customer_name LIKE ? OR i.customer_phone LIKE ? OR c.name LIKE ? OR s.name LIKE ? OR s.phone LIKE ?)";
+    $like = "%$search%";
+    array_push($params, $like, $like, $like, $like, $like, $like);
 }
 
 if ($filterWarehouse > 0) {
@@ -227,6 +239,16 @@ include '../../includes/navbar.php';
                             <option value="unpaid" <?php echo $filterPayment === 'unpaid' ? 'selected' : ''; ?>>غير مدفوع</option>
                         </select>
                     </div>
+
+                    <div class="filter-group">
+                        <label>حالة الفاتورة</label>
+                        <select name="status" id="filterStatus" class="form-control">
+                            <option value="">الكل</option>
+                            <option value="draft" <?php echo $filterStatus === 'draft' ? 'selected' : ''; ?>>📝 مسودة</option>
+                            <option value="approved" <?php echo $filterStatus === 'approved' ? 'selected' : ''; ?>>✅ معتمدة</option>
+                            <option value="cancelled" <?php echo $filterStatus === 'cancelled' ? 'selected' : ''; ?>>❌ ملغاة</option>
+                        </select>
+                    </div>
                     
                     <div class="filter-group" style="display: flex; align-items: flex-end;">
                         <a href="list.php" class="btn btn-secondary" style="width: 100%;">↺ إعادة تعيين</a>
@@ -245,6 +267,7 @@ include '../../includes/navbar.php';
                         'search' => $search,
                         'type' => $filterType,
                         'payment' => $filterPayment,
+                        'status' => $filterStatus,
                         'warehouse_id' => $filterWarehouse,
                         'date_from' => $dateFrom,
                         'date_to' => $dateTo
@@ -274,13 +297,14 @@ include '../../includes/navbar.php';
                             <th>المدفوع</th>
                             <th>الباقي</th>
                             <th>حالة الدفع</th>
+                            <th>الحالة</th>
                             <th>إجراءات</th>
                         </tr>
                     </thead>
                     <tbody id="invoicesBody">
                         <?php if (empty($invoices)): ?>
                         <tr>
-                            <td colspan="10" class="text-center">لا توجد فواتير</td>
+                            <td colspan="11" class="text-center">لا توجد فواتير</td>
                         </tr>
                         <?php else: ?>
                         <?php foreach ($invoices as $invoice): ?>
@@ -327,6 +351,16 @@ include '../../includes/navbar.php';
                                 </span>
                             </td>
                             <td>
+                                <?php
+                                $invStatus = $invoice['status'] ?? 'approved';
+                                $invStatusClass = ['draft' => 'badge-warning', 'approved' => 'badge-success', 'cancelled' => 'badge-danger'];
+                                $invStatusText = ['draft' => '📝 مسودة', 'approved' => '✅ معتمدة', 'cancelled' => '❌ ملغاة'];
+                                ?>
+                                <span class="badge <?php echo $invStatusClass[$invStatus] ?? 'badge-success'; ?>">
+                                    <?php echo $invStatusText[$invStatus] ?? $invStatus; ?>
+                                </span>
+                            </td>
+                            <td>
                                 <?php 
                                 $printPage = $invoice['type'] === 'purchase' ? 'print_purchase.php' : 'print.php';
                                 $returnPage = $invoice['type'] === 'purchase' ? '../returns/create_supplier.php' : '../returns/create.php';
@@ -339,6 +373,12 @@ include '../../includes/navbar.php';
                                 ?>
                                 <?php if ($canPrintThis): ?>
                                 <a href="<?php echo $printPage; ?>?id=<?php echo $invoice['id']; ?>" class="btn btn-primary" title="طباعة">🖨️</a>
+                                <?php endif; ?>
+                                <?php if (($invoice['status'] ?? 'approved') === 'draft' && $invoice['type'] === 'purchase' && hasAnyPermission(['invoices.purchase.create', 'invoices.purchase.edit'])): ?>
+                                <form method="POST" action="approve_purchase.php" style="display: inline;" onsubmit="return confirm('اعتماد هذه الفاتورة؟ سيتم إضافة الأصناف للمخزون وتحديث حساب المورد.');">
+                                    <input type="hidden" name="id" value="<?php echo $invoice['id']; ?>">
+                                    <button type="submit" class="btn btn-success" title="اعتماد الفاتورة">✅</button>
+                                </form>
                                 <?php endif; ?>
                                 <?php if ($canReturnThis): ?>
                                 <a href="<?php echo $returnPage; ?>?invoice_id=<?php echo $invoice['id']; ?>" class="btn btn-warning" title="مرتجع">↩️</a>
@@ -368,6 +408,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var filterDateFrom = document.getElementById('filterDateFrom');
     var filterDateTo = document.getElementById('filterDateTo');
     var filterPayment = document.getElementById('filterPayment');
+    var filterStatus = document.getElementById('filterStatus');
     var filterWarehouse = document.getElementById('filterWarehouse');
     
     var timeout = null;
@@ -385,6 +426,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Instant submit on filter change
     if (filterType) filterType.addEventListener('change', function() { searchForm.submit(); });
     if (filterPayment) filterPayment.addEventListener('change', function() { searchForm.submit(); });
+    if (filterStatus) filterStatus.addEventListener('change', function() { searchForm.submit(); });
     if (filterWarehouse) filterWarehouse.addEventListener('change', function() { searchForm.submit(); });
     if (filterDateFrom) filterDateFrom.addEventListener('change', function() { searchForm.submit(); });
     if (filterDateTo) filterDateTo.addEventListener('change', function() { searchForm.submit(); });

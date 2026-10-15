@@ -299,6 +299,17 @@ body {
     font-weight: 700;
 }
 
+.stock-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-weight: 800;
+    border: 1px solid transparent;
+}
+.stock-badge.ok { background: #ecfdf5; color: #059669; border-color: #a7f3d0; }
+.stock-badge.low { background: #fef3c7; color: #b45309; border-color: #fcd34d; }
+.stock-badge.out { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+
 /* Left Panel: Cart Section */
 .pos-cart-panel {
     background: var(--pos-card);
@@ -919,6 +930,32 @@ body {
 let products = [];
 let cart = [];
 let currentCategory = '';
+// Idempotency key for the current cart: one key per cart lifecycle, so a
+// retried/network-failed submit never creates a second order or double deduction.
+let checkoutKey = null;
+
+function getCheckoutKey() {
+    if (!checkoutKey) {
+        checkoutKey = 'ck-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    }
+    return checkoutKey;
+}
+
+// Live stock preview (display only): server snapshot minus what's in the cart.
+// Real deduction happens server-side only when checkout succeeds.
+function cartQtyOf(productId) {
+    return cart.reduce((acc, it) => acc + ((parseInt(it.product_id) === parseInt(productId)) ? (parseInt(it.quantity) || 0) : 0), 0);
+}
+
+function stockBadge(prod) {
+    if (parseInt(prod.track_stock) !== 1) return '';
+    const base = parseInt(prod.stock_quantity) || 0;
+    const preview = base - cartQtyOf(prod.id);
+    const min = parseInt(prod.min_stock_level) || 0;
+    const cls = preview <= 0 ? 'out' : (preview <= min ? 'low' : 'ok');
+    const label = preview <= 0 ? `🔴 نفذ` : `📦 ${preview} ${escapeHtml(prod.unit || '')}`;
+    return `<span class="stock-badge ${cls}">${label}</span>`;
+}
 let currentOrderType = 'takeaway';
 let destinations = { gaming_sessions: [], billiard_sessions: [], table_sessions: [], available_tables: [] };
 
@@ -1017,7 +1054,7 @@ function renderProductsGrid() {
 
     grid.innerHTML = products.map(prod => `
         <div class="pos-product-card" onclick="onProductClick(${prod.id})">
-            <div class="product-name">${escapeHtml(prod.name)}</div>
+            <div class="product-name">${escapeHtml(prod.name)} ${stockBadge(prod)}</div>
             <div class="product-footer">
                 <span class="product-price">${prod.is_service ? '⚙️ حسب الاختيار' : `${parseFloat(prod.price).toFixed(2)} ج.م`}</span>
                 ${prod.is_service ? `<span class="variant-indicator">خدمة</span>` : (prod.has_variants ? `<span class="variant-indicator">أحجام</span>` : (prod.has_modifiers ? `<span class="variant-indicator">إضافات</span>` : ''))}
@@ -1364,6 +1401,7 @@ function addToCart(product, variant, modifiers, note) {
     }
 
     renderCart();
+    renderProductsGrid();
 }
 
 // Render Cart
@@ -1432,11 +1470,13 @@ function updateQty(index, delta) {
         cart.splice(index, 1);
     }
     renderCart();
+    renderProductsGrid();
 }
 
 function removeItem(index) {
     cart.splice(index, 1);
     renderCart();
+    renderProductsGrid();
 }
 
 // Checkout modal (POS version of the gaming end-session modal)
@@ -1586,7 +1626,8 @@ async function processCheckout(isDeferred, disc = 0, method = 'cash') {
         payment_method: method,
         customer_name: document.getElementById('customerNameInput').value.trim(),
         notes: document.getElementById('orderNotesInput').value.trim(),
-        pay_now: !isDeferred
+        pay_now: !isDeferred,
+        client_key: getCheckoutKey()
     };
 
     try {
@@ -1603,11 +1644,13 @@ async function processCheckout(isDeferred, disc = 0, method = 'cash') {
                 openReceiptModal(`receipt.php?id=${data.order_id}&type=customer`);
             }
 
-            // Reset Cart
+            // Reset Cart + idempotency key, refresh live stock badges
             cart = [];
+            checkoutKey = null;
             document.getElementById('customerNameInput').value = '';
             document.getElementById('orderNotesInput').value = '';
             renderCart();
+            loadProducts();
             loadDestinations();
 
             // Success alert disabled by UX preference.

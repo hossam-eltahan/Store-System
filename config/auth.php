@@ -32,6 +32,14 @@ function getAllPermissions() {
                 'products.delete' => 'حذف صنف',
             ]
         ],
+        'inventory' => [
+            'label' => 'المخزون',
+            'icon' => '🏭',
+            'permissions' => [
+                'inventory.view' => 'عرض المخزون وسجل الحركات',
+                'inventory.adjust' => 'تسوية وضبط أرصدة المخزون',
+            ]
+        ],
         'categories' => [
             'label' => 'فئات الأصناف',
             'icon' => '🏷️',

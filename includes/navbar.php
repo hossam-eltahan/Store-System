@@ -315,6 +315,26 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
+            <!-- فواتير الشراء -->
+            <?php if (hasAnyPermission(['invoices.purchase.view', 'invoices.purchase.create'])): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/invoices/list.php?type=purchase" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'invoices') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">📥</span>
+                    <span class="sidebar-text">فواتير الشراء</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <!-- المخزون -->
+            <?php if (hasPermission('inventory.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/inventory/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'inventory') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🏭</span>
+                    <span class="sidebar-text">المخزون</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
             <!-- العملاء -->
             <?php if (hasPermission('customers.view')): ?>
             <li>

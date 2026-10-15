@@ -15,10 +15,13 @@ $pageTitle = 'فاتورة شراء جديدة';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         beginTransaction();
-        
+
         // Generate invoice number
         $invoiceNumber = generateInvoiceNumber('purchase');
-        
+
+        // Draft or immediate approval?
+        $isDraft = isset($_POST['save_draft']);
+
         // Get form data
         $supplierId = !empty($_POST['supplier_id']) ? $_POST['supplier_id'] : null;
         $supplierName = sanitize($_POST['supplier_name'] ?? '');
@@ -31,23 +34,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $handledBy = $_SESSION['full_name'] ?? 'المدير';
         $userId = getCurrentUserId();
         $notes = sanitize($_POST['notes'] ?? '');
-        
+
         // Get supplier's old balance BEFORE this invoice
         $supplierOldBalance = 0;
         if ($supplierId) {
             $supplierData = getRow("SELECT balance FROM suppliers WHERE id = ?", [$supplierId]);
             $supplierOldBalance = floatval($supplierData['balance'] ?? 0);
         }
-        
-        // Calculate totals
-        $items = json_decode($_POST['items'], true);
+
+        // Calculate totals + validate items server-side (never trust JS math)
+        $items = json_decode($_POST['items'] ?? '[]', true);
+        if (empty($items) || !is_array($items)) {
+            throw new Exception('يرجى إضافة صنف واحد على الأقل');
+        }
         $totalAmount = 0;
+        $preparedItems = [];
         foreach ($items as $item) {
-            $totalAmount += $item['quantity'] * $item['price'];
+            $productId = (int)($item['product_id'] ?? 0);
+            $purchaseQty = (int)($item['quantity'] ?? 0);
+            $unitPrice = floatval($item['price'] ?? 0);
+            if ($productId <= 0 || $purchaseQty <= 0 || $unitPrice < 0) {
+                throw new Exception('بيانات صنف غير صالحة في الفاتورة');
+            }
+            $product = getRow("SELECT id, code, name, unit, purchase_unit, units_per_purchase FROM products WHERE id = ?", [$productId]);
+            if (!$product) {
+                throw new Exception('صنف غير موجود في الفاتورة');
+            }
+            // Factor sent by the form is a snapshot; validate and recompute here
+            $factor = isset($item['factor']) && (float)$item['factor'] > 0
+                ? (float)$item['factor']
+                : (float)($product['units_per_purchase'] ?: 1);
+            if ($factor <= 0) {
+                throw new Exception('معامل التحويل غير صالح للصنف: ' . $product['name']);
+            }
+            $stockQty = purchaseToStockQty($purchaseQty, $factor);
+            $purchaseUnit = sanitize(trim($item['purchase_unit'] ?? '')) !== ''
+                ? sanitize(trim($item['purchase_unit']))
+                : ($product['purchase_unit'] ?: $product['unit']);
+            $totalAmount += $purchaseQty * $unitPrice;
+            $preparedItems[] = [
+                'product_id' => $productId,
+                'code' => $product['code'],
+                'name' => $product['name'],
+                'unit' => $product['unit'],
+                'purchase_unit' => $purchaseUnit,
+                'factor' => $factor,
+                'quantity' => $purchaseQty,
+                'stock_quantity' => $stockQty,
+                'price' => $unitPrice,
+            ];
         }
 
         $discount = min(max(0, $discount), $totalAmount);
-        
+
         $finalAmount = $totalAmount - $discount;
         $remainingAmount = $finalAmount - $paidAmount;
         
@@ -75,23 +114,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $paymentStatus = 'unpaid';
         }
         
-        // Insert invoice with old_balance, user_id, and warehouse_id
+        // Insert invoice with old_balance, user_id, warehouse_id and approval status
+        $invoiceStatus = $isDraft ? 'draft' : 'approved';
         $invoiceId = insert(
-            "INSERT INTO invoices (invoice_number, type, supplier_id, customer_name, customer_phone, date, total_amount, discount, paid_amount, remaining_amount, old_balance, payment_method, payment_status, handled_by, user_id, warehouse_id, notes) 
-            VALUES (?, 'purchase', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [$invoiceNumber, $supplierId, $supplierName, $supplierPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $supplierOldBalance, $paymentMethod, $paymentStatus, $handledBy, $userId, $warehouseId, $notes]
+            "INSERT INTO invoices (invoice_number, type, supplier_id, customer_name, customer_phone, date, total_amount, discount, paid_amount, remaining_amount, old_balance, payment_method, payment_status, handled_by, user_id, warehouse_id, notes, status)
+            VALUES (?, 'purchase', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [$invoiceNumber, $supplierId, $supplierName, $supplierPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $supplierOldBalance, $paymentMethod, $paymentStatus, $handledBy, $userId, $warehouseId, $notes, $invoiceStatus]
         );
-        
-        // Insert items and INCREASE warehouse stock
-        foreach ($items as $item) {
+
+        // Insert items with unit snapshots; stock moves only on approval
+        foreach ($preparedItems as $item) {
             insert(
-                "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, unit, quantity, unit_price, total) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price']]
+                "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, item_name, unit, quantity, unit_price, total, purchase_unit, conversion_factor, stock_quantity)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price'],
+                 $item['purchase_unit'], $item['factor'], $item['stock_quantity']]
             );
-            
-            // INCREASE stock in selected warehouse (and sync aggregate products.stock_quantity)
-            updateWarehouseStock($warehouseId, $item['product_id'], $item['quantity'], 'add');
+
+            if (!$isDraft) {
+                // INCREASE stock in selected warehouse (and sync aggregate products.stock_quantity)
+                addProductStock($item['product_id'], $warehouseId, $item['stock_quantity'], 'purchase', 'purchase_invoice', $invoiceId, 'فاتورة شراء ' . $invoiceNumber);
+            }
         }
         
         // Auto-add supplier if not registered and has phone number
@@ -112,19 +155,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             execute("UPDATE invoices SET supplier_id = ? WHERE id = ?", [$supplierId, $invoiceId]);
         }
         
-        // Update supplier balance:
+        // Update supplier balance (approved invoices only — drafts touch nothing):
         // - Positive balance means we owe the supplier
         // - remainingAmount > 0 means we still owe from this invoice
         // - remainingAmount < 0 means we overpaid (can apply to old debt)
-        if ($supplierId) {
+        if ($supplierId && !$isDraft) {
             // Always update balance with the remaining amount
             execute(
                 "UPDATE suppliers SET balance = balance + ? WHERE id = ?",
                 [$remainingAmount, $supplierId]
             );
         }
-        
+
         commit();
+        if ($isDraft) {
+            logActivity('إنشاء مسودة شراء', "تم حفظ مسودة فاتورة شراء رقم {$invoiceNumber} (بدون حركة مخزون)", $handledBy);
+            setSuccess('تم حفظ المسودة بنجاح — لم يتم تحريك المخزون. اعتمدها من القائمة لتطبيقها.');
+            header("Location: list.php?type=purchase&status=draft");
+            exit;
+        }
         logActivity('إنشاء فاتورة شراء', "تم إنشاء فاتورة شراء رقم {$invoiceNumber}", $handledBy);
         
         if (isset($_POST['save_only'])) {
@@ -152,9 +201,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Get suppliers and products with balance
+// Get suppliers and products with balance (+ stock unit config for purchase lines)
 $suppliers = getRows("SELECT id, name, phone, balance FROM suppliers ORDER BY name");
-$products = getRows("SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
+$products = getRows("SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
+$knownUnits = getKnownUnits();
 $warehouses = getAllWarehouses(true);
 $userWarehouseId = getCurrentWarehouseId();
 
@@ -442,22 +492,29 @@ include '../../includes/navbar.php';
                 <table class="items-table" id="itemsTable">
                     <thead>
                         <tr>
-                            <th style="width: 40px;">م</th>
-                            <th style="width: 80px;">الكود</th>
+                            <th style="width: 30px;">م</th>
+                            <th style="width: 70px;">الكود</th>
                             <th>الصنف</th>
-                            <th style="width: 60px;">الوحدة</th>
-                            <th style="width: 80px;">الكمية</th>
-                            <th style="width: 100px;">سعر الشراء</th>
-                            <th style="width: 100px;">الإجمالي</th>
-                            <th style="width: 50px;"></th>
+                            <th style="width: 70px;">وحدة الشراء</th>
+                            <th style="width: 70px;">الكمية</th>
+                            <th style="width: 60px;">المعامل</th>
+                            <th style="width: 90px;">الناتج بالمخزون</th>
+                            <th style="width: 90px;">سعر الشراء</th>
+                            <th style="width: 90px;">الإجمالي</th>
+                            <th style="width: 40px;"></th>
                         </tr>
                     </thead>
                     <tbody id="itemsBody">
                         <tr id="emptyRow">
-                            <td colspan="8" style="padding: 30px; color: #9ca3af;">ابحث عن صنف لإضافته للفاتورة</td>
+                            <td colspan="10" style="padding: 30px; color: #9ca3af;">ابحث عن صنف لإضافته للفاتورة</td>
                         </tr>
                     </tbody>
                 </table>
+                <datalist id="purchaseUnitsList">
+                    <?php foreach ($knownUnits as $u): ?>
+                        <option value="<?php echo htmlspecialchars($u); ?>"></option>
+                    <?php endforeach; ?>
+                </datalist>
             </div>
             
             <!-- Totals Section -->
@@ -521,13 +578,17 @@ include '../../includes/navbar.php';
             <!-- Submit -->
             <div class="d-flex gap-2">
                 <button type="submit" name="save_and_print" class="btn-submit" style="flex: 1;">
-                    🖨️ حفظ وطباعة
+                    🖨️ اعتماد وطباعة
                 </button>
                 <button type="submit" name="save_only" class="btn btn-success btn-lg" style="flex: 1;">
-                    💾 حفظ فقط
+                    ✅ اعتماد وحفظ
+                </button>
+                <button type="submit" name="save_draft" class="btn btn-warning btn-lg" style="flex: 1;">
+                    📝 حفظ مسودة
                 </button>
                 <a href="list.php" class="btn btn-secondary btn-lg" style="flex: 1; text-align: center;">❌ إلغاء</a>
             </div>
+            <small style="color: #6b7280;">المسودة تُحفظ بدون تحريك المخزون أو حساب المورد — الاعتماد يتم من القائمة أو من صفحة الطباعة.</small>
         </form>
     </div>
 </div>
@@ -542,7 +603,7 @@ include '../../includes/navbar.php';
         <form id="newProductForm">
             <div class="form-group" style="margin-bottom: 15px;">
                 <label class="form-label" style="font-weight: bold;">اسم الصنف *</label>
-                <input type="text" id="newProductName" class="form-control" required placeholder="مثال: تلفزيون سامسونج 55 بوصة">
+                <input type="text" id="newProductName" class="form-control" required placeholder="مثال: بيبسي زجاجة">
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
                 <div class="form-group">
@@ -550,19 +611,48 @@ include '../../includes/navbar.php';
                     <input type="text" id="newProductCode" class="form-control" placeholder="يُنشأ تلقائياً" readonly style="background: #f3f4f6;">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" style="font-weight: bold;">الوحدة *</label>
-                    <input type="text" id="newProductUnit" class="form-control" value="قطعة" required>
+                    <label class="form-label" style="font-weight: bold;">التصنيف</label>
+                    <select id="newProductCategory" class="form-control">
+                        <option value="">-- بدون تصنيف --</option>
+                        <?php foreach (getRows("SELECT id, name FROM categories WHERE is_active = 1 ORDER BY name") as $cat): ?>
+                            <option value="<?php echo $cat['id']; ?>"><?php echo htmlspecialchars($cat['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: bold;">وحدة المخزون / البيع *</label>
+                    <input type="text" id="newProductUnit" class="form-control" list="purchaseUnitsList" value="قطعة" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: bold;">وحدة الشراء</label>
+                    <input type="text" id="newProductPurchaseUnit" class="form-control" list="purchaseUnitsList" placeholder="كرتونة، كيلو">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: bold;">وحدة الشراء = كم مخزون؟</label>
+                    <input type="number" id="newProductFactor" class="form-control" step="any" min="0" value="1" placeholder="مثال: 20">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: bold;">الحد الأدنى للتنبيه</label>
+                    <input type="number" id="newProductMinStock" class="form-control" value="5" min="0">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: bold;">سعر الشراء (آخر سعر)</label>
+                    <input type="number" id="newProductCost" class="form-control" step="0.01" value="0" placeholder="0.00">
+                </div>
                 <div class="form-group">
                     <label class="form-label" style="font-weight: bold;">سعر البيع</label>
                     <input type="number" id="newProductPrice" class="form-control" step="0.01" value="0" placeholder="0.00">
                 </div>
-                <div class="form-group">
-                    <label class="form-label" style="font-weight: bold;">الحد الأدنى للمخزون</label>
-                    <input type="number" id="newProductMinStock" class="form-control" value="5">
-                </div>
+            </div>
+            <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                <label style="font-size: 0.9em;"><input type="checkbox" id="newProductTrack" checked> 📦 تتبع المخزون</label>
+                <label style="font-size: 0.9em;"><input type="checkbox" id="newProductDirectSale" checked> 🧾 بيع مباشر في الكاشير</label>
             </div>
             <div style="display: flex; gap: 10px;">
                 <button type="submit" style="flex: 1; background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 12px; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer;">
@@ -661,12 +751,12 @@ productSearch.addEventListener('input', function() {
         productResults.innerHTML = matches.map(p => `
             <div class="autocomplete-item" onclick='addProduct(${JSON.stringify(p)})'>
                 <strong>${p.name}</strong> (${p.code})<br>
-                <small style="color: #6b7280;">المخزون الحالي: ${p.stock_quantity}</small>
+                <small style="color: #6b7280;">شراء: ${p.purchase_unit || p.unit} | مخزون: ${p.unit} | المخزون الحالي: ${p.stock_quantity}</small>
             </div>
         `).join('');
         productResults.style.display = 'block';
     } else {
-        productResults.innerHTML = '<div class="autocomplete-item" style="color: #dc2626;">لا توجد نتائج</div>';
+        productResults.innerHTML = '<div class="autocomplete-item" style="color: #dc2626;">لا توجد نتائج — استخدم زر «➕ صنف جديد»</div>';
         productResults.style.display = 'block';
     }
 });
@@ -681,13 +771,15 @@ function addProduct(product) {
         productResults.style.display = 'none';
         return;
     }
-    
+
     items.push({
         id: itemCounter++,
         product_id: product.id,
         code: product.code,
         name: product.name,
         unit: product.unit,
+        purchase_unit: product.purchase_unit || product.unit,
+        factor: parseFloat(product.units_per_purchase) > 0 ? parseFloat(product.units_per_purchase) : 1,
         quantity: 1,
         price: 0 // Purchase price starts at 0 - user enters it
     });
@@ -700,35 +792,62 @@ function addProduct(product) {
 
 function renderItems() {
     const tbody = document.getElementById('itemsBody');
-    
+
     if (items.length === 0) {
-        tbody.innerHTML = '<tr id="emptyRow"><td colspan="8" style="padding: 30px; color: #9ca3af;">ابحث عن صنف لإضافته للفاتورة</td></tr>';
+        tbody.innerHTML = '<tr id="emptyRow"><td colspan="10" style="padding: 30px; color: #9ca3af;">ابحث عن صنف لإضافته للفاتورة</td></tr>';
         calculateTotals();
         return;
     }
-    
-    tbody.innerHTML = items.map((item, index) => `
+
+    tbody.innerHTML = items.map((item, index) => {
+        const stockOut = Math.round((parseFloat(item.quantity) || 0) * (parseFloat(item.factor) || 0));
+        return `
         <tr>
             <td>${index + 1}</td>
             <td style="font-size: 0.9em;">${item.code}</td>
-            <td style="text-align: right;"><strong>${item.name}</strong></td>
-            <td>${item.unit}</td>
+            <td style="text-align: right;"><strong>${item.name}</strong><br><small style="color:#6b7280;">وحدة المخزون: ${item.unit}</small></td>
             <td>
-                <input type="number" min="1" value="${item.quantity}" 
+                <input type="text" list="purchaseUnitsList" value="${item.purchase_unit}"
+                       onchange="updatePurchaseUnit(${item.id}, this.value)" style="width: 70px;">
+            </td>
+            <td>
+                <input type="number" min="1" value="${item.quantity}"
                        onchange="updateQuantity(${item.id}, this.value)">
             </td>
             <td>
-                <input type="number" step="0.01" value="${item.price}" 
+                <input type="number" step="any" min="0" value="${item.factor}"
+                       onchange="updateFactor(${item.id}, this.value)" style="width: 60px;" title="وحدة الشراء = كم وحدة مخزون">
+            </td>
+            <td style="font-weight: bold; color: #059669;">${stockOut} ${item.unit}</td>
+            <td>
+                <input type="number" step="0.01" value="${item.price}"
                        onchange="updatePrice(${item.id}, this.value)" placeholder="سعر الشراء">
             </td>
             <td style="font-weight: bold;">${(item.quantity * item.price).toFixed(2)}</td>
             <td>
                 <button type="button" class="remove-btn" onclick="removeItem(${item.id})">✕</button>
             </td>
-        </tr>
-    `).join('');
-    
+        </tr>`;
+    }).join('');
+
     calculateTotals();
+}
+
+function updatePurchaseUnit(id, val) {
+    const item = items.find(i => i.id === id);
+    if (item && val.trim() !== '') {
+        item.purchase_unit = val.trim();
+        renderItems();
+    }
+}
+
+function updateFactor(id, val) {
+    const item = items.find(i => i.id === id);
+    if (item) {
+        const f = parseFloat(val);
+        item.factor = (f > 0) ? f : 1;
+        renderItems();
+    }
 }
 
 function updateQuantity(id, qty) {
@@ -877,8 +996,14 @@ document.getElementById('newProductForm').addEventListener('submit', function(e)
         name: document.getElementById('newProductName').value,
         code: document.getElementById('newProductCode').value,
         unit: document.getElementById('newProductUnit').value,
+        purchase_unit: document.getElementById('newProductPurchaseUnit').value,
+        factor: document.getElementById('newProductFactor').value || 1,
+        category_id: document.getElementById('newProductCategory').value,
+        cost_price: document.getElementById('newProductCost').value || 0,
         price: document.getElementById('newProductPrice').value || 0,
-        min_stock: document.getElementById('newProductMinStock').value || 5
+        min_stock: document.getElementById('newProductMinStock').value || 5,
+        track_stock: document.getElementById('newProductTrack').checked ? 1 : 0,
+        is_direct_sale: document.getElementById('newProductDirectSale').checked ? 1 : 0
     };
     
     fetch('ajax.php', {
@@ -889,28 +1014,50 @@ document.getElementById('newProductForm').addEventListener('submit', function(e)
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            // Add to invoice
-            const newProduct = {
-                id: data.product_id,
-                code: productData.code,
-                name: productData.name,
-                unit: productData.unit,
-                price: 0,
-                stock_quantity: 0
-            };
-            addProduct(newProduct);
-            
-            // Add to products array for future searches
-            products.push(newProduct);
-            
-            closeNewProductModal();
-            alert('✅ تم إضافة الصنف بنجاح وإضافته للفاتورة');
+            onProductCreated(data, productData);
+        } else if (data.similar && data.similar.length) {
+            const names = data.similar.map(s => '• ' + s.name + ' (' + s.code + ')').join('\n');
+            if (confirm('⚠️ توجد أصناف مشابهة بالفعل:\n' + names + '\n\nاضغط «موافق» لإنشاء صنف جديد على أي حال، أو «إلغاء» للرجوع واختيار الموجود.')) {
+                productData.force_create = 1;
+                fetch('ajax.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams(productData)
+                })
+                .then(r => r.json())
+                .then(data2 => {
+                    if (data2.success) { onProductCreated(data2, productData); }
+                    else { alert('❌ خطأ: ' + (data2.error || 'حدث خطأ')); }
+                })
+                .catch(() => alert('❌ حدث خطأ في الاتصال'));
+            }
         } else {
             alert('❌ خطأ: ' + (data.error || 'حدث خطأ'));
         }
     })
     .catch(() => alert('❌ حدث خطأ في الاتصال'));
 });
+
+function onProductCreated(data, productData) {
+    // Add to invoice (carry the unit config so conversion previews work)
+    const newProduct = {
+        id: data.product_id,
+        code: data.code || productData.code,
+        name: productData.name,
+        unit: productData.unit,
+        purchase_unit: productData.purchase_unit || productData.unit,
+        units_per_purchase: productData.factor,
+        price: 0,
+        stock_quantity: 0
+    };
+    addProduct(newProduct);
+
+    // Add to products array for future searches
+    products.push(newProduct);
+
+    closeNewProductModal();
+    alert('✅ تم إضافة الصنف بنجاح وإضافته للفاتورة');
+}
 </script>
 
 <?php include '../../includes/footer.php'; ?>

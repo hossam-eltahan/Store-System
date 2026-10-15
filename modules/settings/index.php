@@ -42,6 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $enableSoundAlerts = isset($_POST['enable_sound_alerts']) ? '1' : '0';
     $allowEditInvoices = isset($_POST['allow_edit_invoices']) ? '1' : '0';
     $allowDeleteInvoices = isset($_POST['allow_delete_invoices']) ? '1' : '0';
+    $preventNegativeStock = isset($_POST['prevent_negative_stock']) ? '1' : '0';
     
     // Handle logo upload
     if (isset($_FILES['store_logo']) && $_FILES['store_logo']['error'] === UPLOAD_ERR_OK) {
@@ -83,6 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     updateSetting('enable_sound_alerts', $enableSoundAlerts);
     updateSetting('allow_edit_invoices', $allowEditInvoices);
     updateSetting('allow_delete_invoices', $allowDeleteInvoices);
+    updateSetting('prevent_negative_stock', $preventNegativeStock);
 
     // Automatic periodic backup schedule
     $autoBackupEnabled = isset($_POST['auto_backup_enabled']) ? '1' : '0';
@@ -306,6 +308,9 @@ $statusText = $isLife ? '💎 ترخيص دائم مدى الحياة' : ($isDev
                     <label><input type="checkbox" name="allow_delete_invoices" value="1"
                                <?php echo ($settings['allow_delete_invoices'] ?? '0') == '1' ? 'checked' : ''; ?>>
                         <span>حذف الفواتير بصلاحية إدارية</span></label>
+                    <label><input type="checkbox" name="prevent_negative_stock" value="1"
+                               <?php echo ($settings['prevent_negative_stock'] ?? '0') == '1' ? 'checked' : ''; ?>>
+                        <span>منع البيع بأكثر من المخزون المتاح (إيقافه = تحذير فقط)</span></label>
                 </div>
             </div>
 

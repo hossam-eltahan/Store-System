@@ -31,6 +31,8 @@ if (!in_array($userSubView, ['overview', 'orders', 'sessions', 'collections', 'a
 $allReportTypes = [
     'daily' => '📊 ملخص الدخل الشامل',
     'orders' => '☕ مبيعات المنيو والطلبات',
+    'stock' => '🏭 المخزون والنواقص',
+    'purchases' => '📥 المشتريات والموردين',
     'gaming' => '🎮 إيرادات البلايستيشن',
     'billiards' => '🎱 إيرادات البلياردو',
     'payments' => '💵 التحصيلات والمدفوعات',
@@ -52,6 +54,12 @@ if (isAdmin()) {
     }
     if (hasPermission('reports.statement')) {
         $typeNames['statement'] = '🧾 كشف حساب';
+    }
+    if (hasPermission('inventory.view')) {
+        $typeNames['stock'] = $allReportTypes['stock'];
+    }
+    if (hasPermission('invoices.purchase.view')) {
+        $typeNames['purchases'] = $allReportTypes['purchases'];
     }
     
     // Validate requested report type
@@ -405,6 +413,111 @@ switch ($reportType) {
             ['title'=>'💰 إجمالي الدخل', 'value'=>formatCurrency($totalIncome), 'color'=>'success', 'icon'=>'fa-money-bill-wave'],
             ['title'=>'💸 المصروفات التشغيلية', 'value'=>formatCurrency($totExp), 'color'=>'danger', 'icon'=>'fa-file-invoice-dollar'],
             ['title'=>'💎 صافي الربح (' . number_format($netMargin, 1) . '%)', 'value'=>formatCurrency($netProfitReal), 'color'=>($netProfitReal >= 0 ? 'success' : 'danger'), 'icon'=>'fa-chart-line']
+        ];
+        break;
+
+    case 'stock':
+        $activeFilters = [];
+        $columns = [
+            'name' => 'الصنف',
+            'unit_info' => 'الوحدات',
+            'stock_lbl' => 'الرصيد (وحدة المخزون)',
+            'min_lbl' => 'حد التنبيه',
+            'status_lbl' => 'الحالة',
+        ];
+
+        $stockRows = getRows("
+            SELECT p.id, p.code, p.name, p.unit, p.purchase_unit, p.units_per_purchase,
+                   p.stock_quantity, p.min_stock_level, p.track_stock, p.is_direct_sale,
+                   c.name AS category_name
+            FROM products p
+            LEFT JOIN categories c ON c.id = p.category_id
+            ORDER BY p.track_stock DESC, p.stock_quantity ASC, p.name ASC
+        ");
+
+        $nTracked = 0; $nLow = 0; $nOut = 0;
+        foreach ($stockRows as $r) {
+            $qty = (int)$r['stock_quantity'];
+            $min = (int)$r['min_stock_level'];
+            $r['unit_info'] = htmlspecialchars($r['unit']) . ($r['purchase_unit'] ? ' ← ' . htmlspecialchars($r['purchase_unit']) . ' (×' . rtrim(rtrim(number_format((float)$r['units_per_purchase'], 4), '0'), '.') . ')' : '');
+            $r['stock_lbl'] = '<strong>' . $qty . '</strong>';
+            $r['min_lbl'] = $min;
+            if ((int)$r['track_stock'] !== 1) {
+                $r['status_lbl'] = '<span class="badge badge-secondary">التتبع متوقف</span>';
+            } elseif ($qty <= 0) {
+                $nOut++;
+                $r['status_lbl'] = '<span class="badge badge-danger">🔴 نفذ</span>';
+            } elseif ($qty <= $min) {
+                $nLow++;
+                $r['status_lbl'] = '<span class="badge badge-warning">⚠️ منخفض</span>';
+            } else {
+                $r['status_lbl'] = '<span class="badge badge-success">متاح</span>';
+            }
+            if ((int)$r['track_stock'] === 1) {
+                $nTracked++;
+            }
+            $r['name'] = htmlspecialchars($r['name']) . '<br><small style="color:#6b7280;">' . htmlspecialchars($r['code']) . '</small>';
+            $data[] = $r;
+        }
+
+        $summaryCards = [
+            ['title'=>'أصناف متتبعة', 'value'=>$nTracked . ' صنف', 'color'=>'primary', 'icon'=>'fa-boxes'],
+            ['title'=>'وصلت حد التنبيه', 'value'=>$nLow . ' صنف', 'color'=>'warning', 'icon'=>'fa-exclamation-triangle'],
+            ['title'=>'نفذت من المخزون', 'value'=>$nOut . ' صنف', 'color'=>'danger', 'icon'=>'fa-times-circle'],
+        ];
+        break;
+
+    case 'purchases':
+        $activeFilters = ['date'];
+        $columns = [
+            'date' => 'التاريخ',
+            'invoice_number' => 'رقم الفاتورة',
+            'supplier_lbl' => 'المورد',
+            'items_lbl' => 'الأصناف',
+            'total_lbl' => 'الإجمالي',
+            'paid_lbl' => 'المدفوع',
+            'remaining_lbl' => 'الباقي',
+            'status_lbl' => 'الحالة',
+        ];
+
+        $w = "i.type = 'purchase'"; $p = [];
+        if ($dateFrom && $dateTo) { $w .= " AND i.date BETWEEN ? AND ?"; $p[] = $dateFrom; $p[] = $dateTo; }
+
+        $rawPurch = getRows("
+            SELECT i.*, COALESCE(s.name, i.customer_name, '-') AS supplier_name
+            FROM invoices i
+            LEFT JOIN suppliers s ON s.id = i.supplier_id
+            WHERE {$w}
+            ORDER BY i.date DESC, i.id DESC
+        ", $p);
+
+        $totBuy = 0; $totPaid = 0; $totRem = 0; $nDraft = 0;
+        foreach ($rawPurch as $r) {
+            $totBuy += (float)$r['total_amount'];
+            $totPaid += (float)$r['paid_amount'];
+            $totRem += (float)$r['remaining_amount'];
+            $r['supplier_lbl'] = htmlspecialchars($r['supplier_name']);
+            $r['items_lbl'] = '<a href="../invoices/print_purchase.php?id=' . (int)$r['id'] . '">عرض الأصناف 🖨️</a>';
+            $r['total_lbl'] = formatCurrency($r['total_amount']);
+            $r['paid_lbl'] = formatCurrency($r['paid_amount']);
+            $r['remaining_lbl'] = formatCurrency($r['remaining_amount']);
+            $st = $r['status'] ?? 'approved';
+            if ($st === 'draft') {
+                $nDraft++;
+                $r['status_lbl'] = '<span class="badge badge-warning">📝 مسودة</span>';
+            } elseif ($st === 'cancelled') {
+                $r['status_lbl'] = '<span class="badge badge-danger">❌ ملغاة</span>';
+            } else {
+                $r['status_lbl'] = '<span class="badge badge-success">✅ معتمدة</span>';
+            }
+            $data[] = $r;
+        }
+
+        $summaryCards = [
+            ['title'=>'إجمالي المشتريات بالفترة', 'value'=>formatCurrency($totBuy), 'color'=>'primary', 'icon'=>'fa-cart-arrow-down'],
+            ['title'=>'المدفوع للموردين', 'value'=>formatCurrency($totPaid), 'color'=>'success', 'icon'=>'fa-money-bill-wave'],
+            ['title'=>'الباقي للموردين', 'value'=>formatCurrency($totRem), 'color'=>'danger', 'icon'=>'fa-hand-holding-usd'],
+            ['title'=>'مسودات بانتظار الاعتماد', 'value'=>$nDraft . ' فاتورة', 'color'=>'warning', 'icon'=>'fa-file-signature'],
         ];
         break;
 

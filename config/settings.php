@@ -333,6 +333,168 @@ function syncProductTotalStock($productId) {
     return $totalQty;
 }
 
+/* ============================================================
+ * Product stock tracking engine (units + movements ledger)
+ * ============================================================ */
+
+/**
+ * Append a row to the product stock movements ledger (append-only).
+ * Call AFTER the warehouse quantity has been changed.
+ */
+function recordProductMovement($productId, $warehouseId, $movementType, $qtyIn, $qtyOut, $unit, $referenceType = null, $referenceId = null, $reason = null) {
+    $productId = (int)$productId;
+    $warehouseId = $warehouseId ? (int)$warehouseId : null;
+    $balance = ($warehouseId !== null) ? getWarehouseStock($warehouseId, $productId) : 0;
+    $userId = function_exists('getCurrentUserId') ? getCurrentUserId() : null;
+    return insert(
+        "INSERT INTO product_stock_movements
+            (product_id, warehouse_id, movement_type, qty_in, qty_out, balance_after, unit, reference_type, reference_id, reason, user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [$productId, $warehouseId, $movementType, (int)$qtyIn, (int)$qtyOut, (int)$balance,
+         $unit, $referenceType, $referenceId ? (int)$referenceId : null, $reason, $userId]
+    );
+}
+
+/**
+ * Add stock of a product in base (stock) units and log the movement.
+ * Used by purchase approval, opening balances and manual corrections.
+ */
+function addProductStock($productId, $warehouseId, $stockQty, $movementType, $referenceType = null, $referenceId = null, $reason = null) {
+    $product = getRow("SELECT id, unit FROM products WHERE id = ?", [(int)$productId]);
+    if (!$product) {
+        throw new RuntimeException('الصنف غير موجود');
+    }
+    $stockQty = (int)$stockQty;
+    if ($stockQty <= 0) {
+        return getWarehouseStock((int)$warehouseId, (int)$productId);
+    }
+    $newBalance = updateWarehouseStock($warehouseId, $productId, $stockQty, 'add');
+    recordProductMovement($productId, $warehouseId, $movementType, $stockQty, 0, $product['unit'], $referenceType, $referenceId, $reason);
+    return $newBalance;
+}
+
+/**
+ * Remove stock of a tracked product in base (stock) units and log the movement.
+ * Returns the new balance. Throws when oversell is blocked by settings.
+ */
+function removeProductStock($productId, $warehouseId, $stockQty, $movementType, $referenceType = null, $referenceId = null, $reason = null) {
+    $product = getRow("SELECT id, name, unit, track_stock FROM products WHERE id = ?", [(int)$productId]);
+    if (!$product) {
+        throw new RuntimeException('الصنف غير موجود');
+    }
+    $stockQty = (int)$stockQty;
+    if ($stockQty <= 0) {
+        return getWarehouseStock((int)$warehouseId, (int)$productId);
+    }
+    if ((int)$product['track_stock'] !== 1) {
+        return getWarehouseStock((int)$warehouseId, (int)$productId);
+    }
+    $current = getWarehouseStock((int)$warehouseId, (int)$productId);
+    if ($current < $stockQty && getSetting('prevent_negative_stock', '0') === '1') {
+        throw new RuntimeException('الكمية المتاحة من "' . $product['name'] . '" غير كافية (المتاح: ' . $current . ' ' . $product['unit'] . ')');
+    }
+    $newBalance = updateWarehouseStock($warehouseId, $productId, $stockQty, 'subtract');
+    recordProductMovement($productId, $warehouseId, $movementType, 0, $stockQty, $product['unit'], $referenceType, $referenceId, $reason);
+    return $newBalance;
+}
+
+/**
+ * Convert a purchase quantity to base stock units.
+ * Throws when the factor is invalid or the result is not a whole number.
+ */
+function purchaseToStockQty($purchaseQty, $factor) {
+    $purchaseQty = (int)$purchaseQty;
+    $factor = (float)$factor;
+    if ($purchaseQty <= 0) {
+        throw new RuntimeException('كمية الشراء يجب أن تكون أكبر من صفر');
+    }
+    if ($factor <= 0) {
+        throw new RuntimeException('معامل التحويل غير صالح');
+    }
+    $result = $purchaseQty * $factor;
+    if (abs($result - round($result)) > 0.0001) {
+        throw new RuntimeException('ناتج التحويل لوحدات المخزون يجب أن يكون عدداً صحيحاً');
+    }
+    return (int)round($result);
+}
+
+/**
+ * Approve a draft purchase invoice: applies stock, supplier balance and
+ * movements exactly once. Safe to retry — approving an approved invoice
+ * is a no-op that reports the current status.
+ *
+ * This function manages its own transaction.
+ *
+ * @return array{success:bool, already:bool, invoice_number:string}
+ */
+function approvePurchaseInvoice($invoiceId) {
+    $invoiceId = (int)$invoiceId;
+    beginTransaction();
+    try {
+        $invoice = getRow("SELECT * FROM invoices WHERE id = ? AND type = 'purchase' FOR UPDATE", [$invoiceId]);
+        if (!$invoice) {
+            throw new RuntimeException('فاتورة الشراء غير موجودة');
+        }
+        if ($invoice['status'] === 'approved') {
+            rollback();
+            return ['success' => true, 'already' => true, 'invoice_number' => $invoice['invoice_number']];
+        }
+        if ($invoice['status'] !== 'draft') {
+            throw new RuntimeException('لا يمكن اعتماد الفاتورة في حالتها الحالية');
+        }
+
+        $warehouseId = (int)($invoice['warehouse_id'] ?: 1);
+        $items = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
+        if (empty($items)) {
+            throw new RuntimeException('الفاتورة لا تحتوي على أصناف');
+        }
+
+        foreach ($items as $item) {
+            $product = getRow("SELECT id, unit FROM products WHERE id = ? FOR UPDATE", [(int)$item['product_id']]);
+            if (!$product) {
+                throw new RuntimeException('صنف غير موجود في الفاتورة');
+            }
+            $factor = $item['conversion_factor'] !== null ? (float)$item['conversion_factor'] : 1;
+            $stockQty = purchaseToStockQty($item['quantity'], $factor);
+            execute(
+                "UPDATE invoice_items SET stock_quantity = ? WHERE id = ?",
+                [$stockQty, (int)$item['id']]
+            );
+            addProductStock((int)$item['product_id'], $warehouseId, $stockQty, 'purchase', 'purchase_invoice', $invoiceId, 'اعتماد فاتورة شراء ' . $invoice['invoice_number']);
+        }
+
+        if (!empty($invoice['supplier_id'])) {
+            execute("UPDATE suppliers SET balance = balance + ? WHERE id = ?", [(float)$invoice['remaining_amount'], (int)$invoice['supplier_id']]);
+        }
+
+        execute("UPDATE invoices SET status = 'approved' WHERE id = ?", [$invoiceId]);
+        commit();
+        return ['success' => true, 'already' => false, 'invoice_number' => $invoice['invoice_number']];
+    } catch (Throwable $e) {
+        rollback();
+        return ['success' => false, 'already' => false, 'error' => $e->getMessage()];
+    }
+}
+
+/**
+ * Distinct unit names already used by products (for datalist suggestions;
+ * operators may always type a brand-new unit).
+ */
+function getKnownUnits() {
+    $rows = getRows("SELECT DISTINCT unit AS u FROM products WHERE unit IS NOT NULL AND unit <> '' ORDER BY unit");
+    $out = [];
+    foreach ($rows as $r) {
+        $out[] = $r['u'];
+    }
+    $prows = getRows("SELECT DISTINCT purchase_unit AS u FROM products WHERE purchase_unit IS NOT NULL AND purchase_unit <> '' ORDER BY purchase_unit");
+    foreach ($prows as $r) {
+        if (!in_array($r['u'], $out, true)) {
+            $out[] = $r['u'];
+        }
+    }
+    return $out;
+}
+
 /**
  * Generate stock transfer number (e.g. TRF-00001)
  */

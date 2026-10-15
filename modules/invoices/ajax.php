@@ -145,12 +145,39 @@ function addProduct() {
     $name = sanitize($_POST['name'] ?? '');
     $code = sanitize($_POST['code'] ?? '');
     $unit = sanitize($_POST['unit'] ?? 'قطعة');
+    $purchaseUnit = sanitize(trim($_POST['purchase_unit'] ?? ''));
+    $factor = floatval($_POST['factor'] ?? 1);
+    $categoryId = !empty($_POST['category_id']) ? (int)$_POST['category_id'] : null;
+    $costPrice = floatval($_POST['cost_price'] ?? 0);
     $price = floatval($_POST['price'] ?? 0);
     $minStock = intval($_POST['min_stock'] ?? 5);
+    $trackStock = !empty($_POST['track_stock']) ? 1 : 0;
+    $isDirectSale = isset($_POST['is_direct_sale']) ? ((int)$_POST['is_direct_sale'] ? 1 : 0) : 1;
+    $forceCreate = !empty($_POST['force_create']) ? 1 : 0;
 
     if (empty($name)) {
         echo json_encode(['success' => false, 'error' => 'اسم الصنف مطلوب']);
         return;
+    }
+    if ($purchaseUnit === '') {
+        $purchaseUnit = $unit;
+    }
+    if ($factor <= 0) {
+        echo json_encode(['success' => false, 'error' => 'معامل التحويل يجب أن يكون أكبر من صفر']);
+        return;
+    }
+
+    // Duplicate-name guard: suggest existing similar items instead of clones
+    if (!$forceCreate) {
+        $like = '%' . mb_substr($name, 0, 6) . '%';
+        $similar = getRows(
+            "SELECT id, code, name FROM products WHERE name LIKE ? OR code = ? ORDER BY name LIMIT 5",
+            [$like, $code]
+        );
+        if (!empty($similar)) {
+            echo json_encode(['success' => false, 'similar' => $similar]);
+            return;
+        }
     }
 
     // Generate code if empty
@@ -166,8 +193,8 @@ function addProduct() {
 
     try {
         $productId = insert(
-            "INSERT INTO products (code, name, unit, price, stock_quantity, min_stock_level) VALUES (?, ?, ?, ?, 0, ?)",
-            [$code, $name, $unit, $price, $minStock]
+            "INSERT INTO products (category_id, code, name, unit, price, cost_price, stock_quantity, min_stock_level, purchase_unit, units_per_purchase, track_stock, is_direct_sale) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
+            [$categoryId, $code, $name, $unit, $price, $costPrice, $minStock, $purchaseUnit, $factor, $trackStock, $isDirectSale]
         );
 
         echo json_encode(['success' => true, 'product_id' => $productId, 'code' => $code]);
@@ -189,7 +216,7 @@ function searchProducts() {
     $searchTerm = "%$query%";
     if ($warehouseId > 0) {
         $products = getRows(
-            "SELECT p.id, p.code, p.name, p.unit, p.price, c.name AS category_name,
+            "SELECT p.id, p.code, p.name, p.unit, p.price, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name,
                     COALESCE(ws.quantity, 0) as stock_quantity,
                     p.stock_quantity as total_stock_quantity
              FROM products p
@@ -202,7 +229,7 @@ function searchProducts() {
         );
     } else {
         $products = getRows(
-            "SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name
+            "SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name
              FROM products p LEFT JOIN categories c ON c.id = p.category_id
              WHERE code LIKE ? OR name LIKE ? OR description LIKE ?
              ORDER BY name
@@ -224,7 +251,7 @@ function getProduct() {
 
     if ($warehouseId > 0) {
         $product = getRow(
-            "SELECT p.id, p.code, p.name, p.unit, p.price, c.name AS category_name,
+            "SELECT p.id, p.code, p.name, p.unit, p.price, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name,
                     COALESCE(ws.quantity, 0) as stock_quantity,
                     p.stock_quantity as total_stock_quantity
              FROM products p
@@ -235,7 +262,7 @@ function getProduct() {
         );
     } else {
         $product = getRow(
-            "SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name
+            "SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name
              FROM products p LEFT JOIN categories c ON c.id = p.category_id
              WHERE id = ?",
             [$id]

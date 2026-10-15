@@ -138,13 +138,19 @@ $pageTitle = 'فاتورة شراء ' . $invoice['invoice_number'];
         <?php if (hasPermission('invoices.purchase.create')): ?>
         <a href="purchase.php" class="btn btn-new">✚ فاتورة جديدة</a>
         <?php endif; ?>
+        <?php if (($invoice['status'] ?? 'approved') === 'draft' && hasAnyPermission(['invoices.purchase.create', 'invoices.purchase.edit'])): ?>
+        <form method="POST" action="approve_purchase.php" style="display: inline;" onsubmit="return confirm('اعتماد هذه الفاتورة؟ سيتم إضافة الأصناف للمخزون وتحديث حساب المورد.');">
+            <input type="hidden" name="id" value="<?php echo (int)$invoice['id']; ?>">
+            <button type="submit" class="btn" style="background: #059669;">✅ اعتماد الفاتورة</button>
+        </form>
+        <?php endif; ?>
     </div>
     
     <div class="print-area">
         <table class="invoice-table">
             <thead>
                 <tr>
-                    <td colspan="7" class="header-cell">
+                    <td colspan="8" class="header-cell">
                         <div class="header-content">
                             <?php if ($storeLogo): ?>
                             <img src="../../assets/uploads/<?php echo $storeLogo; ?>" alt="Logo" class="header-logo">
@@ -164,6 +170,7 @@ $pageTitle = 'فاتورة شراء ' . $invoice['invoice_number'];
                         
                         <div class="invoice-type">
                             <span>📦 فاتورة شراء - <?php echo $invoice['invoice_number']; ?></span>
+                            <span><?php echo (($invoice['status'] ?? 'approved') === 'draft') ? '📝 مسودة (لم تُعتمد — بدون حركة مخزون)' : '✅ معتمدة'; ?></span>
                             <span class="page-num"></span>
                         </div>
                         
@@ -207,21 +214,23 @@ $pageTitle = 'فاتورة شراء ' . $invoice['invoice_number'];
                     <td style="width:25px">م</td>
                     <td>الكود</td>
                     <td>الصنف</td>
-                    <td>الوحدة</td>
+                    <td>وحدة الشراء</td>
                     <td>الكمية</td>
+                    <td>الناتج بالمخزون</td>
                     <td>السعر</td>
                     <td>الإجمالي</td>
                 </tr>
             </thead>
-            
+
             <tbody>
                 <?php $num = 1; foreach ($items as $item): ?>
                 <tr class="item-row">
                     <td><?php echo $num++; ?></td>
-                    <td><?php echo $item['product_code']; ?></td>
-                    <td><?php echo $item['product_name']; ?></td>
-                    <td><?php echo $item['unit']; ?></td>
+                    <td><?php echo htmlspecialchars($item['product_code'] ?? ''); ?></td>
+                    <td><?php echo htmlspecialchars($item['product_name'] ?? $item['item_name'] ?? ''); ?></td>
+                    <td><?php echo htmlspecialchars($item['purchase_unit'] ?? $item['unit']); ?><?php echo ($item['conversion_factor'] !== null) ? ' (×' . rtrim(rtrim(number_format((float)$item['conversion_factor'], 4), '0'), '.') . ')' : ''; ?></td>
                     <td><?php echo $item['quantity']; ?></td>
+                    <td><?php echo ($item['stock_quantity'] !== null) ? (int)$item['stock_quantity'] . ' ' . htmlspecialchars($item['unit']) : '—'; ?></td>
                     <td><?php echo number_format($item['unit_price'], 2); ?></td>
                     <td><?php echo number_format($item['total'], 2); ?></td>
                 </tr>

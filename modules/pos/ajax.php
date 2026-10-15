@@ -24,10 +24,10 @@ try {
             $categoryId = isset($_GET['category_id']) && $_GET['category_id'] !== '' ? (int)$_GET['category_id'] : null;
             $search = trim($_GET['search'] ?? '');
 
-            $sql = "SELECT p.*, c.name as category_name, c.color as category_color 
-                    FROM products p 
-                    LEFT JOIN categories c ON p.category_id = c.id 
-                    WHERE p.is_available = 1";
+            $sql = "SELECT p.*, c.name as category_name, c.color as category_color
+                    FROM products p
+                    LEFT JOIN categories c ON p.category_id = c.id
+                    WHERE p.is_available = 1 AND p.is_direct_sale = 1";
             $params = [];
 
             if ($categoryId) {
@@ -149,6 +149,37 @@ try {
             $billiardSessionId = !empty($data['billiard_session_id']) ? (int)$data['billiard_session_id'] : null;
             $tableSessionId = !empty($data['table_session_id']) ? (int)$data['table_session_id'] : null;
             $tableId = !empty($data['table_id']) ? (int)$data['table_id'] : null;
+            $items = $data['items'];
+            $discountAmount = max(0, floatval($data['discount_amount'] ?? 0));
+            $paymentMethod = $data['payment_method'] ?? 'cash';
+            $clientKey = preg_replace('/[^A-Za-z0-9\-_]/', '', (string)($data['client_key'] ?? ''));
+            if ($clientKey === '') {
+                $clientKey = null;
+            }
+            $customerName = trim($data['customer_name'] ?? '');
+            $customerPhone = trim($data['customer_phone'] ?? '');
+            $orderNotes = trim($data['notes'] ?? '');
+
+            beginTransaction();
+
+            // Idempotency: a retried submit with the same client key returns the original order
+            // without creating a second order, session, payment or stock movement.
+            if ($clientKey !== null) {
+                $dup = getRow("SELECT id, order_number, total_amount, paid_amount FROM orders WHERE client_key = ?", [$clientKey]);
+                if ($dup) {
+                    commit();
+                    echo json_encode([
+                        'success' => true,
+                        'order_id' => $dup['id'],
+                        'order_number' => $dup['order_number'],
+                        'total_amount' => (float)$dup['total_amount'],
+                        'paid_amount' => (float)$dup['paid_amount'],
+                        'is_deferred' => false,
+                        'duplicate' => true
+                    ], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
+            }
 
             // إذا اختار طاولة شاغرة مباشرة لطلب Dine-In نفتح جلسة طاولة تلقائياً
             if ($orderType === 'dine_in' && !$tableSessionId && $tableId) {
@@ -159,18 +190,9 @@ try {
                 execute("UPDATE cafe_tables SET status = 'occupied' WHERE id = ?", [$tableId]);
             }
 
-            $items = $data['items'];
-            $discountAmount = max(0, floatval($data['discount_amount'] ?? 0));
-            $paymentMethod = $data['payment_method'] ?? 'cash';
-            $customerName = trim($data['customer_name'] ?? '');
-            $customerPhone = trim($data['customer_phone'] ?? '');
-            $orderNotes = trim($data['notes'] ?? '');
-
             // فحص الشيفت النشط الحالي للمستخدم
             $currentShift = getRow("SELECT id FROM shifts WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1", [getCurrentUserId()]);
             $shiftId = $currentShift ? $currentShift['id'] : null;
-
-            beginTransaction();
 
             // توليد رقم الطلب
             $prefix = getSetting('invoice_prefix_sale', 'ORD-');
@@ -208,14 +230,14 @@ try {
 
             // إنشاء الطلب
             $orderId = insert(
-                "INSERT INTO orders (order_number, order_type, table_session_id, gaming_session_id, billiard_session_id, 
-                                     status, subtotal, discount_amount, tax_amount, total_amount, paid_amount, payment_status, 
-                                     payment_method, customer_name, customer_phone, notes, shift_id, created_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO orders (order_number, order_type, table_session_id, gaming_session_id, billiard_session_id,
+                                     status, subtotal, discount_amount, tax_amount, total_amount, paid_amount, payment_status,
+                                     payment_method, customer_name, customer_phone, notes, shift_id, created_by, client_key)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     $orderNumber, $orderType, $tableSessionId, $gamingSessionId, $billiardSessionId,
                     $orderStatus, $subtotal, $discountAmount, $taxAmount, $totalAmount, $paidAmount, $paymentStatus,
-                    $paymentMethod, $customerName, $customerPhone, $orderNotes, $shiftId, getCurrentUserId()
+                    $paymentMethod, $customerName, $customerPhone, $orderNotes, $shiftId, getCurrentUserId(), $clientKey
                 ]
             );
 
@@ -258,6 +280,15 @@ try {
                              VALUES (?, ?, ?, ?, ?)",
                             [$orderItemId, (int)$m['id'], $m['name'], floatval($m['price']), (int)($m['quantity'] ?? 1)]
                         );
+                    }
+                }
+
+                // خصم المخزون للأصناف المتتبعة فقط (داخل نفس المعاملة — أي فشل يلغي كل شيء)
+                $saleProductId = (int)$item['product_id'];
+                if ($saleProductId > 0) {
+                    $saleProduct = getRow("SELECT id, track_stock FROM products WHERE id = ? FOR UPDATE", [$saleProductId]);
+                    if ($saleProduct && (int)$saleProduct['track_stock'] === 1) {
+                        removeProductStock($saleProductId, getCurrentWarehouseId(), $qty, 'sale', 'pos_order', $orderId, 'بيع كاشير ' . $orderNumber);
                     }
                 }
             }

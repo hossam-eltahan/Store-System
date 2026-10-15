@@ -46,20 +46,29 @@ try {
     }
     
     // 2. Reverse inventory for the specific warehouse
+    // Draft purchase invoices never touched stock/balance — delete rows only.
+    $isDraftPurchase = ($invoice['type'] === 'purchase' && ($invoice['status'] ?? 'approved') === 'draft');
     $warehouseId = (int)($invoice['warehouse_id'] ?? 1);
     $items = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$id]);
-    foreach ($items as $item) {
-        if ($invoice['type'] === 'sale') {
-            updateWarehouseStock($warehouseId, $item['product_id'], $item['quantity'], 'add');
-        } else {
-            updateWarehouseStock($warehouseId, $item['product_id'], $item['quantity'], 'subtract');
+    if (!$isDraftPurchase) {
+        foreach ($items as $item) {
+            if ($invoice['type'] === 'sale') {
+                updateWarehouseStock($warehouseId, $item['product_id'], $item['quantity'], 'add');
+            } else {
+                $reverseQty = ($item['stock_quantity'] !== null) ? (int)$item['stock_quantity'] : (int)$item['quantity'];
+                updateWarehouseStock($warehouseId, $item['product_id'], $reverseQty, 'subtract');
+                $delProd = getRow("SELECT unit FROM products WHERE id = ?", [(int)$item['product_id']]);
+                recordProductMovement((int)$item['product_id'], $warehouseId, 'reversal', 0, $reverseQty,
+                    $delProd ? $delProd['unit'] : ($item['unit'] ?? null), 'purchase_invoice', $id,
+                    'عكس فاتورة شراء قبل الحذف ' . $invoice['invoice_number']);
+            }
         }
     }
-    
-    // 3. Reverse entity balance
+
+    // 3. Reverse entity balance (drafts have none)
     if ($invoice['type'] === 'sale' && $invoice['customer_id']) {
         execute("UPDATE customers SET balance = balance + ? WHERE id = ?", [$invoice['remaining_amount'], $invoice['customer_id']]);
-    } elseif ($invoice['type'] === 'purchase' && $invoice['supplier_id']) {
+    } elseif ($invoice['type'] === 'purchase' && $invoice['supplier_id'] && !$isDraftPurchase) {
         execute("UPDATE suppliers SET balance = balance - ? WHERE id = ?", [$invoice['remaining_amount'], $invoice['supplier_id']]);
     }
     
@@ -77,7 +86,11 @@ try {
     logActivity('حذف فاتورة', "تم حذف فاتورة {$typeText} رقم {$invoice['invoice_number']}");
     
     commit();
-    setSuccess('تم حذف الفاتورة بنجاح واسترجاع الأرصدة والمخزون');
+    if (!empty($isDraftPurchase)) {
+        setSuccess('تم حذف المسودة بنجاح (لم تكن قد حرّكت المخزون)');
+    } else {
+        setSuccess('تم حذف الفاتورة بنجاح واسترجاع الأرصدة والمخزون');
+    }
     redirect('list.php');
     
 } catch (Exception $e) {

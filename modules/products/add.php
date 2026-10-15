@@ -26,6 +26,7 @@ function generateProductCode() {
 
 $autoCode = generateProductCode();
 $categories = getRows("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC");
+$knownUnits = getKnownUnits();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $code = sanitize(trim($_POST['code'] ?? ''));
@@ -38,6 +39,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $isAvailable = isset($_POST['is_available']) ? 1 : 0;
     $hasVariants = isset($_POST['has_variants']) ? 1 : 0;
     $description = sanitize(trim($_POST['description'] ?? ''));
+
+    // Stock tracking configuration
+    $trackStock = isset($_POST['track_stock']) ? 1 : 0;
+    $isDirectSale = isset($_POST['is_direct_sale']) ? 1 : 0;
+    $purchaseUnit = sanitize(trim($_POST['purchase_unit'] ?? ''));
+    $unitsPerPurchase = floatval($_POST['units_per_purchase'] ?? 1);
+    $minStockLevel = max(0, (int)($_POST['min_stock_level'] ?? 5));
+    $openingStockRaw = trim($_POST['opening_stock'] ?? '');
+    if ($purchaseUnit === '') {
+        $purchaseUnit = $unit;
+    }
+    if ($unitsPerPurchase <= 0) {
+        setError('معامل التحويل (عدد وحدات المخزون في وحدة الشراء) يجب أن يكون أكبر من صفر');
+    } elseif ($trackStock && $openingStockRaw === '') {
+        setError('عند تفعيل تتبع المخزون يجب إدخال الكمية الافتتاحية صراحة (حتى لو صفر)');
+    } else {
 
     if (empty($code)) {
         $code = generateProductCode();
@@ -91,9 +108,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $productId = insert("
-                INSERT INTO products (category_id, code, name, unit, price, cost_price, is_available, has_variants, preparation_time_min, description, image, stock_quantity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 999)
-            ", [$categoryId, $code, $name, $unit, $price, $costPrice, $isAvailable, $hasVariants, $prepTime, $description, $imagePath]);
+                INSERT INTO products (category_id, code, name, unit, price, cost_price, is_available, has_variants, preparation_time_min, description, image, stock_quantity, min_stock_level, purchase_unit, units_per_purchase, track_stock, is_direct_sale)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+            ", [$categoryId, $code, $name, $unit, $price, $costPrice, $isAvailable, $hasVariants, $prepTime, $description, $imagePath, $minStockLevel, $purchaseUnit, $unitsPerPurchase, $trackStock, $isDirectSale]);
 
             if ($productId) {
                 // Insert variants if any
@@ -106,7 +123,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
-                // Products carry their own stock_quantity — no warehouse_stock table in this setup
+                // Opening stock for tracked items (explicit value entered by the user)
+                $openingStock = max(0, (int)$openingStockRaw);
+                if ($trackStock && $openingStock > 0) {
+                    $defWh = getDefaultWarehouse();
+                    $whId = $defWh ? (int)$defWh['id'] : 1;
+                    updateWarehouseStock($whId, $productId, $openingStock, 'set');
+                    recordProductMovement($productId, $whId, 'opening', $openingStock, 0, $unit, null, null, 'رصيد افتتاحي عند إنشاء الصنف');
+                }
+
                 logActivity('إضافة صنف', "تم إضافة صنف جديد للمنيو: $name (كود: $code)");
                 setSuccess('تم إضافة الصنف للمنيو بنجاح!');
                 redirect('index.php');
@@ -115,6 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+    } // end stock-config validation else
 }
 
 include '../../includes/header.php';
@@ -186,8 +212,8 @@ include '../../includes/navbar.php';
                         </select>
                     </div>
                     <div class="col-md-3 mb-3">
-                        <label class="form-label" style="font-weight: 600;">الوحدة</label>
-                        <input type="text" name="unit" class="form-control" value="<?php echo htmlspecialchars($_POST['unit'] ?? 'طلب'); ?>" placeholder="طلب، كوب، كانز، زجاجة">
+                        <label class="form-label" style="font-weight: 600;">وحدة المخزون / البيع</label>
+                        <input type="text" name="unit" id="stockUnitInput" class="form-control" list="knownUnitsList" value="<?php echo htmlspecialchars($_POST['unit'] ?? 'طلب'); ?>" placeholder="زجاجة، كوب، جرام">
                     </div>
                     <div class="col-md-3 mb-3">
                         <label class="form-label" style="font-weight: 600;">وقت التحضير (دقائق)</label>
@@ -223,6 +249,58 @@ include '../../includes/navbar.php';
                     <input class="form-check-input" type="checkbox" name="is_available" id="isAvailableCheck" checked>
                     <label class="form-check-label" for="isAvailableCheck" style="font-weight: 600;">متوفر للبيع الآن في الكاشير</label>
                 </div>
+            </div>
+        </div>
+
+        <!-- Stock Tracking Card -->
+        <div class="card edit-card" style="border-radius: 12px;">
+            <div class="card-header" style="background: #f8fafc; font-weight: 700; border-bottom: 1px solid #e2e8f0;">
+                📦 المخزون والتتبع
+            </div>
+            <div class="card-body" style="padding: 25px;">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" name="track_stock" id="trackStockCheck" onchange="toggleStockFields()" <?php echo isset($_POST['track_stock']) ? 'checked' : ''; ?>>
+                            <label class="form-check-label" for="trackStockCheck" style="font-weight: 600;">تفعيل تتبع المخزون</label>
+                        </div>
+                        <small style="color: #64748b;">المشتريات تزود المخزون دائمًا. المبيعات تخصم فقط عند التفعيل.</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" name="is_direct_sale" id="directSaleCheck" checked>
+                            <label class="form-check-label" for="directSaleCheck" style="font-weight: 600;">بيع مباشر في الكاشير (POS)</label>
+                        </div>
+                        <small style="color: #64748b;">أطفئها للخامات (مثل القهوة بالكيلو) فتظهر في المخزون والمشتريات فقط.</small>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" style="font-weight: 600;">وحدة الشراء</label>
+                        <input type="text" name="purchase_unit" class="form-control" list="knownUnitsList" value="<?php echo htmlspecialchars($_POST['purchase_unit'] ?? ''); ?>" placeholder="كرتونة، كيلو، شيكارة">
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" style="font-weight: 600;">وحدة الشراء = كم وحدة مخزون؟</label>
+                        <input type="number" step="any" min="0" name="units_per_purchase" class="form-control" value="<?php echo htmlspecialchars($_POST['units_per_purchase'] ?? '1'); ?>" placeholder="مثال: 20">
+                        <small style="color: #64748b;">مثال: الكرتونة = 20 زجاجة، الكيلو = 1000 جرام</small>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" style="font-weight: 600;">الحد الأدنى للتنبيه</label>
+                        <input type="number" min="0" name="min_stock_level" class="form-control" value="<?php echo htmlspecialchars($_POST['min_stock_level'] ?? '5'); ?>">
+                    </div>
+                </div>
+                <div class="row" id="openingStockRow" style="display: none;">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" style="font-weight: 600;">الكمية الافتتاحية (بوحدة المخزون) *</label>
+                        <input type="number" min="0" name="opening_stock" class="form-control" value="<?php echo htmlspecialchars($_POST['opening_stock'] ?? ''); ?>" placeholder="مثال: 400">
+                        <small style="color: #64748b;">مطلوبة عند تفعيل التتبع — تُسجل كحركة افتتاحية</small>
+                    </div>
+                </div>
+                <datalist id="knownUnitsList">
+                    <?php foreach ($knownUnits as $u): ?>
+                        <option value="<?php echo htmlspecialchars($u); ?>"></option>
+                    <?php endforeach; ?>
+                </datalist>
             </div>
         </div>
 
@@ -291,6 +369,12 @@ include '../../includes/navbar.php';
 </div>
 
 <script>
+function toggleStockFields() {
+    const on = document.getElementById('trackStockCheck').checked;
+    document.getElementById('openingStockRow').style.display = on ? 'flex' : 'none';
+}
+document.addEventListener('DOMContentLoaded', toggleStockFields);
+
 function toggleVariantsSection() {
     const isChecked = document.getElementById('hasVariantsToggle').checked;
     const body = document.getElementById('variantsBody');
