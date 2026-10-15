@@ -753,6 +753,7 @@ body {
                 <span>🛒</span> سلة الطلب
                 <span id="cartCountBadge" style="background:#ea580c; color:#fff; font-size:11px; padding:2px 7px; border-radius:10px;">0</span>
             </div>
+            <div id="stockWarnBadge" style="display: none; background: #fee2e2; color: #b91c1c; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 8px; border: 1px solid #fca5a5;" title="">⚠️ يوجد منتج نفذ</div>
             <button id="clearCartBtn" style="background:none; border:none; color:#ef4444; font-size:12px; font-weight:700; cursor:pointer;" title="مسح السلة">
                 🗑️ مسح
             </button>
@@ -1404,6 +1405,34 @@ function addToCart(product, variant, modifiers, note) {
     renderProductsGrid();
 }
 
+// Oversell warning in cart header (display only): shows when any tracked
+// item's cart quantity exceeds its server-known stock. Hides on fix/clear.
+function updateStockWarning() {
+    const badge = document.getElementById('stockWarnBadge');
+    if (!badge) return;
+    const over = [];
+    const seen = {};
+    cart.forEach(it => {
+        const pid = parseInt(it.product_id);
+        if (!pid || seen[pid]) return;
+        seen[pid] = true;
+        const prod = products.find(p => parseInt(p.id) === pid);
+        if (prod && parseInt(prod.track_stock) === 1) {
+            const base = parseInt(prod.stock_quantity) || 0;
+            if (cartQtyOf(pid) > base) {
+                over.push(prod.name + ' (المتاح ' + base + ')');
+            }
+        }
+    });
+    if (over.length > 0) {
+        badge.style.display = 'block';
+        badge.title = over.join('، ');
+    } else {
+        badge.style.display = 'none';
+        badge.title = '';
+    }
+}
+
 // Render Cart
 function renderCart() {
     const container = document.getElementById('cartItemsList');
@@ -1422,6 +1451,7 @@ function renderCart() {
         `;
         document.getElementById('grandTotalDisplay').textContent = '0.00 ج.م';
         checkoutBtn.disabled = true;
+        updateStockWarning();
         return;
     }
 
@@ -1461,6 +1491,7 @@ function renderCart() {
     let grandTotal = subtotal;
 
     document.getElementById('grandTotalDisplay').textContent = `${grandTotal.toFixed(2)} ج.م`;
+    updateStockWarning();
 }
 
 function updateQty(index, delta) {

@@ -606,6 +606,8 @@ CREATE TABLE IF NOT EXISTS `invoice_items` (
     `purchase_unit` VARCHAR(50) DEFAULT NULL,
     `conversion_factor` DECIMAL(12,4) DEFAULT NULL,
     `stock_quantity` INT DEFAULT NULL,
+    `source_movement_id` INT DEFAULT NULL,
+    UNIQUE KEY `unique_source_movement` (`source_movement_id`),
     FOREIGN KEY (`invoice_id`) REFERENCES `invoices`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -625,6 +627,7 @@ CREATE TABLE IF NOT EXISTS `product_stock_movements` (
     `user_id` INT DEFAULT NULL,
     `supplier_id` INT DEFAULT NULL,
     `unit_cost` DECIMAL(10,2) DEFAULT NULL,
+    `linked_invoice_id` INT DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_psm_product` (`product_id`),
     INDEX `idx_psm_type` (`movement_type`),

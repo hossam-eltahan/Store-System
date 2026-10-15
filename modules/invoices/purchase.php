@@ -72,6 +72,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ? sanitize(trim($item['purchase_unit']))
                 : ($product['purchase_unit'] ?: $product['unit']);
             $totalAmount += $purchaseQty * $unitPrice;
+            // Optional link to an already-applied quick supply (no double stock on approval)
+            $srcMoveId = (int)($item['source_movement_id'] ?? 0);
+            if ($srcMoveId > 0) {
+                validateSupplyLink($srcMoveId, $productId);
+            }
             $preparedItems[] = [
                 'product_id' => $productId,
                 'code' => $product['code'],
@@ -82,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'quantity' => $purchaseQty,
                 'stock_quantity' => $stockQty,
                 'price' => $unitPrice,
+                'source_movement_id' => $srcMoveId > 0 ? $srcMoveId : null,
             ];
         }
 
@@ -128,16 +134,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Insert items with unit snapshots; stock moves only on approval
         foreach ($preparedItems as $item) {
             $lineId = insert(
-                "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, item_name, unit, quantity, unit_price, total, purchase_unit, conversion_factor, stock_quantity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, item_name, unit, quantity, unit_price, total, purchase_unit, conversion_factor, stock_quantity, source_movement_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price'],
-                 $item['purchase_unit'], $item['factor'], $item['stock_quantity']]
+                 $item['purchase_unit'], $item['factor'], $item['stock_quantity'], $item['source_movement_id']]
             );
             if (!$lineId) {
                 throw new Exception('تعذر حفظ صنف الفاتورة: ' . $item['name']);
             }
 
             if (!$isDraft) {
+                // Lines linked to an applied quick supply: link only, never add stock twice
+                if (!empty($item['source_movement_id'])) {
+                    execute("UPDATE product_stock_movements SET linked_invoice_id = ? WHERE id = ?", [$invoiceId, (int)$item['source_movement_id']]);
+                    continue;
+                }
                 // INCREASE stock in selected warehouse (and sync aggregate products.stock_quantity)
                 $lineUnitCost = ($item['factor'] > 0) ? ((float)$item['price'] / (float)$item['factor']) : null;
                 addProductStock($item['product_id'], $warehouseId, $item['stock_quantity'], 'purchase', 'purchase_invoice', $invoiceId, 'فاتورة شراء ' . $invoiceNumber, $lineUnitCost, $supplierId ?: null);
@@ -206,6 +217,53 @@ $products = getRows("SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quant
 $knownUnits = getKnownUnits();
 $warehouses = getAllWarehouses(true);
 $userWarehouseId = getCurrentWarehouseId();
+
+// Prefill from a quick-supply movement (?from_supply=ID): the invoice only
+// documents the supply — approving it never adds stock twice.
+$supplyPrefill = null;
+$fromSupplyId = (int)($_GET['from_supply'] ?? 0);
+if ($fromSupplyId > 0) {
+    $supMov = getRow("SELECT * FROM product_stock_movements WHERE id = ?", [$fromSupplyId]);
+    if (!$supMov || $supMov['movement_type'] !== 'supply') {
+        setError('حركة التوريد المطلوبة غير موجودة');
+    } elseif (!empty($supMov['linked_invoice_id'])) {
+        setError('هذا التوريد مرتبط بالفعل بفاتورة أخرى');
+    } else {
+        $supProd = getRow("SELECT * FROM products WHERE id = ?", [(int)$supMov['product_id']]);
+        if (!$supProd) {
+            setError('صنف التوريد غير موجود');
+        } else {
+            $pf = (float)($supProd['units_per_purchase'] ?: 1);
+            if ($pf <= 0) { $pf = 1; }
+            $sqty = (int)$supMov['qty_in'];
+            if ($sqty > 0 && $pf > 0 && fmod((float)$sqty, $pf) == 0.0) {
+                $preQty = $sqty / $pf;
+                $prePUnit = $supProd['purchase_unit'] ?: $supProd['unit'];
+                $preFactor = $pf;
+                $prePrice = $supMov['unit_cost'] !== null ? round((float)$supMov['unit_cost'] * $pf, 2) : 0;
+            } else {
+                $preQty = $sqty;
+                $prePUnit = $supProd['unit'];
+                $preFactor = 1;
+                $prePrice = $supMov['unit_cost'] !== null ? (float)$supMov['unit_cost'] : 0;
+            }
+            $supSup = null;
+            if (!empty($supMov['supplier_id'])) {
+                $supSup = getRow("SELECT id, name, phone FROM suppliers WHERE id = ?", [(int)$supMov['supplier_id']]);
+            }
+            $supplyPrefill = [
+                'movement_id' => (int)$supMov['id'],
+                'product' => $supProd,
+                'quantity' => $preQty,
+                'purchase_unit' => $prePUnit,
+                'factor' => $preFactor,
+                'price' => $prePrice,
+                'supplier' => $supSup,
+                'reason' => $supMov['reason'],
+            ];
+        }
+    }
+}
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -416,6 +474,13 @@ include '../../includes/navbar.php';
 <div class="container">
     <div class="invoice-container">
         <form method="POST" id="invoiceForm">
+            <?php if ($supplyPrefill): ?>
+            <div style="background: #eff6ff; border: 2px dashed #2563eb; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; font-size: 0.85em; color: #1e40af;">
+                🚚 هذه الفاتورة توثّق توريدًا مباشرًا سبق تطبيقه على المخزون —
+                <strong>عند الاعتماد لن يُضاف المخزون مرة أخرى</strong>، وسيُحدَّث حساب المورد فقط.
+                <br><small style="color:#475569;"><?php echo htmlspecialchars($supplyPrefill['reason'] ?? ''); ?></small>
+            </div>
+            <?php endif; ?>
             <!-- Invoice Header -->
             <div class="invoice-header">
                 <div class="invoice-title">📦 فاتورة شراء</div>
@@ -672,6 +737,42 @@ const products = <?php echo json_encode($products); ?>;
 
 let items = [];
 let itemCounter = 1;
+
+<?php if ($supplyPrefill): ?>
+// Prefilled from a quick-supply movement (?from_supply=): stock-neutral line
+document.addEventListener('DOMContentLoaded', function() {
+    const sp = <?php echo json_encode([
+        'movement_id' => $supplyPrefill['movement_id'],
+        'product_id' => (int)$supplyPrefill['product']['id'],
+        'code' => $supplyPrefill['product']['code'],
+        'name' => $supplyPrefill['product']['name'],
+        'unit' => $supplyPrefill['product']['unit'],
+        'purchase_unit' => $supplyPrefill['purchase_unit'],
+        'factor' => (float)$supplyPrefill['factor'],
+        'quantity' => $supplyPrefill['quantity'],
+        'price' => (float)$supplyPrefill['price'],
+        'supplier' => $supplyPrefill['supplier'],
+    ], JSON_UNESCAPED_UNICODE); ?>;
+    items.push({
+        id: itemCounter++,
+        product_id: sp.product_id,
+        code: sp.code,
+        name: sp.name,
+        unit: sp.unit,
+        purchase_unit: sp.purchase_unit,
+        factor: sp.factor,
+        quantity: sp.quantity,
+        price: sp.price,
+        source_movement_id: sp.movement_id
+    });
+    if (sp.supplier) {
+        document.getElementById('supplierName').value = sp.supplier.name || '';
+        document.getElementById('supplierPhone').value = sp.supplier.phone || '';
+        document.getElementById('supplierId').value = sp.supplier.id || '';
+    }
+    renderItems();
+});
+<?php endif; ?>
 
 // Supplier Autocomplete
 const supplierNameInput = document.getElementById('supplierName');

@@ -61,6 +61,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $oldItems = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
         if (!$isDraft) {
             foreach ($oldItems as $item) {
+                // Lines documenting a quick supply: their stock never came from this invoice — skip reversal
+                if (!empty($item['source_movement_id'])) {
+                    continue;
+                }
                 $reverseQty = ($item['stock_quantity'] !== null) ? (int)$item['stock_quantity'] : (int)$item['quantity'];
                 updateWarehouseStock($oldWarehouseId, $item['product_id'], $reverseQty, 'subtract');
                 $oldProd = getRow("SELECT unit FROM products WHERE id = ?", [(int)$item['product_id']]);
@@ -74,6 +78,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 execute("UPDATE suppliers SET balance = balance - ? WHERE id = ?", [$oldInvoice['remaining_amount'], $oldInvoice['supplier_id']]);
             }
         }
+
+        // Free any supply movements linked to this invoice (re-linked below if still present)
+        execute("UPDATE product_stock_movements SET linked_invoice_id = NULL WHERE linked_invoice_id = ?", [$invoiceId]);
 
         // 3. Delete old items
         execute("DELETE FROM invoice_items WHERE invoice_id = ?", [$invoiceId]);
@@ -121,6 +128,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ? sanitize(trim($raw['purchase_unit']))
                 : ($product['purchase_unit'] ?: $product['unit']);
             $totalAmount += $purchaseQty * $unitPrice;
+            $srcMoveId = (int)($raw['source_movement_id'] ?? 0);
+            if ($srcMoveId > 0) {
+                validateSupplyLink($srcMoveId, $productId);
+            }
             $preparedItems[] = [
                 'product_id' => $productId,
                 'code' => $product['code'],
@@ -131,6 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'quantity' => $purchaseQty,
                 'stock_quantity' => $stockQty,
                 'price' => $unitPrice,
+                'source_movement_id' => $srcMoveId > 0 ? $srcMoveId : null,
             ];
         }
 
@@ -173,16 +185,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Insert items and update stock (stock moves only for approved invoices)
         foreach ($preparedItems as $item) {
             $lineId = insert(
-                "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, item_name, unit, quantity, unit_price, total, purchase_unit, conversion_factor, stock_quantity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, item_name, unit, quantity, unit_price, total, purchase_unit, conversion_factor, stock_quantity, source_movement_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price'],
-                 $item['purchase_unit'], $item['factor'], $item['stock_quantity']]
+                 $item['purchase_unit'], $item['factor'], $item['stock_quantity'], $item['source_movement_id']]
             );
             if (!$lineId) {
                 throw new Exception('تعذر حفظ صنف الفاتورة: ' . $item['name']);
             }
 
             if (!$isDraft) {
+                // Linked quick-supply lines: link only, never touch stock
+                if (!empty($item['source_movement_id'])) {
+                    execute("UPDATE product_stock_movements SET linked_invoice_id = ? WHERE id = ?", [$invoiceId, (int)$item['source_movement_id']]);
+                    continue;
+                }
                 // Add stock to selected warehouse
                 $lineUnitCost = ($item['factor'] > 0) ? ((float)$item['price'] / (float)$item['factor']) : null;
                 addProductStock($item['product_id'], $warehouseId, $item['stock_quantity'], 'purchase', 'purchase_invoice', $invoiceId, 'فاتورة شراء بعد التعديل ' . $invoiceNumber, $lineUnitCost, $supplierId ?: null);

@@ -55,6 +55,10 @@ try {
             if ($invoice['type'] === 'sale') {
                 updateWarehouseStock($warehouseId, $item['product_id'], $item['quantity'], 'add');
             } else {
+                // Lines documenting a quick supply: stock never came from this invoice — skip reversal
+                if (!empty($item['source_movement_id'])) {
+                    continue;
+                }
                 $reverseQty = ($item['stock_quantity'] !== null) ? (int)$item['stock_quantity'] : (int)$item['quantity'];
                 updateWarehouseStock($warehouseId, $item['product_id'], $reverseQty, 'subtract');
                 $delProd = getRow("SELECT unit FROM products WHERE id = ?", [(int)$item['product_id']]);
@@ -64,6 +68,9 @@ try {
             }
         }
     }
+
+    // Free any supply movements linked to this invoice
+    execute("UPDATE product_stock_movements SET linked_invoice_id = NULL WHERE linked_invoice_id = ?", [$id]);
 
     // 3. Reverse entity balance (drafts have none)
     if ($invoice['type'] === 'sale' && $invoice['customer_id']) {

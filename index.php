@@ -64,6 +64,15 @@ $todayExpenses = floatval(getRow(
      WHERE date = CURDATE()"
 )['total'] ?? 0);
 
+// توريدات اليوم المباشرة (بدون فواتير)
+$todaySuppliesCount = 0;
+if (function_exists('columnExists') && columnExists('product_stock_movements', 'movement_type')) {
+    $todaySuppliesCount = intval(getRow(
+        "SELECT COUNT(*) as c FROM product_stock_movements
+         WHERE movement_type = 'supply' AND DATE(created_at) = CURDATE()"
+    )['c'] ?? 0);
+}
+
 $todayTotalRevenue = $todayOrdersTotal + $todayPsRevenue + $todayBilliardRevenue;
 $todayEstimatedNet = max(0, $todayTotalRevenue - $todayExpenses);
 
@@ -252,6 +261,18 @@ html, body {
             </div>
         </div>
     </a>
+
+    <?php if (hasPermission('inventory.view')): ?>
+    <a href="<?php echo BASE_URL; ?>modules/inventory/supplies.php" class="quick-action-card">
+        <div class="quick-action-icon" style="background: #ecfdf5; color: #059669;">
+            🚚
+        </div>
+        <div>
+            <div style="font-size: 14px; font-weight: 800; color: #0f172a;">التوريد المباشر</div>
+            <div style="font-size: 11.5px; color: #64748b;"><?php echo $todaySuppliesCount; ?> توريد اليوم • بدون فواتير</div>
+        </div>
+    </a>
+    <?php endif; ?>
 
 </div>
 

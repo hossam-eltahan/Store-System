@@ -335,6 +335,16 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
+            <!-- التوريد المباشر -->
+            <?php if (hasPermission('inventory.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/inventory/supplies.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'inventory/supplies') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🚚</span>
+                    <span class="sidebar-text">التوريد المباشر</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
             <!-- العملاء -->
             <?php if (hasPermission('customers.view')): ?>
             <li>

@@ -400,6 +400,40 @@ function removeProductStock($productId, $warehouseId, $stockQty, $movementType, 
 }
 
 /**
+ * Validate that a quick-supply movement can back an invoice line:
+ * must exist, be a supply, and not already linked to another invoice.
+ * Returns the movement row. Throws on any problem.
+ */
+function validateSupplyLink($movementId, $productId, $excludeInvoiceId = 0) {
+    $movementId = (int)$movementId;
+    if ($movementId <= 0) {
+        throw new RuntimeException('مرجع التوريد غير صالح');
+    }
+    $mov = getRow("SELECT * FROM product_stock_movements WHERE id = ? FOR UPDATE", [$movementId]);
+    if (!$mov) {
+        throw new RuntimeException('حركة التوريد المرجعية غير موجودة');
+    }
+    if ($mov['movement_type'] !== 'supply') {
+        throw new RuntimeException('مرجع الفاتورة يجب أن يكون حركة توريد مباشر');
+    }
+    if ((int)$mov['product_id'] !== (int)$productId) {
+        throw new RuntimeException('حركة التوريد تخص صنفاً آخر');
+    }
+    if (!empty($mov['linked_invoice_id'])) {
+        throw new RuntimeException('هذا التوريد مرتبط بالفعل بفاتورة أخرى');
+    }
+    // Drafts also reserve the reference without linking the movement yet
+    $used = getRow(
+        "SELECT invoice_id FROM invoice_items WHERE source_movement_id = ? AND invoice_id != ?",
+        [$movementId, (int)$excludeInvoiceId]
+    );
+    if ($used) {
+        throw new RuntimeException('هذا التوريد مستخدم بالفعل في فاتورة أخرى');
+    }
+    return $mov;
+}
+
+/**
  * Convert a purchase quantity to base stock units.
  * Throws when the factor is invalid or the result is not a whole number.
  */
@@ -461,6 +495,13 @@ function approvePurchaseInvoice($invoiceId) {
                 "UPDATE invoice_items SET stock_quantity = ? WHERE id = ?",
                 [$stockQty, (int)$item['id']]
             );
+            // Lines documenting an already-applied quick supply: link only, never add stock twice
+            $srcMoveId = isset($item['source_movement_id']) ? (int)$item['source_movement_id'] : 0;
+            if ($srcMoveId > 0) {
+                validateSupplyLink($srcMoveId, (int)$item['product_id'], $invoiceId);
+                execute("UPDATE product_stock_movements SET linked_invoice_id = ? WHERE id = ?", [$invoiceId, $srcMoveId]);
+                continue;
+            }
             // Stock-unit cost for valuation in reports (purchase price ÷ factor)
             $lineUnitCost = ($factor > 0) ? ((float)$item['unit_price'] / $factor) : null;
             addProductStock((int)$item['product_id'], $warehouseId, $stockQty, 'purchase', 'purchase_invoice', $invoiceId, 'اعتماد فاتورة شراء ' . $invoice['invoice_number'], $lineUnitCost, $invoice['supplier_id'] ?: null);
