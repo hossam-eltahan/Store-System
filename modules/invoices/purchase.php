@@ -139,7 +139,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!$isDraft) {
                 // INCREASE stock in selected warehouse (and sync aggregate products.stock_quantity)
-                addProductStock($item['product_id'], $warehouseId, $item['stock_quantity'], 'purchase', 'purchase_invoice', $invoiceId, 'فاتورة شراء ' . $invoiceNumber);
+                $lineUnitCost = ($item['factor'] > 0) ? ((float)$item['price'] / (float)$item['factor']) : null;
+                addProductStock($item['product_id'], $warehouseId, $item['stock_quantity'], 'purchase', 'purchase_invoice', $invoiceId, 'فاتورة شراء ' . $invoiceNumber, $lineUnitCost, $supplierId ?: null);
             }
         }
         

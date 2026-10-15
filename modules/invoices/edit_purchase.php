@@ -184,7 +184,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!$isDraft) {
                 // Add stock to selected warehouse
-                addProductStock($item['product_id'], $warehouseId, $item['stock_quantity'], 'purchase', 'purchase_invoice', $invoiceId, 'فاتورة شراء بعد التعديل ' . $invoiceNumber);
+                $lineUnitCost = ($item['factor'] > 0) ? ((float)$item['price'] / (float)$item['factor']) : null;
+                addProductStock($item['product_id'], $warehouseId, $item['stock_quantity'], 'purchase', 'purchase_invoice', $invoiceId, 'فاتورة شراء بعد التعديل ' . $invoiceNumber, $lineUnitCost, $supplierId ?: null);
             }
         }
         

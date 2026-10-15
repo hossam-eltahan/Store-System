@@ -75,6 +75,8 @@ $rows = getRows($sql, $params);
 $statTracked = getRow("SELECT COUNT(*) c FROM products WHERE track_stock = 1")['c'] ?? 0;
 $statLow = getRow("SELECT COUNT(*) c FROM products WHERE track_stock = 1 AND stock_quantity > 0 AND stock_quantity <= min_stock_level")['c'] ?? 0;
 $statOut = getRow("SELECT COUNT(*) c FROM products WHERE track_stock = 1 AND stock_quantity <= 0")['c'] ?? 0;
+$suppliers = getRows("SELECT id, name FROM suppliers ORDER BY name");
+$canSupply = hasPermission('inventory.adjust');
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -161,6 +163,10 @@ include '../../includes/navbar.php';
                                 <?php endif; ?>
                             </td>
                             <td style="white-space: nowrap;">
+                                <?php if ($canSupply): ?>
+                                <button type="button" class="btn btn-success btn-sm" title="توريد سريع بدون فاتورة"
+                                    onclick='openSupplyModal(<?php echo json_encode(['id' => (int)$r['id'], 'name' => $r['name'], 'unit' => $r['unit'], 'purchase_unit' => $r['purchase_unit'] ?: $r['unit'], 'factor' => (float)($r['units_per_purchase'] ?: 1)], JSON_UNESCAPED_UNICODE); ?>)'>🚚 توريد سريع</button>
+                                <?php endif; ?>
                                 <a href="movements.php?product_id=<?php echo (int)$r['id']; ?>" class="btn btn-info btn-sm" title="سجل الحركات">📜</a>
                                 <?php if (hasPermission('products.edit')): ?>
                                 <a href="../products/edit.php?id=<?php echo (int)$r['id']; ?>" class="btn btn-secondary btn-sm" title="تعديل الصنف">✏️</a>
@@ -197,3 +203,95 @@ include '../../includes/navbar.php';
 </div>
 
 <?php include '../../includes/footer.php'; ?>
+
+<?php if ($canSupply): ?>
+<!-- Quick Supply Modal -->
+<div id="supplyModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;">
+    <div style="background: white; border-radius: 15px; padding: 25px; width: 92%; max-width: 520px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-height: 92vh; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px;">
+            <h3 style="margin: 0; color: #1f2937;">🚚 توريد سريع <small style="color:#6b7280;">(بدون فاتورة)</small></h3>
+            <button onclick="closeSupplyModal()" style="background: #dc2626; color: white; border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 16px;">✕</button>
+        </div>
+        <form method="POST" action="supply.php" id="supplyForm">
+            <input type="hidden" name="product_id" id="supplyProductId">
+            <input type="hidden" name="warehouse_id" value="<?php echo $filterWarehouse; ?>">
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label class="form-label" style="font-weight: bold;">الصنف</label>
+                <input type="text" id="supplyProductName" class="form-control" readonly style="background: #f3f4f6; font-weight: bold;">
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: bold;">الكمية *</label>
+                    <input type="number" name="quantity" id="supplyQty" class="form-control" step="any" min="0" required placeholder="مثال: 20" oninput="updateSupplyHint()">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: bold;">الكمية بوحدة</label>
+                    <select name="qty_unit" id="supplyQtyUnit" class="form-control" onchange="updateSupplyHint()"></select>
+                </div>
+            </div>
+            <div id="supplyHint" style="background: #f0fdf4; border-radius: 8px; padding: 8px 12px; font-weight: 700; color: #166534; margin-bottom: 12px;">—</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: bold;">سعر وحدة الشراء (اختياري)</label>
+                    <input type="number" name="price" class="form-control" step="0.01" min="0" value="0" placeholder="للتقييم فقط">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: bold;">المورد (اختياري)</label>
+                    <select name="supplier_id" class="form-control">
+                        <option value="">-- بدون مورد --</option>
+                        <?php foreach ($suppliers as $s): ?>
+                            <option value="<?php echo $s['id']; ?>"><?php echo htmlspecialchars($s['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label class="form-label" style="font-weight: bold;">ملاحظات</label>
+                <input type="text" name="notes" class="form-control" placeholder="مثال: توريد نقدي من السوق">
+            </div>
+            <div style="background: #fef3c7; border-radius: 8px; padding: 8px 12px; font-size: 0.85em; color: #92400e; margin-bottom: 15px;">
+                ⚠️ التوريد يزيد المخزون فورًا ويُسجل في السجل والتقارير كـ«توريد مباشر» — ولا ينشئ فاتورة ولا مديونية على مورد.
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button type="submit" style="flex: 1; background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 12px; border: none; border-radius: 8px; font-size: 1.05em; cursor: pointer;">✅ تأكيد التوريد</button>
+                <button type="button" onclick="closeSupplyModal()" style="background: #6b7280; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer;">إلغاء</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+let supplyFactor = 1;
+let supplyStockUnit = '';
+function openSupplyModal(p) {
+    document.getElementById('supplyProductId').value = p.id;
+    document.getElementById('supplyProductName').value = p.name;
+    supplyFactor = parseFloat(p.factor) > 0 ? parseFloat(p.factor) : 1;
+    supplyStockUnit = p.unit || '';
+    const sel = document.getElementById('supplyQtyUnit');
+    sel.innerHTML = '';
+    const optP = document.createElement('option');
+    optP.value = 'purchase';
+    optP.textContent = p.purchase_unit || p.unit;
+    const optS = document.createElement('option');
+    optS.value = 'stock';
+    optS.textContent = (p.unit || '') + ' (مخزون)';
+    sel.appendChild(optP);
+    sel.appendChild(optS);
+    document.getElementById('supplyQty').value = '';
+    updateSupplyHint();
+    document.getElementById('supplyModal').style.display = 'flex';
+}
+function closeSupplyModal() {
+    document.getElementById('supplyModal').style.display = 'none';
+}
+function updateSupplyHint() {
+    const qty = parseFloat(document.getElementById('supplyQty').value) || 0;
+    const byPurchase = document.getElementById('supplyQtyUnit').value === 'purchase';
+    const hint = document.getElementById('supplyHint');
+    if (!qty) { hint.textContent = '—'; return; }
+    const out = byPurchase ? (qty * supplyFactor) : qty;
+    hint.textContent = 'الناتج بالمخزون: ' + out + ' ' + supplyStockUnit;
+}
+</script>
+<?php endif; ?>

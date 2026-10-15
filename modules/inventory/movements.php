@@ -84,7 +84,7 @@ $sql .= " ORDER BY m.id DESC LIMIT 200";
 $moves = getRows($sql, $params);
 
 $typeLabels = [
-    'opening' => 'رصيد افتتاحي', 'purchase' => 'شراء', 'sale' => 'بيع',
+    'opening' => 'رصيد افتتاحي', 'purchase' => 'شراء', 'supply' => 'توريد مباشر', 'sale' => 'بيع',
     'customer_return' => 'مرتجع عميل', 'supplier_return' => 'مرتجع مورد',
     'adjustment' => 'تسوية', 'transfer_in' => 'تحويل وارد', 'transfer_out' => 'تحويل صادر',
     'reversal' => 'عكس قيد',
@@ -154,7 +154,7 @@ include '../../includes/navbar.php';
                         <?php else: ?>
                         <?php
                         $moveBadge = [
-                            'opening' => 'badge-primary', 'purchase' => 'badge-success', 'sale' => 'badge-info',
+                            'opening' => 'badge-primary', 'purchase' => 'badge-success', 'supply' => 'badge-success', 'sale' => 'badge-info',
                             'customer_return' => 'badge-warning', 'supplier_return' => 'badge-warning',
                             'adjustment' => 'badge-secondary', 'transfer_in' => 'badge-info', 'transfer_out' => 'badge-info',
                             'reversal' => 'badge-danger',

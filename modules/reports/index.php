@@ -513,10 +513,41 @@ switch ($reportType) {
             $data[] = $r;
         }
 
+        // Quick supplies without invoices (valued at recorded stock-unit cost)
+        $wsup = "m.movement_type = 'supply'";
+        $psup = [];
+        if ($dateFrom && $dateTo) { $wsup .= " AND DATE(m.created_at) BETWEEN ? AND ?"; $psup[] = $dateFrom; $psup[] = $dateTo; }
+        $supRows = getRows("
+            SELECT m.*, p.name AS product_name, p.code AS product_code, COALESCE(s.name, '-') AS supplier_name
+            FROM product_stock_movements m
+            LEFT JOIN products p ON p.id = m.product_id
+            LEFT JOIN suppliers s ON s.id = m.supplier_id
+            WHERE {$wsup}
+            ORDER BY m.id DESC
+        ", $psup);
+
+        $totSupply = 0; $nSupply = 0;
+        foreach ($supRows as $s) {
+            $val = (int)$s['qty_in'] * (float)($s['unit_cost'] ?: 0);
+            $totSupply += $val;
+            $nSupply++;
+            $data[] = [
+                'date' => date('Y-m-d', strtotime($s['created_at'])),
+                'invoice_number' => 'توريد مباشر #' . $s['id'],
+                'supplier_lbl' => htmlspecialchars($s['supplier_name']),
+                'items_lbl' => htmlspecialchars($s['product_name'] ?? '') . ' × ' . (int)$s['qty_in'] . ' ' . htmlspecialchars($s['unit'] ?? ''),
+                'total_lbl' => formatCurrency($val),
+                'paid_lbl' => formatCurrency($val),
+                'remaining_lbl' => formatCurrency(0),
+                'status_lbl' => '<span class="badge badge-primary">🚚 توريد مباشر</span>',
+            ];
+        }
+
         $summaryCards = [
             ['title'=>'إجمالي المشتريات بالفترة', 'value'=>formatCurrency($totBuy), 'color'=>'primary', 'icon'=>'fa-cart-arrow-down'],
             ['title'=>'المدفوع للموردين', 'value'=>formatCurrency($totPaid), 'color'=>'success', 'icon'=>'fa-money-bill-wave'],
             ['title'=>'الباقي للموردين', 'value'=>formatCurrency($totRem), 'color'=>'danger', 'icon'=>'fa-hand-holding-usd'],
+            ['title'=>'التوريد المباشر (بدون فواتير)', 'value'=>formatCurrency($totSupply), 'color'=>'info', 'icon'=>'fa-truck-loading'],
             ['title'=>'مسودات بانتظار الاعتماد', 'value'=>$nDraft . ' فاتورة', 'color'=>'warning', 'icon'=>'fa-file-signature'],
         ];
         break;

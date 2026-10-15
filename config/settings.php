@@ -341,17 +341,18 @@ function syncProductTotalStock($productId) {
  * Append a row to the product stock movements ledger (append-only).
  * Call AFTER the warehouse quantity has been changed.
  */
-function recordProductMovement($productId, $warehouseId, $movementType, $qtyIn, $qtyOut, $unit, $referenceType = null, $referenceId = null, $reason = null) {
+function recordProductMovement($productId, $warehouseId, $movementType, $qtyIn, $qtyOut, $unit, $referenceType = null, $referenceId = null, $reason = null, $supplierId = null, $unitCost = null) {
     $productId = (int)$productId;
     $warehouseId = $warehouseId ? (int)$warehouseId : null;
     $balance = ($warehouseId !== null) ? getWarehouseStock($warehouseId, $productId) : 0;
     $userId = function_exists('getCurrentUserId') ? getCurrentUserId() : null;
     return insert(
         "INSERT INTO product_stock_movements
-            (product_id, warehouse_id, movement_type, qty_in, qty_out, balance_after, unit, reference_type, reference_id, reason, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (product_id, warehouse_id, movement_type, qty_in, qty_out, balance_after, unit, reference_type, reference_id, reason, user_id, supplier_id, unit_cost)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [$productId, $warehouseId, $movementType, (int)$qtyIn, (int)$qtyOut, (int)$balance,
-         $unit, $referenceType, $referenceId ? (int)$referenceId : null, $reason, $userId]
+         $unit, $referenceType, $referenceId ? (int)$referenceId : null, $reason, $userId,
+         $supplierId ? (int)$supplierId : null, $unitCost !== null ? (float)$unitCost : null]
     );
 }
 
@@ -359,7 +360,7 @@ function recordProductMovement($productId, $warehouseId, $movementType, $qtyIn, 
  * Add stock of a product in base (stock) units and log the movement.
  * Used by purchase approval, opening balances and manual corrections.
  */
-function addProductStock($productId, $warehouseId, $stockQty, $movementType, $referenceType = null, $referenceId = null, $reason = null) {
+function addProductStock($productId, $warehouseId, $stockQty, $movementType, $referenceType = null, $referenceId = null, $reason = null, $unitCost = null, $supplierId = null) {
     $product = getRow("SELECT id, unit FROM products WHERE id = ?", [(int)$productId]);
     if (!$product) {
         throw new RuntimeException('الصنف غير موجود');
@@ -369,7 +370,7 @@ function addProductStock($productId, $warehouseId, $stockQty, $movementType, $re
         return getWarehouseStock((int)$warehouseId, (int)$productId);
     }
     $newBalance = updateWarehouseStock($warehouseId, $productId, $stockQty, 'add');
-    recordProductMovement($productId, $warehouseId, $movementType, $stockQty, 0, $product['unit'], $referenceType, $referenceId, $reason);
+    recordProductMovement($productId, $warehouseId, $movementType, $stockQty, 0, $product['unit'], $referenceType, $referenceId, $reason, $supplierId, $unitCost);
     return $newBalance;
 }
 
@@ -460,7 +461,9 @@ function approvePurchaseInvoice($invoiceId) {
                 "UPDATE invoice_items SET stock_quantity = ? WHERE id = ?",
                 [$stockQty, (int)$item['id']]
             );
-            addProductStock((int)$item['product_id'], $warehouseId, $stockQty, 'purchase', 'purchase_invoice', $invoiceId, 'اعتماد فاتورة شراء ' . $invoice['invoice_number']);
+            // Stock-unit cost for valuation in reports (purchase price ÷ factor)
+            $lineUnitCost = ($factor > 0) ? ((float)$item['unit_price'] / $factor) : null;
+            addProductStock((int)$item['product_id'], $warehouseId, $stockQty, 'purchase', 'purchase_invoice', $invoiceId, 'اعتماد فاتورة شراء ' . $invoice['invoice_number'], $lineUnitCost, $invoice['supplier_id'] ?: null);
         }
 
         if (!empty($invoice['supplier_id'])) {
