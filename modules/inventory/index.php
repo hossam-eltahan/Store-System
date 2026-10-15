@@ -148,8 +148,13 @@ include '../../includes/navbar.php';
                             <td><?php echo htmlspecialchars($r['purchase_unit'] ?: '—'); ?></td>
                             <td><?php echo ($r['purchase_unit']) ? '×' . rtrim(rtrim(number_format((float)$r['units_per_purchase'], 4), '0'), '.') : '—'; ?></td>
                             <td><?php echo htmlspecialchars($r['unit']); ?></td>
+                            <?php if ((int)$r['track_stock'] === 1): ?>
                             <td><strong><?php echo (int)$r['wh_qty']; ?></strong></td>
                             <td><strong><?php echo (int)$r['stock_quantity']; ?></strong></td>
+                            <?php else: ?>
+                            <td style="color: #94a3b8;">—</td>
+                            <td style="color: #94a3b8;">—</td>
+                            <?php endif; ?>
                             <td><?php echo (int)$r['min_stock_level']; ?></td>
                             <td>
                                 <?php if ((int)$r['track_stock'] !== 1): ?>

@@ -440,7 +440,11 @@ switch ($reportType) {
             $qty = (int)$r['stock_quantity'];
             $min = (int)$r['min_stock_level'];
             $r['unit_info'] = htmlspecialchars($r['unit']) . ($r['purchase_unit'] ? ' ← ' . htmlspecialchars($r['purchase_unit']) . ' (×' . rtrim(rtrim(number_format((float)$r['units_per_purchase'], 4), '0'), '.') . ')' : '');
-            $r['stock_lbl'] = '<strong>' . $qty . '</strong>';
+            if ((int)$r['track_stock'] !== 1) {
+                $r['stock_lbl'] = '<span style="color:#94a3b8;">—</span>';
+            } else {
+                $r['stock_lbl'] = '<strong>' . $qty . '</strong>';
+            }
             $r['min_lbl'] = $min;
             if ((int)$r['track_stock'] !== 1) {
                 $r['status_lbl'] = '<span class="badge badge-secondary">التتبع متوقف</span>';
