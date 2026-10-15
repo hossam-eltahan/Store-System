@@ -43,11 +43,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $unitsPerPurchase = floatval($_POST['units_per_purchase'] ?? 1);
     $minStockLevel = max(0, (int)($_POST['min_stock_level'] ?? 5));
     $openingStockRaw = trim($_POST['opening_stock'] ?? '');
+    $openingUnit = sanitize(trim($_POST['opening_unit'] ?? 'stock'));
     if ($purchaseUnit === '') {
         $purchaseUnit = $unit;
     }
+    // Pre-compute opening stock in base units (before save, so errors block saving)
+    $openingStock = 0;
+    $openingError = '';
+    if ($openingStockRaw !== '' && is_numeric($openingStockRaw)) {
+        $oq = max(0, (float)$openingStockRaw);
+        if ($trackStock && !$wasTracked && $openingUnit === 'purchase') {
+            $res = $oq * (float)$unitsPerPurchase;
+            if (abs($res - round($res)) > 0.0001) {
+                $openingError = 'ناتج تحويل الكمية الافتتاحية لوحدات المخزون يجب أن يكون عدداً صحيحاً';
+            } else {
+                $openingStock = (int)round($res);
+            }
+        } else {
+            $openingStock = (int)$oq;
+        }
+    }
     if ($unitsPerPurchase <= 0) {
         setError('معامل التحويل (عدد وحدات المخزون في وحدة الشراء) يجب أن يكون أكبر من صفر');
+    } elseif ($openingError !== '') {
+        setError($openingError);
     } elseif ($trackStock && !$wasTracked && $openingStockRaw === '') {
         // Enabling tracking on an existing item: require an explicit opening qty
         setError('عند تفعيل التتبع لهذا الصنف يجب إدخال الكمية الافتتاحية الحالية صراحة (حتى لو صفر)');
@@ -115,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $minStockLevel, $purchaseUnit, $unitsPerPurchase, $trackStock, $isDirectSale, $id]);
 
             // Opening movement when tracking is newly enabled on an existing item
-            $openingStock = max(0, (int)$openingStockRaw);
+            // ($openingStock pre-computed in base units during validation)
             if ($trackStock && !$wasTracked && $openingStock > 0) {
                 $defWh = getDefaultWarehouse();
                 $whId = $defWh ? (int)$defWh['id'] : 1;
@@ -350,7 +369,7 @@ include '../../includes/navbar.php';
                     </div>
                     <div class="col-md-4 mb-3">
                         <label class="form-label" style="font-weight: 600;">وحدة الشراء = كم وحدة مخزون؟</label>
-                        <input type="number" step="any" min="0" name="units_per_purchase" class="form-control" value="<?php echo htmlspecialchars($product['units_per_purchase'] ?? '1'); ?>">
+                        <input type="number" step="any" min="0" name="units_per_purchase" class="form-control" value="<?php echo htmlspecialchars($product['units_per_purchase'] ?? '1'); ?>" oninput="updateOpeningHintEdit()">
                     </div>
                     <div class="col-md-4 mb-3">
                         <label class="form-label" style="font-weight: 600;">الحد الأدنى للتنبيه</label>
@@ -358,10 +377,21 @@ include '../../includes/navbar.php';
                     </div>
                 </div>
                 <div class="row" id="openingStockRowEdit" style="display: <?php echo ($wasTrackedEdit ? 'flex' : 'none'); ?>;">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label" style="font-weight: 600;">الكمية الافتتاحية الحالية (بوحدة المخزون) *</label>
-                        <input type="number" min="0" name="opening_stock" class="form-control" value="" placeholder="مثال: 400">
-                        <small style="color: #64748b;">مطلوبة فقط عند تفعيل التتبع لأول مرة — تُسجل كحركة افتتاحية. اتركها فارغة إذا كان التتبع مفعّلًا بالفعل.</small>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" style="font-weight: 600;">الكمية الافتتاحية الحالية *</label>
+                        <input type="number" min="0" step="any" name="opening_stock" id="openingStockInputEdit" class="form-control" value="" placeholder="مثال: 1 أو 400" oninput="updateOpeningHintEdit()">
+                        <small style="color: #64748b;">مطلوبة فقط عند تفعيل التتبع لأول مرة — تُسجل كحركة افتتاحية.</small>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" style="font-weight: 600;">الكمية بوحدة</label>
+                        <select name="opening_unit" id="openingUnitSelectEdit" class="form-select" onchange="updateOpeningHintEdit()">
+                            <option value="stock">وحدة المخزون</option>
+                            <option value="purchase">وحدة الشراء</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" style="font-weight: 600;">الناتج بالمخزون</label>
+                        <div id="openingHintEdit" class="form-control" style="background: #f0fdf4; font-weight: 700; color: #166534;">—</div>
                     </div>
                 </div>
                 <datalist id="knownUnitsListEdit">
@@ -461,8 +491,28 @@ include '../../includes/navbar.php';
 function toggleStockFieldsEdit() {
     const on = document.getElementById('trackStockCheckEdit').checked;
     document.getElementById('openingStockRowEdit').style.display = on ? 'flex' : 'none';
+    if (on) updateOpeningHintEdit();
 }
-document.addEventListener('DOMContentLoaded', toggleStockFieldsEdit);
+document.addEventListener('DOMContentLoaded', function() { toggleStockFieldsEdit(); updateOpeningHintEdit(); });
+
+function updateOpeningHintEdit() {
+    const qtyEl = document.getElementById('openingStockInputEdit');
+    const unitEl = document.getElementById('openingUnitSelectEdit');
+    const hint = document.getElementById('openingHintEdit');
+    if (!qtyEl || !unitEl || !hint) return;
+    const qty = parseFloat(qtyEl.value) || 0;
+    const byPurchase = unitEl.value === 'purchase';
+    const factorEl = document.querySelector('input[name="units_per_purchase"]');
+    const factor = factorEl ? (parseFloat(factorEl.value) || 0) : 0;
+    if (!qty) { hint.textContent = '—'; return; }
+    if (byPurchase && factor > 0) {
+        hint.textContent = (qty * factor) + ' بالمخزون';
+    } else if (byPurchase) {
+        hint.textContent = 'أدخل معامل التحويل أولًا';
+    } else {
+        hint.textContent = qty + ' بالمخزون';
+    }
+}
 
 function toggleVariantsSection() {
     const isChecked = document.getElementById('hasVariantsToggle').checked;

@@ -121,15 +121,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             VALUES (?, 'purchase', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [$invoiceNumber, $supplierId, $supplierName, $supplierPhone, $date, $totalAmount, $discount, $paidAmount, $remainingAmount, $supplierOldBalance, $paymentMethod, $paymentStatus, $handledBy, $userId, $warehouseId, $notes, $invoiceStatus]
         );
+        if (!$invoiceId) {
+            throw new Exception('تعذر حفظ الفاتورة في قاعدة البيانات');
+        }
 
         // Insert items with unit snapshots; stock moves only on approval
         foreach ($preparedItems as $item) {
-            insert(
+            $lineId = insert(
                 "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, item_name, unit, quantity, unit_price, total, purchase_unit, conversion_factor, stock_quantity)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price'],
                  $item['purchase_unit'], $item['factor'], $item['stock_quantity']]
             );
+            if (!$lineId) {
+                throw new Exception('تعذر حفظ صنف الفاتورة: ' . $item['name']);
+            }
 
             if (!$isDraft) {
                 // INCREASE stock in selected warehouse (and sync aggregate products.stock_quantity)

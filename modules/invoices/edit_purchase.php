@@ -172,12 +172,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Insert items and update stock (stock moves only for approved invoices)
         foreach ($preparedItems as $item) {
-            insert(
+            $lineId = insert(
                 "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, item_name, unit, quantity, unit_price, total, purchase_unit, conversion_factor, stock_quantity)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price'],
                  $item['purchase_unit'], $item['factor'], $item['stock_quantity']]
             );
+            if (!$lineId) {
+                throw new Exception('تعذر حفظ صنف الفاتورة: ' . $item['name']);
+            }
 
             if (!$isDraft) {
                 // Add stock to selected warehouse

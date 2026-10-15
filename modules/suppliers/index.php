@@ -179,7 +179,7 @@ include '../../includes/navbar.php';
                                 }
                                 ?>
                             </td>
-                            <td><?php echo $supplier['expected_products']; ?></td>
+                            <td><?php echo htmlspecialchars($supplier['expected_products'] ?? ''); ?></td>
                             <td><?php echo formatCurrency($supplier['balance']); ?></td>
                             <td>
                                 <a href="view.php?id=<?php echo $supplier['id']; ?>" class="btn btn-info btn-sm" title="تفاصيل">👁️</a>

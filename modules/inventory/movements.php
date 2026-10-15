@@ -101,6 +101,15 @@ include '../../includes/navbar.php';
             <a href="index.php" class="btn btn-secondary">🏭 المخزون</a>
         </div>
         <div class="card-body">
+            <div class="alert alert-info" style="margin-bottom: 15px;">
+                <strong>📌 يعني إيه الصفحة دي؟</strong>
+                كل زيادة أو نقص في مخزون أي صنف بتتسجل هنا سطر بسطر:
+                <strong>شراء</strong> (فاتورة معتمدة) • <strong>بيع</strong> (كاشير) •
+                <strong>رصيد افتتاحي</strong> • <strong>تسوية</strong> (جرد/تالف) •
+                <strong>عكس قيد</strong> (تعديل أو حذف فاتورة).
+                كل سطر بيوضح الداخل والخارج والرصيد بعد الحركة والمرجع (رقم الفاتورة) والمستخدم اللي نفذها —
+                والسجل للمراجعة فقط: ممنوع التعديل أو الحذف، وأي تصحيح بيتسجل كحركة جديدة من جزء التسوية تحت.
+            </div>
             <form method="GET" class="mb-1">
                 <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
                     <select name="product_id" class="form-control" style="flex: 2; min-width: 180px;" onchange="this.form.submit()">
@@ -143,11 +152,19 @@ include '../../includes/navbar.php';
                         <?php if (empty($moves)): ?>
                         <tr><td colspan="10" class="text-center">لا توجد حركات مسجلة</td></tr>
                         <?php else: ?>
+                        <?php
+                        $moveBadge = [
+                            'opening' => 'badge-primary', 'purchase' => 'badge-success', 'sale' => 'badge-info',
+                            'customer_return' => 'badge-warning', 'supplier_return' => 'badge-warning',
+                            'adjustment' => 'badge-secondary', 'transfer_in' => 'badge-info', 'transfer_out' => 'badge-info',
+                            'reversal' => 'badge-danger',
+                        ];
+                        ?>
                         <?php foreach ($moves as $m): ?>
                         <tr>
                             <td style="white-space: nowrap;"><?php echo date('Y/m/d H:i', strtotime($m['created_at'])); ?></td>
                             <td style="text-align: right;"><strong><?php echo htmlspecialchars($m['product_name'] ?? ('#' . $m['product_id'])); ?></strong></td>
-                            <td><span class="badge badge-info"><?php echo $typeLabels[$m['movement_type']] ?? $m['movement_type']; ?></span></td>
+                            <td><span class="badge <?php echo $moveBadge[$m['movement_type']] ?? 'badge-info'; ?>"><?php echo $typeLabels[$m['movement_type']] ?? $m['movement_type']; ?></span></td>
                             <td style="color: #059669; font-weight: bold;"><?php echo ((int)$m['qty_in'] > 0) ? '+' . (int)$m['qty_in'] : '—'; ?></td>
                             <td style="color: #dc2626; font-weight: bold;"><?php echo ((int)$m['qty_out'] > 0) ? '−' . (int)$m['qty_out'] : '—'; ?></td>
                             <td><strong><?php echo (int)$m['balance_after']; ?></strong></td>

@@ -47,11 +47,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $unitsPerPurchase = floatval($_POST['units_per_purchase'] ?? 1);
     $minStockLevel = max(0, (int)($_POST['min_stock_level'] ?? 5));
     $openingStockRaw = trim($_POST['opening_stock'] ?? '');
+    $openingUnit = sanitize(trim($_POST['opening_unit'] ?? 'stock'));
     if ($purchaseUnit === '') {
         $purchaseUnit = $unit;
     }
+    // Pre-compute opening stock in base units (before insert, so errors block saving)
+    $openingStock = 0;
+    $openingError = '';
+    if ($openingStockRaw !== '' && is_numeric($openingStockRaw)) {
+        $oq = max(0, (float)$openingStockRaw);
+        if ($trackStock && $openingUnit === 'purchase') {
+            $res = $oq * (float)$unitsPerPurchase;
+            if (abs($res - round($res)) > 0.0001) {
+                $openingError = 'ناتج تحويل الكمية الافتتاحية لوحدات المخزون يجب أن يكون عدداً صحيحاً';
+            } else {
+                $openingStock = (int)round($res);
+            }
+        } else {
+            $openingStock = (int)$oq;
+        }
+    }
     if ($unitsPerPurchase <= 0) {
         setError('معامل التحويل (عدد وحدات المخزون في وحدة الشراء) يجب أن يكون أكبر من صفر');
+    } elseif ($openingError !== '') {
+        setError($openingError);
     } elseif ($trackStock && $openingStockRaw === '') {
         setError('عند تفعيل تتبع المخزون يجب إدخال الكمية الافتتاحية صراحة (حتى لو صفر)');
     } else {
@@ -123,8 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
-                // Opening stock for tracked items (explicit value entered by the user)
-                $openingStock = max(0, (int)$openingStockRaw);
+                // Opening stock for tracked items (pre-computed in base units above)
                 if ($trackStock && $openingStock > 0) {
                     $defWh = getDefaultWarehouse();
                     $whId = $defWh ? (int)$defWh['id'] : 1;
@@ -281,7 +299,7 @@ include '../../includes/navbar.php';
                     </div>
                     <div class="col-md-4 mb-3">
                         <label class="form-label" style="font-weight: 600;">وحدة الشراء = كم وحدة مخزون؟</label>
-                        <input type="number" step="any" min="0" name="units_per_purchase" class="form-control" value="<?php echo htmlspecialchars($_POST['units_per_purchase'] ?? '1'); ?>" placeholder="مثال: 20">
+                        <input type="number" step="any" min="0" name="units_per_purchase" class="form-control" value="<?php echo htmlspecialchars($_POST['units_per_purchase'] ?? '1'); ?>" placeholder="مثال: 20" oninput="updateOpeningHint()">
                         <small style="color: #64748b;">مثال: الكرتونة = 20 زجاجة، الكيلو = 1000 جرام</small>
                     </div>
                     <div class="col-md-4 mb-3">
@@ -290,10 +308,21 @@ include '../../includes/navbar.php';
                     </div>
                 </div>
                 <div class="row" id="openingStockRow" style="display: none;">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label" style="font-weight: 600;">الكمية الافتتاحية (بوحدة المخزون) *</label>
-                        <input type="number" min="0" name="opening_stock" class="form-control" value="<?php echo htmlspecialchars($_POST['opening_stock'] ?? ''); ?>" placeholder="مثال: 400">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" style="font-weight: 600;">الكمية الافتتاحية *</label>
+                        <input type="number" min="0" step="any" name="opening_stock" id="openingStockInput" class="form-control" value="<?php echo htmlspecialchars($_POST['opening_stock'] ?? ''); ?>" placeholder="مثال: 1 أو 400" oninput="updateOpeningHint()">
                         <small style="color: #64748b;">مطلوبة عند تفعيل التتبع — تُسجل كحركة افتتاحية</small>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" style="font-weight: 600;">الكمية الافتتاحية بوحدة</label>
+                        <select name="opening_unit" id="openingUnitSelect" class="form-select" onchange="updateOpeningHint()">
+                            <option value="stock">وحدة المخزون</option>
+                            <option value="purchase">وحدة الشراء</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" style="font-weight: 600;">الناتج بالمخزون</label>
+                        <div id="openingHint" class="form-control" style="background: #f0fdf4; font-weight: 700; color: #166534;">—</div>
                     </div>
                 </div>
                 <datalist id="knownUnitsList">
@@ -372,8 +401,25 @@ include '../../includes/navbar.php';
 function toggleStockFields() {
     const on = document.getElementById('trackStockCheck').checked;
     document.getElementById('openingStockRow').style.display = on ? 'flex' : 'none';
+    if (on) updateOpeningHint();
 }
-document.addEventListener('DOMContentLoaded', toggleStockFields);
+document.addEventListener('DOMContentLoaded', function() { toggleStockFields(); updateOpeningHint(); });
+
+function updateOpeningHint() {
+    const qty = parseFloat(document.getElementById('openingStockInput').value) || 0;
+    const byPurchase = document.getElementById('openingUnitSelect').value === 'purchase';
+    const factor = parseFloat(document.querySelector('input[name="units_per_purchase"]').value) || 0;
+    const stockUnit = document.getElementById('stockUnitInput').value || '';
+    const hint = document.getElementById('openingHint');
+    if (!qty) { hint.textContent = '—'; return; }
+    if (byPurchase && factor > 0) {
+        hint.textContent = (qty * factor) + ' ' + stockUnit;
+    } else if (byPurchase) {
+        hint.textContent = 'أدخل معامل التحويل أولًا';
+    } else {
+        hint.textContent = qty + ' ' + stockUnit;
+    }
+}
 
 function toggleVariantsSection() {
     const isChecked = document.getElementById('hasVariantsToggle').checked;

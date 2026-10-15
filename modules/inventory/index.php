@@ -48,6 +48,28 @@ if ($filterStatus === 'tracked') {
 }
 $sql .= " ORDER BY p.track_stock DESC, p.stock_quantity ASC, p.name ASC";
 
+$countSql = "SELECT COUNT(*) AS c FROM products p WHERE 1=1";
+$countParams = [];
+if ($search !== '') {
+    $countSql .= " AND (p.name LIKE ? OR p.code LIKE ? OR p.barcode LIKE ?)";
+    array_push($countParams, $like, $like, $like);
+}
+if ($filterStatus === 'tracked') {
+    $countSql .= " AND p.track_stock = 1";
+} elseif ($filterStatus === 'untracked') {
+    $countSql .= " AND p.track_stock = 0";
+} elseif ($filterStatus === 'low') {
+    $countSql .= " AND p.track_stock = 1 AND p.stock_quantity > 0 AND p.stock_quantity <= p.min_stock_level";
+} elseif ($filterStatus === 'out') {
+    $countSql .= " AND p.track_stock = 1 AND p.stock_quantity <= 0";
+}
+$totalItems = (int)(getRow($countSql, $countParams)['c'] ?? 0);
+$perPage = 15;
+$totalPages = max(1, (int)ceil($totalItems / $perPage));
+$page = max(1, min($totalPages, (int)($_GET['page'] ?? 1)));
+$offset = ($page - 1) * $perPage;
+$sql .= " LIMIT $perPage OFFSET $offset";
+
 $rows = getRows($sql, $params);
 
 $statTracked = getRow("SELECT COUNT(*) c FROM products WHERE track_stock = 1")['c'] ?? 0;
@@ -149,6 +171,26 @@ include '../../includes/navbar.php';
                         <?php endif; ?>
                     </tbody>
                 </table>
+            </div>
+
+            <?php
+            $pagerParams = http_build_query([
+                'search' => $search,
+                'warehouse_id' => $filterWarehouse,
+                'status' => $filterStatus,
+            ]);
+            ?>
+            <div class="d-flex justify-between align-center mb-1" style="margin-top: 12px;">
+                <span class="badge badge-primary">إجمالي الأصناف: <?php echo $totalItems; ?></span>
+                <div>
+                    <?php if ($page > 1): ?>
+                    <a href="?page=<?php echo $page - 1; ?>&<?php echo $pagerParams; ?>" class="btn btn-secondary btn-sm">← السابق</a>
+                    <?php endif; ?>
+                    <span class="badge badge-info">صفحة <?php echo $page; ?> من <?php echo $totalPages; ?></span>
+                    <?php if ($page < $totalPages): ?>
+                    <a href="?page=<?php echo $page + 1; ?>&<?php echo $pagerParams; ?>" class="btn btn-secondary btn-sm">التالي →</a>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
     </div>

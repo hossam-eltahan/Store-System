@@ -170,9 +170,6 @@ include '../../includes/navbar.php';
         <div class="card-header d-flex justify-between align-center">
             <span>📋 قائمة الفواتير</span>
             <div>
-                <?php if (hasPermission('invoices.sale.create')): ?>
-                <a href="sale.php" class="btn btn-primary">+ فاتورة بيع</a>
-                <?php endif; ?>
                 <?php if (hasPermission('invoices.purchase.create')): ?>
                 <a href="purchase.php" class="btn btn-success">+ فاتورة شراء</a>
                 <?php endif; ?>
