@@ -171,7 +171,7 @@ include '../../includes/navbar.php';
                             <td><?php echo htmlspecialchars($m['unit'] ?? ''); ?></td>
                             <td>
                                 <?php if ($m['reference_type'] === 'purchase_invoice'): ?>
-                                    <a href="../invoices/print_purchase.php?id=<?php echo (int)$m['reference_id']; ?>">فاتورة شراء #<?php echo (int)$m['reference_id']; ?></a>
+                                    <a href="#" onclick="openReceiptModal('../invoices/print_purchase.php?id=<?php echo (int)$m['reference_id']; ?>'); return false;">فاتورة شراء #<?php echo (int)$m['reference_id']; ?></a>
                                 <?php elseif (!empty($m['reference_type'])): ?>
                                     <?php echo htmlspecialchars($m['reference_type'] . ' #' . $m['reference_id']); ?>
                                 <?php else: ?>—<?php endif; ?>

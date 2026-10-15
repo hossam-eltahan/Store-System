@@ -184,7 +184,7 @@ include '../../includes/navbar.php';
                             </td>
                             <td>
                                 <?php if (hasAnyPermission(['invoices.purchase.view', 'invoices.purchase.create'])): ?>
-                                <a href="../invoices/print_purchase.php?id=<?php echo $invoice['id']; ?>" class="btn btn-primary btn-sm">🖨️</a>
+                                <a href="#" onclick="openReceiptModal('../invoices/print_purchase.php?id=<?php echo $invoice['id']; ?>'); return false;" class="btn btn-primary btn-sm">🖨️</a>
                                 <?php endif; ?>
                                 <?php if (hasPermission('invoices.purchase.edit') && (($settings['allow_edit_invoices'] ?? '0') === '1')): ?>
                                 <a href="../invoices/edit_purchase.php?id=<?php echo $invoice['id']; ?>" class="btn btn-info btn-sm" title="تعديل">✏️</a>

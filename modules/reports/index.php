@@ -497,7 +497,7 @@ switch ($reportType) {
             $totPaid += (float)$r['paid_amount'];
             $totRem += (float)$r['remaining_amount'];
             $r['supplier_lbl'] = htmlspecialchars($r['supplier_name']);
-            $r['items_lbl'] = '<a href="../invoices/print_purchase.php?id=' . (int)$r['id'] . '">عرض الأصناف 🖨️</a>';
+            $r['items_lbl'] = '<a href="#" onclick="openReceiptModal(\'../invoices/print_purchase.php?id=' . (int)$r['id'] . '\'); return false;">عرض الأصناف 🖨️</a>';
             $r['total_lbl'] = formatCurrency($r['total_amount']);
             $r['paid_lbl'] = formatCurrency($r['paid_amount']);
             $r['remaining_lbl'] = formatCurrency($r['remaining_amount']);

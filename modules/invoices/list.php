@@ -369,7 +369,7 @@ include '../../includes/navbar.php';
                                 $canDeleteThis = ($invoice['type'] === 'purchase' ? hasPermission('invoices.purchase.delete') : hasPermission('invoices.sale.delete')) && (($settings['allow_delete_invoices'] ?? '0') === '1');
                                 ?>
                                 <?php if ($canPrintThis): ?>
-                                <a href="<?php echo $printPage; ?>?id=<?php echo $invoice['id']; ?>" class="btn btn-primary" title="طباعة">🖨️</a>
+                                <a href="#" onclick="openReceiptModal('<?php echo $printPage; ?>?id=<?php echo $invoice['id']; ?>'); return false;" class="btn btn-primary" title="طباعة">🖨️</a>
                                 <?php endif; ?>
                                 <?php if (($invoice['status'] ?? 'approved') === 'draft' && $invoice['type'] === 'purchase' && hasAnyPermission(['invoices.purchase.create', 'invoices.purchase.edit'])): ?>
                                 <form method="POST" action="approve_purchase.php" style="display: inline;" onsubmit="return confirm('اعتماد هذه الفاتورة؟ سيتم إضافة الأصناف للمخزون وتحديث حساب المورد.');">

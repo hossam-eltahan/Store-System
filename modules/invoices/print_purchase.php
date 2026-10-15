@@ -1,7 +1,7 @@
 <?php
 /**
- * Print Purchase Invoice - Auto Page Break
- * نظام إدارة محل أجهزة منزلية
+ * Print Purchase Invoice (Thermal 80mm)
+ * بون طباعة فاتورة شراء — يفتح داخل نافذة openReceiptModal مثل باقي الفواتير
  */
 
 require_once '../../config/database.php';
@@ -9,23 +9,12 @@ require_once '../../config/settings.php';
 require_once '../../config/auth.php';
 requireAnyPermission(['invoices.purchase.view', 'invoices.purchase.create', 'reports.view']);
 
-$id = $_GET['id'] ?? 0;
-
-// Determine safe return URL based on permissions and referer
-if (isset($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'reports') !== false) {
-    $returnUrl = $_SERVER['HTTP_REFERER'];
-} elseif (hasPermission('invoices.purchase.view')) {
-    $returnUrl = 'list.php';
-} elseif (hasPermission('invoices.purchase.create')) {
-    $returnUrl = 'purchase.php';
-} else {
-    $returnUrl = '../../index.php';
-}
+$id = (int)($_GET['id'] ?? 0);
 
 $invoice = getRow(
-    "SELECT i.*, 
+    "SELECT i.*,
             w.name as warehouse_name,
-            s.name as supplier_name_db, 
+            s.name as supplier_name_db,
             s.phone as supplier_phone_db
      FROM invoices i
      LEFT JOIN suppliers s ON i.supplier_id = s.id
@@ -38,250 +27,201 @@ if (!$invoice) {
     die('الفاتورة غير موجودة');
 }
 
-$items = getRows("SELECT * FROM invoice_items WHERE invoice_id = ?", [$id]);
+$items = getRows("SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id ASC", [$id]);
 
-// Get settings
-$settings = getAllSettings();
-$storeName = $settings['store_name'] ?? 'المحل';
-$storeAddress = $settings['store_address'] ?? '';
-$storePhone = $settings['store_phone'] ?? '';
-$storePhone2 = $settings['store_phone2'] ?? '';
-$storeLogo = $settings['store_logo'] ?? '';
-$currency = $settings['currency'] ?? 'جنيه';
+$storeName = getSetting('store_name', 'كافيه عروسة النيل');
+$storeAddress = getSetting('store_address', '');
+$storePhone = getSetting('store_phone', '');
+$storePhone2 = getSetting('store_phone2', '');
+$receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - نتمنى لكم وقتاً ممتعاً');
+$currency = getSetting('currency', 'ج.م');
 
-// Supplier info
 $supplierName = $invoice['supplier_name_db'] ?? $invoice['customer_name'] ?: '-';
 $supplierPhone = $invoice['supplier_phone_db'] ?? $invoice['customer_phone'] ?: '-';
 
-// Balance calculations
-$oldBalance = floatval($invoice['old_balance'] ?? 0);
-$oldDebt = $oldBalance > 0 ? $oldBalance : 0;
-$invoiceRemaining = $invoice['remaining_amount'];
-$totalRemaining = $invoiceRemaining + $oldDebt;
-
-$totalItems = count($items);
-$pageTitle = 'فاتورة شراء ' . $invoice['invoice_number'];
+$oldDebt = floatval($invoice['old_balance'] ?? 0) > 0 ? floatval($invoice['old_balance']) : 0;
+$totalRemaining = (float)$invoice['remaining_amount'] + $oldDebt;
+$isDraft = (($invoice['status'] ?? 'approved') === 'draft');
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title><?php echo $pageTitle; ?></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>فاتورة شراء #<?php echo htmlspecialchars($invoice['invoice_number']); ?></title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f5f5; direction: rtl; font-size: 12px; }
-        
-        .no-print { text-align: center; padding: 8px; background: #10b981; }
-        .no-print .btn { display: inline-block; padding: 6px 15px; margin: 0 3px; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; text-decoration: none; color: white; }
-        .btn-print { background: #3b82f6; }
-        .btn-close { background: #ef4444; }
-        .btn-new { background: #8b5cf6; }
-        
-        /* Narrower width for better print margins */
-        .print-area { max-width: 190mm; margin: 10px auto; background: white; padding: 5mm; }
-        
-        .invoice-table { width: 100%; border-collapse: collapse; }
-        .invoice-table thead { display: table-header-group; }
-        .invoice-table tbody { display: table-row-group; }
-        
-        .header-cell { padding: 0 0 6px 0; border-bottom: 2px solid #333; }
-        .header-content { display: flex; align-items: center; justify-content: center; gap: 15px; }
-        .header-logo { width: 55px; height: 55px; object-fit: contain; }
-        .header-text { text-align: center; }
-        .store-name { font-size: 22px; font-weight: bold; color: #1f2937; }
-        .header-info { font-size: 11px; color: #666; }
-        
-        .invoice-type { display: flex; justify-content: space-between; align-items: center; border: 2px solid #10b981; background: #ecfdf5; padding: 5px 10px; margin: 5px 0; font-size: 13px; font-weight: bold; }
-        .page-num { font-size: 11px; color: #10b981; }
-        
-        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 6px; border: 1px solid #333; font-size: 11px; }
-        .info-row { display: flex; border-bottom: 1px solid #333; }
-        .info-row:last-child { border-bottom: none; }
-        .info-label { background: #f5f5f5; font-weight: bold; padding: 4px 6px; width: 80px; border-left: 1px solid #333; }
-        .info-value { padding: 4px 6px; flex: 1; }
-        .info-left { border-left: 1px solid #333; }
-        
-        .items-header { background: #10b981; color: white; }
-        .items-header td { padding: 5px; text-align: center; border: 1px solid #333; font-weight: bold; }
-        
-        .item-row td { padding: 4px; text-align: center; border: 1px solid #333; border-top: none; }
-        .item-row:nth-child(even) { background: #f9fafb; }
-        
-        .summary { font-size: 11px; margin-top: 6px; }
-        .summary-row { display: flex; justify-content: space-between; padding: 3px 5px; border-bottom: 1px solid #eee; }
-        .summary-row.total { font-weight: bold; font-size: 13px; background: #10b981; color: white; padding: 5px; margin: 3px 0; }
-        
-        .footer-sig { text-align: center; padding-top: 10px; border-top: 2px solid #333; margin-top: 10px; font-size: 11px; }
-        
-        .page-info { text-align: center; font-size: 9px; color: #666; margin-top: 5px; }
-        
-        @media print {
-            .no-print { display: none !important; }
-            body { background: white; font-size: 10px; }
-            .print-area { max-width: 100%; margin: 0; padding: 3mm; }
-            .invoice-table { page-break-inside: auto; }
-            .invoice-table thead { display: table-header-group; }
-            .invoice-table tbody tr { page-break-inside: avoid; page-break-after: auto; }
-            @page { 
-                margin: 8mm;
-                @bottom-center {
-                    content: "صفحة " counter(page) " من " counter(pages);
-                }
-            }
-        }
+        @page { size: 80mm auto; margin: 0; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Cairo', 'Courier New', monospace, sans-serif; -webkit-print-color-adjust: exact; }
+        body { width: 80mm; max-width: 80mm; margin: 0 auto; padding: 8px 10px; background: #fff; color: #000; font-size: 12px; line-height: 1.4; direction: rtl; }
+        .text-center { text-align: center; }
+        .text-left { text-align: left; }
+        .text-right { text-align: right; }
+        .fw-bold { font-weight: 700; }
+        .divider { border-top: 1px dashed #000; margin: 6px 0; }
+        .header { margin-bottom: 8px; text-align: center; }
+        .header h1 { font-size: 17px; font-weight: 900; margin-bottom: 3px; }
+        .header p { font-size: 11px; color: #222; }
+        .doc-title { text-align: center; font-size: 14px; font-weight: 900; margin: 6px 0; }
+        .status-line { text-align: center; font-size: 11px; font-weight: 700; margin-bottom: 4px; }
+        .meta-table { width: 100%; font-size: 11px; margin-bottom: 6px; }
+        .meta-table td { padding: 2px 0; }
+        .items-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .items-table th { border-bottom: 1px solid #000; padding: 4px 2px; font-size: 11px; }
+        .items-table td { padding: 4px 2px; vertical-align: top; }
+        .item-row { border-bottom: 1px dotted #ccc; }
+        .unit-tag { font-size: 10.5px; color: #444; display: block; }
+        .totals-table { width: 100%; margin-top: 6px; font-size: 12px; }
+        .totals-table td { padding: 2px 0; }
+        .grand-total { font-size: 15px; font-weight: 900; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 0 !important; }
+        .footer { margin-top: 10px; font-size: 10.5px; text-align: center; }
+        .sig-line { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10.5px; }
+        .no-print { background: #f1f5f9; padding: 10px; text-align: center; border-bottom: 2px solid #cbd5e1; margin-bottom: 10px; }
+        .btn-print { background: #2563eb; color: #fff; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px; }
+        @media print { .no-print { display: none !important; } body { padding: 0; } }
     </style>
 </head>
 <body>
     <div class="no-print">
-        <button class="btn btn-print" onclick="window.print()">🖨️ طباعة</button>
-        <button class="btn btn-close" onclick="closePage()">↩️ رجوع / إغلاق</button>
-        <?php if (hasPermission('invoices.purchase.create')): ?>
-        <a href="purchase.php" class="btn btn-new">✚ فاتورة جديدة</a>
-        <?php endif; ?>
-        <?php if (($invoice['status'] ?? 'approved') === 'draft' && hasAnyPermission(['invoices.purchase.create', 'invoices.purchase.edit'])): ?>
-        <form method="POST" action="approve_purchase.php" style="display: inline;" onsubmit="return confirm('اعتماد هذه الفاتورة؟ سيتم إضافة الأصناف للمخزون وتحديث حساب المورد.');">
-            <input type="hidden" name="id" value="<?php echo (int)$invoice['id']; ?>">
-            <button type="submit" class="btn" style="background: #059669;">✅ اعتماد الفاتورة</button>
-        </form>
-        <?php endif; ?>
+        <button class="btn-print" onclick="window.print()">طباعة</button>
+        <button class="btn-print" style="background:#475569;" onclick="if(window.self===window.top){window.close();}else if(window.parent&&typeof window.parent.closeReceiptModal==='function'){window.parent.closeReceiptModal();}">إغلاق</button>
     </div>
-    
-    <div class="print-area">
-        <table class="invoice-table">
-            <thead>
-                <tr>
-                    <td colspan="8" class="header-cell">
-                        <div class="header-content">
-                            <?php if ($storeLogo): ?>
-                            <img src="../../assets/uploads/<?php echo $storeLogo; ?>" alt="Logo" class="header-logo">
-                            <?php endif; ?>
-                            <div class="header-text">
-                                <div class="store-name"><?php echo $storeName; ?></div>
-                                <div class="header-info">
-                                    <?php if ($storeAddress): ?>العنوان: <?php echo $storeAddress; ?><?php endif; ?>
-                                    <?php if ($storePhone): ?> | تليفون: <?php echo $storePhone; ?><?php endif; ?>
-                                    <?php if ($storePhone2): ?> - <?php echo $storePhone2; ?><?php endif; ?>
-                                </div>
-                            </div>
-                            <?php if ($storeLogo): ?>
-                            <img src="../../assets/uploads/<?php echo $storeLogo; ?>" alt="" class="header-logo" style="visibility:hidden;">
-                            <?php endif; ?>
-                        </div>
-                        
-                        <div class="invoice-type">
-                            <span>📦 فاتورة شراء - <?php echo $invoice['invoice_number']; ?></span>
-                            <span><?php echo (($invoice['status'] ?? 'approved') === 'draft') ? '📝 مسودة (لم تُعتمد — بدون حركة مخزون)' : '✅ معتمدة'; ?></span>
-                            <span class="page-num"></span>
-                        </div>
-                        
-                        <div class="info-grid">
-                            <div>
-                                <div class="info-row">
-                                    <span class="info-label">رقم الفاتورة:</span>
-                                    <span class="info-value"><?php echo $invoice['invoice_number']; ?></span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="info-label">المورد:</span>
-                                    <span class="info-value"><?php echo $supplierName; ?></span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="info-label">المخزن الوجهة:</span>
-                                    <span class="info-value"><?php echo htmlspecialchars($invoice['warehouse_name'] ?? 'المخزن الرئيسي'); ?></span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="info-label">المستلم:</span>
-                                    <span class="info-value"><?php echo $invoice['handled_by']; ?></span>
-                                </div>
-                            </div>
-                            <div class="info-left">
-                                <div class="info-row">
-                                    <span class="info-label">التاريخ:</span>
-                                    <span class="info-value"><?php echo date('Y/m/d', strtotime($invoice['date'])); ?></span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="info-label">التليفون:</span>
-                                    <span class="info-value"><?php echo $supplierPhone; ?></span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="info-label">الدفع:</span>
-                                    <span class="info-value"><?php echo $invoice['payment_method']; ?></span>
-                                </div>
-                            </div>
-                        </div>
-                    </td>
-                </tr>
-                <tr class="items-header">
-                    <td style="width:25px">م</td>
-                    <td>الكود</td>
-                    <td>الصنف</td>
-                    <td>وحدة الشراء</td>
-                    <td>الكمية</td>
-                    <td>الناتج بالمخزون</td>
-                    <td>السعر</td>
-                    <td>الإجمالي</td>
-                </tr>
-            </thead>
 
-            <tbody>
-                <?php $num = 1; foreach ($items as $item): ?>
-                <tr class="item-row">
-                    <td><?php echo $num++; ?></td>
-                    <td><?php echo htmlspecialchars($item['product_code'] ?? ''); ?></td>
-                    <td><?php echo htmlspecialchars($item['product_name'] ?? $item['item_name'] ?? ''); ?></td>
-                    <td><?php echo htmlspecialchars($item['purchase_unit'] ?? $item['unit']); ?><?php echo ($item['conversion_factor'] !== null) ? ' (×' . rtrim(rtrim(number_format((float)$item['conversion_factor'], 4), '0'), '.') . ')' : ''; ?></td>
-                    <td><?php echo $item['quantity']; ?></td>
-                    <td><?php echo ($item['stock_quantity'] !== null) ? (int)$item['stock_quantity'] . ' ' . htmlspecialchars($item['unit']) : '—'; ?></td>
-                    <td><?php echo number_format($item['unit_price'], 2); ?></td>
-                    <td><?php echo number_format($item['total'], 2); ?></td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
-        
-        <div class="summary">
-            <div class="summary-row"><span>الإجمالي:</span><span><?php echo number_format($invoice['total_amount'], 2); ?> <?php echo $currency; ?></span></div>
-            <?php if ($invoice['discount'] > 0): ?>
-            <div class="summary-row"><span>الخصم:</span><span><?php echo number_format($invoice['discount'], 2); ?> <?php echo $currency; ?></span></div>
-            <?php endif; ?>
-            <div class="summary-row total"><span>الصافي:</span><span><?php echo number_format($invoice['total_amount'] - $invoice['discount'], 2); ?> <?php echo $currency; ?></span></div>
-            <div class="summary-row"><span>المدفوع:</span><span><?php echo number_format($invoice['paid_amount'], 2); ?> <?php echo $currency; ?></span></div>
-            <div class="summary-row" style="font-weight:bold;font-size:12px"><span>إجمالي الباقي للمورد:</span><span><?php echo number_format($totalRemaining, 2); ?> <?php echo $currency; ?></span></div>
-        </div>
-        
-        <div class="footer-sig">
-            توقيع المورد: _______________ &nbsp;&nbsp;&nbsp; توقيع المستلم: _______________
-        </div>
-        
+    <div class="header text-center">
+        <h1><?php echo htmlspecialchars($storeName); ?></h1>
+        <?php if ($storeAddress): ?><p>العنوان: <?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>
+        <?php if ($storePhone): ?><p>تليفون: <?php echo htmlspecialchars($storePhone); ?><?php echo $storePhone2 ? ' - ' . htmlspecialchars($storePhone2) : ''; ?></p><?php endif; ?>
+    </div>
 
-    </div>
-    
-    <?php if (isset($_GET['show_installment']) && $totalRemaining > 0 && $invoice['supplier_id']): ?>
-    <div class="no-print" style="max-width:210mm;margin:10px auto;padding:15px;background:#ecfdf5;border:2px solid #10b981;border-radius:8px;text-align:center;">
-        <p>💡 يوجد مستحق للمورد: <strong><?php echo number_format($totalRemaining, 2); ?></strong> <?php echo $currency; ?></p>
-        <a href="../installments/create.php?type=supplier&entity_id=<?php echo $invoice['supplier_id']; ?>&amount=<?php echo $totalRemaining; ?>" 
-           style="background:#8b5cf6;color:white;padding:8px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px;">📅 تقسيط هذا المبلغ</a>
-    </div>
+    <div class="divider"></div>
+
+    <div class="doc-title">📦 فاتورة شراء - <?php echo htmlspecialchars($invoice['invoice_number']); ?></div>
+    <div class="status-line"><?php echo $isDraft ? '📝 مسودة (بدون حركة مخزون)' : '✅ معتمدة'; ?></div>
+
+    <div class="divider"></div>
+
+    <table class="meta-table">
+        <tr>
+            <td class="fw-bold">المورد:</td>
+            <td class="text-left fw-bold"><?php echo htmlspecialchars($supplierName); ?></td>
+        </tr>
+        <tr>
+            <td>تليفون المورد:</td>
+            <td class="text-left"><?php echo htmlspecialchars($supplierPhone); ?></td>
+        </tr>
+        <tr>
+            <td>المخزن الوجهة:</td>
+            <td class="text-left"><?php echo htmlspecialchars($invoice['warehouse_name'] ?? 'المخزن الرئيسي'); ?></td>
+        </tr>
+        <tr>
+            <td>التاريخ:</td>
+            <td class="text-left"><?php echo date('Y/m/d', strtotime($invoice['date'])); ?></td>
+        </tr>
+        <tr>
+            <td>المستلم:</td>
+            <td class="text-left"><?php echo htmlspecialchars($invoice['handled_by'] ?? ''); ?></td>
+        </tr>
+        <tr>
+            <td>الدفع:</td>
+            <td class="text-left"><?php echo htmlspecialchars($invoice['payment_method'] ?? ''); ?></td>
+        </tr>
+    </table>
+
+    <div class="divider"></div>
+
+    <?php if (!empty($items)): ?>
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th class="text-right">الصنف</th>
+                <th class="text-center">العدد</th>
+                <th class="text-center">السعر</th>
+                <th class="text-left">الإجمالي</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($items as $item): ?>
+            <?php
+                $itemName = $item['product_name'] ?? $item['item_name'] ?? '';
+                $pUnit = $item['purchase_unit'] ?? $item['unit'];
+                $factorTxt = ($item['conversion_factor'] !== null) ? ' (×' . rtrim(rtrim(number_format((float)$item['conversion_factor'], 4), '0'), '.') . ')' : '';
+                $stockTxt = ($item['stock_quantity'] !== null) ? ((int)$item['stock_quantity'] . ' ' . $item['unit']) : '';
+            ?>
+            <tr class="item-row">
+                <td class="text-right">
+                    <span class="fw-bold"><?php echo htmlspecialchars($itemName); ?></span>
+                    <span class="unit-tag"><?php echo htmlspecialchars($pUnit) . $factorTxt; ?><?php echo $stockTxt !== '' ? ' ← ' . htmlspecialchars($stockTxt) : ''; ?></span>
+                </td>
+                <td class="text-center fw-bold" style="font-size: 13px;">x<?php echo $item['quantity']; ?></td>
+                <td class="text-center"><?php echo number_format($item['unit_price'], 2); ?></td>
+                <td class="text-left fw-bold"><?php echo number_format($item['total'], 2); ?></td>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+    <?php else: ?>
+    <div style="text-align:center; padding:10px; font-size:12px; color:#666;">لا توجد أصناف في هذه الفاتورة.</div>
     <?php endif; ?>
-    
-<script>
-window.addEventListener('beforeprint', function() {
-    var printArea = document.querySelector('.print-area');
-    var pageHeight = 277;
-    var contentHeight = printArea.scrollHeight * 0.264583;
-    var totalPages = Math.max(1, Math.ceil(contentHeight / pageHeight));
-    document.querySelectorAll('.page-num').forEach(function(el) {
-        el.textContent = '1 من ' + totalPages;
-    });
-});
-</script>
+
+    <div class="divider"></div>
+    <table class="totals-table">
+        <tr>
+            <td>الإجمالي:</td>
+            <td class="text-left"><?php echo number_format($invoice['total_amount'], 2); ?> <?php echo htmlspecialchars($currency); ?></td>
+        </tr>
+        <?php if ((float)$invoice['discount'] > 0): ?>
+        <tr style="color:#dc2626;">
+            <td>الخصم:</td>
+            <td class="text-left">-<?php echo number_format($invoice['discount'], 2); ?> <?php echo htmlspecialchars($currency); ?></td>
+        </tr>
+        <?php endif; ?>
+        <tr class="grand-total">
+            <td>الصافي:</td>
+            <td class="text-left"><?php echo number_format((float)$invoice['total_amount'] - (float)$invoice['discount'], 2); ?> <?php echo htmlspecialchars($currency); ?></td>
+        </tr>
+        <tr>
+            <td>المدفوع:</td>
+            <td class="text-left"><?php echo number_format($invoice['paid_amount'], 2); ?> <?php echo htmlspecialchars($currency); ?></td>
+        </tr>
+        <tr>
+            <td class="fw-bold">الباقي للمورد:</td>
+            <td class="text-left fw-bold"><?php echo number_format($totalRemaining, 2); ?> <?php echo htmlspecialchars($currency); ?></td>
+        </tr>
+        <?php if (!empty($invoice['notes'])): ?>
+        <tr>
+            <td>ملاحظات:</td>
+            <td class="text-left"><?php echo htmlspecialchars($invoice['notes']); ?></td>
+        </tr>
+        <?php endif; ?>
+    </table>
+
+    <div class="footer">
+        <div class="divider"></div>
+        <div class="sig-line">
+            <span>توقيع المورد: ـــــــــ</span>
+            <span>توقيع المستلم: ـــــــــ</span>
+        </div>
+        <p style="margin-top:6px;"><?php echo htmlspecialchars($receiptFooter); ?></p>
+    </div>
+
+    <script>
+        if (window.self === window.top) {
+            window.onload = function() {
+                setTimeout(function() {
+                    window.print();
+                }, 400);
+            };
+        }
+        window.onafterprint = function() {
+            setTimeout(function() {
+                try {
+                    if (window.self === window.top) {
+                        window.close();
+                    } else if (window.parent && typeof window.parent.closeReceiptModal === 'function') {
+                        window.parent.closeReceiptModal();
+                    }
+                } catch (e) {}
+            }, 100);
+        };
+    </script>
 </body>
-<script>
-function closePage() {
-    if (window.opener && !window.opener.closed) {
-        window.close();
-    } else {
-        window.location.href = <?php echo json_encode($returnUrl); ?>;
-    }
-}
-</script>
 </html>
