@@ -560,7 +560,7 @@ include '../../includes/navbar.php';
             <?php if ($isDraftEdit): ?>
             <div style="display: flex; justify-content: space-between; align-items: center; background: #fef3c7; border: 2px dashed #d97706; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px;">
                 <span style="font-weight: 700; color: #92400e;">📝 هذه مسودة — لم تحرّك المخزون ولا حساب المورد بعد</span>
-                <form method="POST" action="approve_purchase.php" style="margin: 0;" onsubmit="return confirm('اعتماد هذه الفاتورة؟ سيتم إضافة الأصناف للمخزون وتحديث حساب المورد.');">
+                <form method="POST" action="approve_purchase.php" style="margin: 0;" onsubmit="return confirmSubmit(this, 'اعتماد هذه الفاتورة؟ سيتم إضافة الأصناف للمخزون وتحديث حساب المورد.');">
                     <input type="hidden" name="id" value="<?php echo (int)$oldInvoice['id']; ?>">
                     <button type="submit" class="btn btn-success">✅ اعتماد الفاتورة الآن</button>
                 </form>
@@ -1044,7 +1044,7 @@ function calculateTotals() {
 document.getElementById('invoiceForm').addEventListener('submit', function(e) {
     if (items.length === 0) {
         e.preventDefault();
-        alert('يرجى إضافة صنف واحد على الأقل');
+        appAlert('يرجى إضافة صنف واحد على الأقل');
         productSearch.focus();
         return;
     }
@@ -1057,9 +1057,9 @@ document.getElementById('invoiceForm').addEventListener('submit', function(e) {
     if (paid > maxPayment && total > 0) {
         e.preventDefault();
         if (oldDebt > 0) {
-            alert(`المبلغ المدفوع (${paid}) يتجاوز الحد الأقصى (${maxPayment.toFixed(2)})\n\nالفاتورة: ${total.toFixed(2)}\nالحساب القديم: ${oldDebt.toFixed(2)}`);
+            appAlert(`المبلغ المدفوع (${paid}) يتجاوز الحد الأقصى (${maxPayment.toFixed(2)})\n\nالفاتورة: ${total.toFixed(2)}\nالحساب القديم: ${oldDebt.toFixed(2)}`);
         } else {
-            alert(`المبلغ المدفوع (${paid}) لا يمكن أن يتجاوز قيمة الفاتورة (${total.toFixed(2)})\n\nلا يوجد حساب قديم على العميل`);
+            appAlert(`المبلغ المدفوع (${paid}) لا يمكن أن يتجاوز قيمة الفاتورة (${total.toFixed(2)})\n\nلا يوجد حساب قديم على العميل`);
         }
         return;
     }

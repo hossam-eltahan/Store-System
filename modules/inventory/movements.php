@@ -243,7 +243,7 @@ include '../../includes/navbar.php';
                             <label>سبب التسوية *</label>
                             <input type="text" name="adj_reason" class="form-control" required placeholder="جرد فعلي، تالف، ...">
                         </div>
-                        <button type="submit" name="do_adjust" class="btn btn-warning" onclick="return confirm('تأكيد التسوية؟ ستُسجل كحركة جديدة في السجل.');">تسجيل التسوية</button>
+                        <button type="submit" name="do_adjust" class="btn btn-warning" onclick="return confirmAction(this, 'تأكيد التسوية؟ ستُسجل كحركة جديدة في السجل.');">تسجيل التسوية</button>
                     </form>
                 </div>
             </div>

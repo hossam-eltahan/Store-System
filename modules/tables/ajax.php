@@ -54,7 +54,8 @@ try {
                 $sess['orders'] = $orders;
                 $sess['gross_total'] = $grossTotal;
                 $sess['paid_total'] = $paidTotal;
-                $sess['due_total'] = $dueTotal;
+                $sess['due_total'] = $dueTotal + (float)($sess['transferred_amount'] ?? 0);
+                $sess['transferred_amount'] = (float)($sess['transferred_amount'] ?? 0);
                 $sessionMap[$sess['table_id']] = $sess;
             }
 
@@ -63,6 +64,35 @@ try {
             }
 
             echo json_encode(['success' => true, 'tables' => $tables], JSON_UNESCAPED_UNICODE);
+            break;
+
+        // 1b. قوائم الوجهات الشاغرة للنقل بين الصالات
+        case 'cross_targets':
+            if (!hasPermission('tables.manage') || !hasAnyPermission(['gaming.manage', 'billiards.manage'])) {
+                echo json_encode(['success' => false, 'error' => 'ليس لديك صلاحية النقل بين الصالات']);
+                exit;
+            }
+
+            $devices = [];
+            $btables = [];
+            if (hasPermission('gaming.manage')) {
+                $devices = getRows(
+                    "SELECT gd.id, gd.display_name FROM gaming_devices gd
+                      WHERE gd.is_active = 1 AND NOT EXISTS (
+                          SELECT 1 FROM gaming_sessions gs WHERE gs.device_id = gd.id AND gs.status IN ('active', 'paused')
+                      ) ORDER BY gd.display_order ASC"
+                );
+            }
+            if (hasPermission('billiards.manage')) {
+                $btables = getRows(
+                    "SELECT bt.id, bt.display_name FROM billiard_tables bt
+                      WHERE bt.is_active = 1 AND NOT EXISTS (
+                          SELECT 1 FROM billiard_sessions bs WHERE bs.table_id = bt.id AND bs.status IN ('active', 'paused')
+                      ) ORDER BY bt.display_name ASC"
+                );
+            }
+
+            echo json_encode(['success' => true, 'devices' => $devices, 'btables' => $btables], JSON_UNESCAPED_UNICODE);
             break;
 
         // 2. فتح طاولة جديدة
@@ -129,6 +159,44 @@ try {
             echo json_encode(['success' => true, 'message' => 'تم نقل الجلسة بنجاح'], JSON_UNESCAPED_UNICODE);
             break;
 
+        // 3b. نقل جلسة الطاولة إلى بلايستيشن (cross-hall)
+        case 'transfer_to_gaming':
+            if (!hasPermission('tables.manage') || !hasPermission('gaming.manage')) {
+                echo json_encode(['success' => false, 'error' => 'ليس لديك صلاحية النقل بين الصالات']);
+                exit;
+            }
+
+            $result = transferSessionAcrossHalls('tables', (int)($_POST['session_id'] ?? 0), 'gaming', (int)($_POST['target_device_id'] ?? 0), [
+                'session_type' => $_POST['session_type'] ?? 'single',
+                'customer_name' => trim($_POST['customer_name'] ?? ''),
+            ]);
+            if (!$result['success']) {
+                echo json_encode(['success' => false, 'error' => $result['error']], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+
+            echo json_encode(['success' => true, 'new_session_id' => $result['new_session_id'], 'carried_amount' => $result['carried_amount'], 'message' => 'تم نقل الجلسة إلى البلايستيشن بنجاح'], JSON_UNESCAPED_UNICODE);
+            break;
+
+        // 3c. نقل جلسة الطاولة إلى بلياردو (cross-hall)
+        case 'transfer_to_billiards':
+            if (!hasPermission('tables.manage') || !hasPermission('billiards.manage')) {
+                echo json_encode(['success' => false, 'error' => 'ليس لديك صلاحية النقل بين الصالات']);
+                exit;
+            }
+
+            $result = transferSessionAcrossHalls('tables', (int)($_POST['session_id'] ?? 0), 'billiards', (int)($_POST['target_table_id'] ?? 0), [
+                'billing_mode' => $_POST['billing_mode'] ?? 'hourly',
+                'customer_name' => trim($_POST['customer_name'] ?? ''),
+            ]);
+            if (!$result['success']) {
+                echo json_encode(['success' => false, 'error' => $result['error']], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+
+            echo json_encode(['success' => true, 'new_session_id' => $result['new_session_id'], 'carried_amount' => $result['carried_amount'], 'message' => 'تم نقل الجلسة إلى البلياردو بنجاح'], JSON_UNESCAPED_UNICODE);
+            break;
+
         // 4. إنهاء وإغلاق الطاولة
         case 'close_table':
             if (!hasPermission('tables.manage')) {
@@ -165,6 +233,9 @@ try {
                     execute("UPDATE orders SET payment_status = 'paid', status = 'completed', paid_amount = total_amount WHERE id = ?", [$o['id']]);
                 }
             }
+            // Balance carried in from another hall (cross-hall transfer) settles here
+            $carriedAmount = (float)($session['transferred_amount'] ?? 0);
+            $amountDue += $carriedAmount;
             $discountAmount = min($requestedDiscount, $amountDue);
             $amountToCollect = max(0, $amountDue - $discountAmount);
 

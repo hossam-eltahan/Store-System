@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($username) || empty($password)) {
         $error = 'يرجى إدخال اسم المستخدم وكلمة المرور';
     } else {
-        $result = attemptLogin($username, $password);
+        $result = attemptLogin($username, $password, !empty($_POST['remember']));
         if ($result['success']) {
             logActivity('تسجيل دخول', 'تسجيل دخول بنجاح', getCurrentUserName());
             
@@ -550,6 +550,11 @@ $storeLogo = getSetting('store_logo', '');
                         <span class="input-icon">🔒</span>
                         <button type="button" class="password-toggle" onclick="togglePassword()" id="toggleBtn">👁️</button>
                     </div>
+                </div>
+
+                <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-top: -8px;">
+                    <input type="checkbox" name="remember" id="remember" value="1" style="width: 17px; height: 17px; cursor: pointer; accent-color: #3b82f6;">
+                    <label for="remember" style="margin: 0; font-size: 0.88em; color: #94a3b8; font-weight: 600; cursor: pointer;">تذكرني على هذا الجهاز (30 يوم)</label>
                 </div>
 
                 <button type="submit" class="login-btn" id="loginBtn">

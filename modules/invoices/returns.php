@@ -224,7 +224,7 @@ document.getElementById('returnForm').addEventListener('submit', function(e) {
     });
     if (lines.length === 0) {
         e.preventDefault();
-        alert('أدخل كمية إرجاع لصنف واحد على الأقل');
+        appAlert('أدخل كمية إرجاع لصنف واحد على الأقل');
         return;
     }
     document.getElementById('linesData').value = JSON.stringify(lines);

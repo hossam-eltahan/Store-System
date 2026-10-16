@@ -475,6 +475,7 @@ if (is_dir(PACKAGES_DIR)) {
         }
         .filter-btn:hover { background: #334155; color: #fff; }
     </style>
+    <script src="/Store-System/assets/js/main.js"></script>
 </head>
 <body>
 
@@ -686,7 +687,7 @@ if (is_dir(PACKAGES_DIR)) {
                             </div>
                             <div style="display:flex; gap:6px;">
                                 <a href="?download=<?= urlencode($pkg['name']) ?>" class="btn btn-sm btn-primary" title="تحميل"><i class="fa-solid fa-download"></i></a>
-                                <a href="?delete=<?= urlencode($pkg['name']) ?>" class="btn btn-sm btn-danger" title="حذف" onclick="return confirm('هل تريد حذف هذه الحزمة؟')"><i class="fa-solid fa-trash"></i></a>
+                                <a href="?delete=<?= urlencode($pkg['name']) ?>" class="btn btn-sm btn-danger" title="حذف" onclick="return confirmAction(this, 'هل تريد حذف هذه الحزمة؟')"><i class="fa-solid fa-trash"></i></a>
                             </div>
                         </div>
                         <?php endforeach; ?>

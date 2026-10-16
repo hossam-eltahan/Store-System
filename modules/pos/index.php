@@ -9,10 +9,7 @@ require_once '../../config/settings.php';
 require_once '../../config/auth.php';
 
 requireLogin();
-
-if (!hasPermission('pos.view')) {
-    showAccessDenied();
-}
+requirePermission('pos.view');
 
 $pageTitle = 'شاشة كاشير الكافيه - POS';
 
@@ -1024,7 +1021,7 @@ function setOrderTypeTabs(type) {
 
 async function enterEditMode(orderId) {
     if (cart.length > 0) {
-        if (!confirm('السلة بها أصناف غير محفوظة — استبدالها بأصناف الفاتورة المطلوب تعديلها؟')) {
+        if (!await appConfirm('السلة بها أصناف غير محفوظة — استبدالها بأصناف الفاتورة المطلوب تعديلها؟')) {
             const u = new URL(window.location.href);
             u.searchParams.delete('edit_order');
             window.history.replaceState({}, '', u.toString());
@@ -1035,7 +1032,7 @@ async function enterEditMode(orderId) {
         const res = await fetch(`ajax.php?action=get_order&order_id=${orderId}`);
         const data = await res.json();
         if (!data.success) {
-            alert(data.error || 'تعذر تحميل الطلب');
+            appAlert(data.error || 'تعذر تحميل الطلب');
             return;
         }
         editingOrderId = data.order.id;
@@ -1070,7 +1067,7 @@ async function enterEditMode(orderId) {
         updateEditUI();
     } catch (err) {
         console.error('Edit load error', err);
-        alert('حدث خطأ أثناء تحميل الطلب');
+        appAlert('حدث خطأ أثناء تحميل الطلب');
     }
 }
 
@@ -1136,9 +1133,9 @@ function setupEventListeners() {
     });
 
     // Clear cart
-    document.getElementById('clearCartBtn').addEventListener('click', () => {
+    document.getElementById('clearCartBtn').addEventListener('click', async () => {
         if (cart.length === 0) return;
-        if (confirm('هل تريد مسح جميع الأصناف من السلة؟')) {
+        if (await appConfirm('هل تريد مسح جميع الأصناف من السلة؟')) {
             cart = [];
             renderCart();
         }
@@ -1295,7 +1292,7 @@ async function onProductClick(productId) {
         // Guard against double-charging: a manual service item on top of a
         // running timed session bills the customer twice (item + timer)
         if (currentOrderType !== 'takeaway') {
-            if (!confirm('⚠️ تنبيه: هذا صنف خدمة يدوي بسعر ثابت، وطلبك مرتبط بجلسة/طاولة تُحاسب بالتوقيت تلقائيًا.\n\nالمتابعة تعني محاسبة العميل مرتين (الصنف + التوقيت). هل أنت متأكد؟')) {
+            if (!await appConfirm('⚠️ تنبيه: هذا صنف خدمة يدوي بسعر ثابت، وطلبك مرتبط بجلسة/طاولة تُحاسب بالتوقيت تلقائيًا.\n\nالمتابعة تعني محاسبة العميل مرتين (الصنف + التوقيت). هل أنت متأكد؟')) {
                 return;
             }
         }
@@ -1743,7 +1740,7 @@ function updateCoNetTotal(baseTotal) {
 async function submitPosCheckout() {
     // Cancelling a whole order from edit mode needs an explicit confirm
     if (editingOrderId && cart.length === 0) {
-        if (!confirm('سيتم إلغاء الطلب بالكامل واسترجاع أي مبالغ محصلة. متابعة؟')) {
+        if (!await appConfirm('سيتم إلغاء الطلب بالكامل واسترجاع أي مبالغ محصلة. متابعة؟')) {
             return;
         }
     }
@@ -1815,7 +1812,7 @@ async function processCheckout(isDeferred, disc = 0, method = 'cash') {
                 if (!data.cancelled && data.order_id) {
                     openReceiptModal(`receipt.php?id=${data.order_id}&type=customer`);
                 } else if (data.cancelled) {
-                    alert('تم إلغاء الطلب بالكامل واسترجاع المدفوع');
+                    appAlert('تم إلغاء الطلب بالكامل واسترجاع المدفوع', 'success');
                 }
                 cancelEditMode();
                 loadProducts();
@@ -1840,11 +1837,11 @@ async function processCheckout(isDeferred, disc = 0, method = 'cash') {
                 window.location.reload();
             }
         } else {
-            alert(data.error || 'فشل حفظ الطلب');
+            appAlert(data.error || 'فشل حفظ الطلب');
         }
     } catch (err) {
         console.error('Checkout error', err);
-        alert('حدث خطأ أثناء إتمام الطلب');
+        appAlert('حدث خطأ أثناء إتمام الطلب');
     } finally {
         checkoutBtn.disabled = false;
         deferBtn.disabled = false;

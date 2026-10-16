@@ -64,6 +64,10 @@ try {
 
         // 1. جلب المنتجات حسب القسم أو البحث
         case 'get_products':
+            if (!hasPermission('pos.view')) {
+                echo json_encode(['success' => false, 'error' => 'ليس لديك صلاحية عرض الكاشير']);
+                exit;
+            }
             $categoryId = isset($_GET['category_id']) && $_GET['category_id'] !== '' ? (int)$_GET['category_id'] : null;
             $search = trim($_GET['search'] ?? '');
 
@@ -106,6 +110,11 @@ try {
 
         // 2. جلب خيارات منتج محدد (Variants & Modifiers)
         case 'get_product_details':
+            // Shared by the POS screen and the recipes page (product linking)
+            if (!hasAnyPermission(['pos.view', 'recipes.view'])) {
+                echo json_encode(['success' => false, 'error' => 'ليس لديك صلاحية عرض الأصناف']);
+                exit;
+            }
             $productId = (int)($_GET['product_id'] ?? 0);
             $product = getRow("SELECT * FROM products WHERE id = ?", [$productId]);
             if (!$product) {
@@ -145,6 +154,10 @@ try {
 
         // 3. جلب الأجهزة والطاولات النشطة لربط الطلب بها
         case 'get_active_destinations':
+            if (!hasPermission('pos.view')) {
+                echo json_encode(['success' => false, 'error' => 'ليس لديك صلاحية عرض الكاشير']);
+                exit;
+            }
             $gamingSessions = getRows(
                 "SELECT gs.id, gs.device_id, gd.display_name, gs.session_type, gs.started_at 
                  FROM gaming_sessions gs 
@@ -502,6 +515,10 @@ try {
 
         // 5. جلب آخر الطلبات لليوم
         case 'get_recent_orders':
+            if (!hasPermission('pos.view')) {
+                echo json_encode(['success' => false, 'error' => 'ليس لديك صلاحية عرض الكاشير']);
+                exit;
+            }
             $orders = getRows(
                 "SELECT o.*, u.full_name as cashier_name,
                         (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as items_count 

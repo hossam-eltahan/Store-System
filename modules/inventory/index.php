@@ -24,6 +24,21 @@ $filterStatus = $_GET['status'] ?? ''; // all|tracked|untracked|low|out
 
 $warehouses = getAllWarehouses(false);
 
+// Deep link from the products page: auto-open the direct-supply modal
+$prefillSupply = null;
+if (!empty($_GET['supply_product']) && hasPermission('inventory.adjust')) {
+    $sp = getRow("SELECT id, name, unit, purchase_unit, units_per_purchase FROM products WHERE id = ?", [(int)$_GET['supply_product']]);
+    if ($sp) {
+        $prefillSupply = [
+            'id' => (int)$sp['id'],
+            'name' => $sp['name'],
+            'unit' => $sp['unit'],
+            'purchase_unit' => $sp['purchase_unit'] ?: $sp['unit'],
+            'factor' => (float)($sp['units_per_purchase'] ?: 1),
+        ];
+    }
+}
+
 $sql = "SELECT p.id, p.code, p.name, p.unit, p.purchase_unit, p.units_per_purchase,
                p.stock_quantity, p.min_stock_level, p.track_stock, p.is_direct_sale,
                c.name AS category_name,
@@ -438,5 +453,8 @@ function updateSupplyHint() {
     const out = byPurchase ? (qty * supplyFactor) : qty;
     hint.textContent = 'الناتج بالمخزون: ' + out + ' ' + supplyStockUnit;
 }
+<?php if ($prefillSupply): ?>
+document.addEventListener('DOMContentLoaded', () => openSupplyModal(<?php echo json_encode($prefillSupply, JSON_UNESCAPED_UNICODE); ?>));
+<?php endif; ?>
 </script>
 <?php endif; ?>

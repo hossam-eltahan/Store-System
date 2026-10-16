@@ -8,10 +8,7 @@ require_once '../../config/settings.php';
 require_once '../../config/auth.php';
 
 requireLogin();
-
-if (!hasPermission('tables.view')) {
-    showAccessDenied();
-}
+requirePermission('tables.view');
 
 $pageTitle = 'طاولات الصالة';
 
@@ -66,6 +63,30 @@ include '../../includes/navbar.php';
         <div style="padding:12px 18px; background:#f8fafc; border-top:1px solid #e2e8f0; text-align:left;">
             <button onclick="submitOpenTable()" style="background:#10b981; color:white; border:none; border-radius:8px; padding:10px 22px; font-weight:bold; cursor:pointer;">
                 🟢 فتح الطاولة الآن
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Cross-hall transfer (table -> gaming/billiards) -->
+<div class="game-modal-backdrop" id="crossTransferModal" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; z-index:9999;">
+    <div style="background:#fff; border-radius:16px; width:100%; max-width:360px; overflow:hidden;">
+        <div style="padding:14px 18px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
+            <h3 id="crossTransferTitle" style="font-size:15px; font-weight:800; margin:0;">🔀 نقل لصالة أخرى</h3>
+            <button onclick="document.getElementById('crossTransferModal').style.display='none'" style="background:none; border:none; font-size:20px; cursor:pointer;">&times;</button>
+        </div>
+        <div style="padding:18px;">
+            <input type="hidden" id="crossSessionId">
+            <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">اختر الوجهة المتاحة:</label>
+            <select id="crossTargetSelect" onchange="renderCrossExtra()" style="width:100%; padding:10px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:13px; font-family:inherit; margin-bottom:12px;"></select>
+            <div id="crossExtra"></div>
+            <div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:8px; padding:8px 12px; font-size:12px; color:#6d28d9; margin-top:12px;">
+                🔀 طلبات الجلسة المفتوحة تنتقل معها، وأي رصيد مستحق يُرحل على الفاتورة الجديدة.
+            </div>
+        </div>
+        <div style="padding:12px 18px; background:#f8fafc; border-top:1px solid #e2e8f0; text-align:left;">
+            <button onclick="submitCrossTransfer()" style="background:#7c3aed; color:white; border:none; border-radius:8px; padding:10px 20px; font-size:13px; font-weight:800; cursor:pointer;">
+                🔀 تأكيد النقل
             </button>
         </div>
     </div>
@@ -136,6 +157,7 @@ function renderTables() {
                         <span style="font-size:16px; font-weight:800; color:#0f172a;">🪑 ${escapeHtml(tbl.display_name)}</span>
                         ${statusBadge}
                     </div>
+                    ${sess && sess.customer_name ? `<div style="display:flex; align-items:center; gap:8px; background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:8px 12px; margin-bottom:10px;"><span style="font-size:18px;">👤</span><span style="font-size:15px; font-weight:800; color:#92400e;">${escapeHtml(sess.customer_name)}</span></div>` : ''}
                     <div style="background:#f8fafc; border-radius:10px; padding:12px; margin-bottom:14px; font-size:12.5px;">
                         <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
                             <span>القسم:</span>
@@ -155,17 +177,24 @@ function renderTables() {
                 <div>
                     ${isOccupied ? `
                     <div style="display:flex; gap:6px;">
-                        <a href="../pos/index.php?table_session_id=${sess.id}" style="flex:1; background:#ea580c; color:white; padding:9px; border-radius:8px; text-align:center; font-weight:bold; font-size:12px; text-decoration:none;">
+                        <a href="../pos/index.php?table_session_id=${sess.id}" style="flex:1; background:#ea580c; color:white; border:none; padding:9px 6px; border-radius:8px; text-align:center; font-weight:bold; font-size:12px; text-decoration:none;">
                             ☕ إضافة طلب
                         </a>
-                        <button onclick="viewOpenOrders(${sess.id})" style="flex:1; background:#f1f5f9; color:#334155; border:1px solid #cbd5e1; padding:9px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
-                            🧾 الطلبات
+                        <button onclick="viewOpenOrders(${sess.id})" style="flex:1; background:#f1f5f9; color:#334155; border:1px solid #cbd5e1; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
+                            🧾 الطلبات (${ordersCount})
                         </button>
-                        <button onclick="transferTable(${sess.id}, ${tbl.id})" style="flex:1; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:9px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
+                    </div>
+                    <div style="display:flex; gap:6px; margin-top:6px;">
+                        <button onclick="transferTable(${sess.id}, ${tbl.id})" style="flex:1; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
                             🔄 نقل
                         </button>
-                        <button onclick="closeTable(${sess.id}, ${amountDue}, ${ordersTotal}, ${parseFloat(sess.paid_total || 0)}, '${encodeURIComponent(tbl.display_name)}', ${ordersCount})" style="flex:1; background:#059669; color:white; border:none; padding:9px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
-                            🏁 إنهاء ومحاسبة
+                        <button onclick="openCrossTransferModal(${sess.id})" title="نقل الجلسة إلى صالة أخرى" style="flex:1; background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
+                            🔀 صالة أخرى
+                        </button>
+                    </div>
+                    <div style="display:flex; gap:6px; margin-top:6px;">
+                        <button onclick="closeTable(${sess.id}, ${amountDue}, ${ordersTotal}, ${parseFloat(sess.paid_total || 0)}, '${encodeURIComponent(tbl.display_name)}', ${ordersCount})" style="flex:1; background:#ef4444; color:white; border:none; padding:9px 6px; border-radius:8px; font-weight:800; font-size:12px; cursor:pointer;">
+                            🏁 محاسبة
                         </button>
                     </div>` : `
                     <button onclick="openTableModal(${tbl.id}, '${escapeHtml(tbl.display_name)}')" style="width:100%; background:#10b981; color:white; border:none; padding:10px; border-radius:8px; font-weight:bold; font-size:13px; cursor:pointer;">
@@ -202,24 +231,93 @@ function viewOpenOrders(sessionId) {
 async function transferTable(sessionId, currentTableId) {
     const available = tables.filter(table => table.id !== currentTableId && table.status === 'available');
     if (available.length === 0) {
-        alert('لا توجد طاولات شاغرة للنقل إليها');
+        appAlert('لا توجد طاولات شاغرة للنقل إليها', 'info');
         return;
     }
 
-    const options = available.map((table, index) => `${index + 1}: ${table.display_name}`).join('\n');
-    const selected = prompt('اختر رقم الطاولة الجديدة:\n' + options);
-    const index = parseInt(selected, 10) - 1;
-    if (!Number.isInteger(index) || !available[index]) return;
+    const choice = await appPromptSelect('اختر الطاولة الجديدة لنقل الجلسة إليها:', available.map(table => ({ value: String(table.id), label: table.display_name })), { title: '🔀 نقل الجلسة' });
+    if (!choice) return;
 
     const fd = new FormData();
     fd.append('session_id', sessionId);
-    fd.append('target_table_id', available[index].id);
+    fd.append('target_table_id', choice);
     const res = await fetch('ajax.php?action=transfer_table', { method: 'POST', body: fd });
     const data = await res.json();
     if (!data.success) {
-        alert(data.error || 'تعذر نقل الجلسة');
+        appAlert(data.error || 'تعذر نقل الجلسة');
         return;
     }
+    loadTables();
+}
+
+async function openCrossTransferModal(sessionId) {
+    const res = await fetch('ajax.php?action=cross_targets');
+    const data = await res.json();
+    if (!data.success) {
+        appAlert(data.error);
+        return;
+    }
+    let html = '';
+    if ((data.devices || []).length) {
+        html += `<optgroup label="🎮 بلايستيشن">` + data.devices.map(d => `<option value="gaming:${d.id}">${escapeHtml(d.display_name)}</option>`).join('') + `</optgroup>`;
+    }
+    if ((data.btables || []).length) {
+        html += `<optgroup label="🎱 بلياردو">` + data.btables.map(d => `<option value="billiards:${d.id}">${escapeHtml(d.display_name)}</option>`).join('') + `</optgroup>`;
+    }
+    if (!html) {
+        appAlert('لا توجد وجهات شاغرة في الصالات الأخرى حالياً!', 'info');
+        return;
+    }
+    document.getElementById('crossSessionId').value = sessionId;
+    document.getElementById('crossTargetSelect').innerHTML = html;
+    renderCrossExtra();
+    document.getElementById('crossTransferModal').style.display = 'flex';
+}
+
+function renderCrossExtra() {
+    const val = document.getElementById('crossTargetSelect').value || '';
+    const hall = val.split(':')[0];
+    let extra = '';
+    if (hall === 'gaming') {
+        extra = `<label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">نوع الجلسة:</label>
+           <select id="crossSessionType" style="width:100%; padding:10px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:13px; font-family:inherit;"><option value="single">سنجل</option><option value="multi">مالتي</option></select>`;
+    } else if (hall === 'billiards') {
+        extra = `<label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">نظام الحساب:</label>
+           <select id="crossBillingMode" style="width:100%; padding:10px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:13px; font-family:inherit;"><option value="hourly">بالساعة</option><option value="per_game">بالجيم</option></select>`;
+    }
+    document.getElementById('crossExtra').innerHTML = extra;
+}
+
+async function submitCrossTransfer() {
+    const sessionId = document.getElementById('crossSessionId').value;
+    const val = document.getElementById('crossTargetSelect').value || '';
+    const parts = val.split(':');
+    if (parts.length !== 2) return;
+    const hall = parts[0];
+    const targetId = parts[1];
+    if (!await appConfirm('سيتم نقل الجلسة وطلباتها المفتوحة، وأي رصيد مستحق سيُرحل على الفاتورة الجديدة. متابعة؟')) return;
+    const fd = new FormData();
+    fd.append('session_id', sessionId);
+    let action = 'transfer_to_billiards';
+    if (hall === 'gaming') {
+        action = 'transfer_to_gaming';
+        fd.append('target_device_id', targetId);
+        const st = document.getElementById('crossSessionType');
+        fd.append('session_type', st ? st.value : 'single');
+    } else {
+        fd.append('target_table_id', targetId);
+        const bm = document.getElementById('crossBillingMode');
+        fd.append('billing_mode', bm ? bm.value : 'hourly');
+    }
+    const res = await fetch('ajax.php?action=' + action, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.success) {
+        appAlert(data.error);
+        return;
+    }
+    document.getElementById('crossTransferModal').style.display = 'none';
+    const carried = parseFloat(data.carried_amount || 0);
+    appAlert(carried > 0 ? `تم النقل بنجاح برصيد مرحل ${carried.toFixed(2)} ج.م` : 'تم النقل بنجاح', 'success');
     loadTables();
 }
 
@@ -239,7 +337,7 @@ async function submitOpenTable() {
         document.getElementById('openTableModal').style.display = 'none';
         loadTables();
     } else {
-        alert(data.error);
+        appAlert(data.error);
     }
 }
 
@@ -304,11 +402,11 @@ async function submitCloseTable() {
             // فتح صفحة طباعة الفاتورة المجمعة
             openReceiptModal('receipt.php?id=' + data.session_id);
         } else {
-            alert(data.error);
+            appAlert(data.error);
         }
     } catch (err) {
         console.error(err);
-        alert('حدث خطأ أثناء الإغلاق');
+        appAlert('حدث خطأ أثناء الإغلاق');
     }
 }
 

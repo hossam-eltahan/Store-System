@@ -9,10 +9,7 @@ require_once '../../config/settings.php';
 require_once '../../config/auth.php';
 
 requireLogin();
-
-if (!hasPermission('gaming.view')) {
-    showAccessDenied();
-}
+requirePermission('gaming.view');
 
 $pageTitle = 'صالة البلايستيشن - التحكم بالوقت والأجهزة';
 
@@ -389,6 +386,30 @@ include '../../includes/navbar.php';
     </div>
 </div>
 
+<!-- Modal: Cross-hall transfer (gaming -> cafe table) -->
+<div class="game-modal-backdrop" id="crossTransferModal" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; z-index:9999;">
+    <div class="game-modal" style="max-width: 360px;">
+        <div style="padding: 14px 18px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 15px; font-weight: 800; margin: 0; color: #0f172a;">🔀 نقل لصالة أخرى</h3>
+            <button onclick="closeModal('crossTransferModal')" style="background:none; border:none; font-size:20px; cursor:pointer;">&times;</button>
+        </div>
+        <div style="padding: 18px;">
+            <input type="hidden" id="crossTransferSessionId">
+            <label style="font-size: 12.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 8px;">اختر الوجهة المتاحة:</label>
+            <select id="crossTransferTargetSelect" onchange="renderCrossExtra()" style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 13px; font-family: inherit; margin-bottom:12px;"></select>
+            <div id="crossExtra"></div>
+            <div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:8px; padding:8px 12px; font-size:12px; color:#6d28d9; margin-top:12px;">
+                ⏱️ العدّاد يتوقف هنا، والرصيد المستحق يترحل على الفاتورة الجديدة.
+            </div>
+        </div>
+        <div style="padding: 12px 18px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: left;">
+            <button onclick="submitCrossTransfer()" style="background: #7c3aed; color: white; border: none; border-radius: 8px; padding: 10px 20px; font-size: 13px; font-weight: 800; cursor: pointer;">
+                🔀 تأكيد النقل
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Modal: Delete Device Confirmation -->
 <div class="game-modal-backdrop" id="deleteDeviceModal" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; z-index:9999;">
     <div class="game-modal" style="max-width: 380px;">
@@ -495,29 +516,36 @@ function renderDevices() {
             `;
 
              actionsHtml = `
-                <div class="device-actions">
-                    ${isExpired && sess.time_mode === 'countdown' ? 
-                        `<button class="btn btn-resume" style="background:#3b82f6;" onclick="openExtendModal(${sess.id}, '${escapeHtml(dev.display_name)}', ${sess.preset_minutes})">
+                <div style="display:flex; gap:6px;">
+                    <a href="../pos/index.php?gaming_session_id=${sess.id}" title="إضافة طلب للجلسة" style="flex:1; background:#ea580c; color:#fff; border:none; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer; text-align:center; text-decoration:none;">
+                        ☕ إضافة طلب
+                    </a>
+                    <button onclick="viewSessionOrders(${sess.id})" title="عرض طلبات الجلسة" style="flex:1; background:#f1f5f9; color:#334155; border:1px solid #cbd5e1; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
+                        🧾 الطلبات (${sess.orders ? sess.orders.length : 0})
+                    </button>
+                </div>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                    <button onclick="openTransferModal(${sess.id})" style="flex:1; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
+                        🔄 نقل
+                    </button>
+                    <button onclick="openCrossTransferModal(${sess.id})" title="نقل الجلسة إلى صالة أخرى" style="flex:1; background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
+                        🔀 صالة أخرى
+                    </button>
+                </div>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                    ${isExpired && sess.time_mode === 'countdown' ?
+                        `<button style="flex:1; background:#3b82f6; color:#fff; border:none; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;" onclick="openExtendModal(${sess.id}, '${escapeHtml(dev.display_name)}', ${sess.preset_minutes})">
                             ⏰ إضافة وقت
                         </button>` : ''
                     }
-                    ${isPaused ? 
-                        `<button class="btn btn-resume" onclick="resumeSession(${sess.id})">▶️ استئناف</button>` : 
-                        `<button class="btn btn-pause" onclick="pauseSession(${sess.id})">⏸️ إيقاف</button>`
+                    ${isPaused ?
+                        `<button style="flex:1; background:#3b82f6; color:#fff; border:none; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;" onclick="resumeSession(${sess.id})">▶️ استئناف</button>` :
+                        `<button style="flex:1; background:#f59e0b; color:#fff; border:none; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;" onclick="pauseSession(${sess.id})">⏸️ إيقاف</button>`
                     }
-                    <button class="btn btn-drinks" onclick="switchType(${sess.id}, '${sess.session_type === 'single' ? 'multi' : 'single'}')">
+                    <button onclick="switchType(${sess.id}, '${sess.session_type === 'single' ? 'multi' : 'single'}')" style="flex:1; background:#f1f5f9; color:#334155; border:1px solid #cbd5e1; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
                         🔄 ${sess.session_type === 'single' ? 'تحويل مالتي' : 'تحويل سنجل'}
                     </button>
-                    <button class="btn btn-transfer" onclick="openTransferModal(${sess.id})">
-                        📲 نقل
-                    </button>
-                    <button class="btn btn-drinks" onclick="viewSessionOrders(${sess.id})" title="عرض طلبات الجلسة">
-                        🧾 الطلبات (${sess.orders ? sess.orders.length : 0})
-                    </button>
-                    <a href="../pos/index.php?gaming_session_id=${sess.id}" class="btn btn-drinks" title="إضافة طلب للجلسة">
-                        ☕ إضافة طلب
-                    </a>
-                    <button class="btn btn-end" onclick="openEndSessionModal(${sess.id})">
+                    <button onclick="openEndSessionModal(${sess.id})" style="flex:1; background:#ef4444; color:#fff; border:none; padding:9px 6px; border-radius:8px; font-weight:800; font-size:12px; cursor:pointer;">
                         🏁 محاسبة
                     </button>
                 </div>
@@ -562,6 +590,7 @@ function renderDevices() {
                         </div>
                         ${statusBadge}
                     </div>
+                    ${sess && sess.customer_name ? `<div style="display:flex; align-items:center; gap:8px; background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:8px 12px; margin-bottom:10px;"><span style="font-size:18px;">👤</span><span style="font-size:15px; font-weight:800; color:#92400e;">${escapeHtml(sess.customer_name)}</span></div>` : ''}
                     ${timerHtml}
                 </div>
                 ${actionsHtml}
@@ -677,7 +706,7 @@ async function submitStartSession() {
             closeModal('startGameModal');
             loadDevices();
         } else {
-            alert(data.error || 'حدث خطأ');
+            appAlert(data.error || 'حدث خطأ');
         }
     } catch (err) {
         console.error(err);
@@ -716,7 +745,7 @@ function openTransferModal(sessionId) {
     const available = devices.filter(d => !d.current_session);
 
     if (available.length === 0) {
-        alert('لا توجد أجهزة شاغرة حالياً للنقل إليها!');
+        appAlert('لا توجد أجهزة شاغرة حالياً للنقل إليها!', 'info');
         return;
     }
 
@@ -742,8 +771,75 @@ async function submitTransfer() {
         closeModal('transferModal');
         loadDevices();
     } else {
-        alert(data.error);
+        appAlert(data.error);
     }
+}
+
+async function openCrossTransferModal(sessionId) {
+    document.getElementById('crossTransferSessionId').value = sessionId;
+    const res = await fetch('ajax.php?action=transfer_tables_list');
+    const data = await res.json();
+    if (!data.success) {
+        appAlert(data.error);
+        return;
+    }
+    let html = '';
+    if ((data.tables || []).length) {
+        html += `<optgroup label="🪑 طاولات الصالة">` + data.tables.map(t => `<option value="tables:${t.id}">${t.display_name}</option>`).join('') + `</optgroup>`;
+    }
+    if ((data.btables || []).length) {
+        html += `<optgroup label="🎱 بلياردو">` + data.btables.map(t => `<option value="billiards:${t.id}">${t.display_name}</option>`).join('') + `</optgroup>`;
+    }
+    if (!html) {
+        appAlert('لا توجد وجهات شاغرة في الصالات الأخرى حالياً!', 'info');
+        return;
+    }
+    document.getElementById('crossTransferTargetSelect').innerHTML = html;
+    renderCrossExtra();
+    document.getElementById('crossTransferModal').style.display = 'flex';
+}
+
+function renderCrossExtra() {
+    const val = document.getElementById('crossTransferTargetSelect').value || '';
+    const hall = val.split(':')[0];
+    document.getElementById('crossExtra').innerHTML = hall === 'billiards'
+        ? `<label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">نظام الحساب:</label>
+           <select id="crossBillingMode" style="width:100%; padding:10px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:13px; font-family:inherit;"><option value="hourly">بالساعة</option><option value="per_game">بالجيم</option></select>`
+        : '';
+}
+
+async function submitCrossTransfer() {
+    const sessionId = document.getElementById('crossTransferSessionId').value;
+    const val = document.getElementById('crossTransferTargetSelect').value || '';
+    const parts = val.split(':');
+    if (parts.length !== 2) return;
+    const hall = parts[0];
+    const targetId = parts[1];
+    if (!await appConfirm('سيتم إيقاف العدّاد وترحيل الرصيد المستحق على الفاتورة الجديدة. متابعة؟')) return;
+    const payload = { session_id: sessionId };
+    let action = 'transfer_to_table';
+    if (hall === 'billiards') {
+        action = 'transfer_to_billiards';
+        payload.target_table_id = targetId;
+        const bm = document.getElementById('crossBillingMode');
+        payload.billing_mode = bm ? bm.value : 'hourly';
+    } else {
+        payload.target_table_id = targetId;
+    }
+    const res = await fetch('ajax.php?action=' + action, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!data.success) {
+        appAlert(data.error);
+        return;
+    }
+    closeModal('crossTransferModal');
+    const carried = parseFloat(data.carried_amount || 0);
+    appAlert(carried > 0 ? `تم النقل برصيد مرحل ${carried.toFixed(2)} ج.م` : 'تم النقل بنجاح', 'success');
+    loadDevices();
 }
 
 // Open End Session Modal
@@ -789,6 +885,11 @@ function renderEndModalDetails(data) {
             <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
                 <span>مشروبات وطلبات كافيه:</span>
                 <strong style="color:#0284c7;">${parseFloat(data.cafe_total).toFixed(2)} ج.م</strong>
+            </div>` : ''}
+            ${parseFloat(data.transferred_amount) > 0 ? `
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                <span>رصيد منقول من جلسة سابقة:</span>
+                <strong style="color:#7c3aed;">${parseFloat(data.transferred_amount).toFixed(2)} ج.م</strong>
             </div>` : ''}
             <div style="display:flex; justify-content:space-between; margin-bottom:6px; color:#059669;">
                 <span>المدفوع مسبقاً:</span>
@@ -869,7 +970,7 @@ async function submitEndSession() {
             closeModal('endSessionModal');
             loadDevices();
         } else {
-            alert(data.error);
+            appAlert(data.error);
         }
     } catch (err) {
         console.error(err);
@@ -917,7 +1018,7 @@ async function submitExtendSession() {
         expiredSessions.clear();
         loadDevices();
     } else {
-        alert(data.error);
+        appAlert(data.error);
     }
 }
 

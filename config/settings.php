@@ -712,19 +712,19 @@ function createInvoiceReturn($kind, $invoiceId, $lines, $notes = '', $returnKey 
 function orderSessionIsClosed($order) {
     if (!empty($order['gaming_session_id'])) {
         $s = getRow("SELECT status FROM gaming_sessions WHERE id = ?", [(int)$order['gaming_session_id']]);
-        if ($s && in_array(($s['status'] ?? ''), ['completed', 'cancelled'], true)) {
+        if ($s && in_array(($s['status'] ?? ''), ['completed', 'cancelled', 'transferred'], true)) {
             return true;
         }
     }
     if (!empty($order['billiard_session_id'])) {
         $s = getRow("SELECT status FROM billiard_sessions WHERE id = ?", [(int)$order['billiard_session_id']]);
-        if ($s && in_array(($s['status'] ?? ''), ['completed', 'cancelled'], true)) {
+        if ($s && in_array(($s['status'] ?? ''), ['completed', 'cancelled', 'transferred'], true)) {
             return true;
         }
     }
     if (!empty($order['table_session_id'])) {
         $s = getRow("SELECT status FROM table_sessions WHERE id = ?", [(int)$order['table_session_id']]);
-        if ($s && in_array(($s['status'] ?? ''), ['closed', 'cancelled'], true)) {
+        if ($s && in_array(($s['status'] ?? ''), ['closed', 'cancelled', 'transferred'], true)) {
             return true;
         }
     }
@@ -755,6 +755,174 @@ function orderSessionIsOpen($order) {
         }
     }
     return false;
+}
+
+/**
+ * Cross-hall session transfer (gaming <-> tables <-> billiards).
+ * The source clock stops and its unbilled time charge is carried onto the
+ * target bill (transferred_amount). Open cafe orders move with the guests.
+ * Source closes as 'transferred' (no payment, excluded from reports).
+ *
+ * $opts: session_type (gaming target), billing_mode (billiards target),
+ *         customer_name, guest_count (tables target).
+ * Returns ['success'=>bool, ...] — caller must check permissions first.
+ */
+function transferSessionAcrossHalls($fromHall, $sessionId, $toHall, $targetId, $opts = []) {
+    $halls = [
+        'gaming'    => ['sessions' => 'gaming_sessions', 'entities' => 'gaming_devices', 'order_col' => 'gaming_session_id', 'label' => 'بلايستيشن'],
+        'billiards' => ['sessions' => 'billiard_sessions', 'entities' => 'billiard_tables', 'order_col' => 'billiard_session_id', 'label' => 'بلياردو'],
+        'tables'    => ['sessions' => 'table_sessions', 'entities' => 'cafe_tables', 'order_col' => 'table_session_id', 'label' => 'طاولة صالة'],
+    ];
+    if (!isset($halls[$fromHall]) || !isset($halls[$toHall]) || $fromHall === $toHall) {
+        return ['success' => false, 'error' => 'جهة النقل غير صالحة'];
+    }
+    $sessionId = (int)$sessionId;
+    $targetId = (int)$targetId;
+    if ($sessionId <= 0 || $targetId <= 0) {
+        return ['success' => false, 'error' => 'بيانات النقل غير صحيحة'];
+    }
+    $from = $halls[$fromHall];
+    $to = $halls[$toHall];
+
+    // Source session (timed halls may be paused; tables only active)
+    $openStatuses = ($fromHall === 'tables') ? "'active'" : "'active', 'paused'";
+    $source = getRow("SELECT * FROM {$from['sessions']} WHERE id = ? AND status IN ($openStatuses)", [$sessionId]);
+    if (!$source) {
+        return ['success' => false, 'error' => 'الجلسة المصدر غير نشطة'];
+    }
+
+    // Target entity must exist and be free
+    $target = getRow("SELECT * FROM {$to['entities']} WHERE id = ? AND is_active = 1", [$targetId]);
+    if (!$target) {
+        return ['success' => false, 'error' => 'الوجهة غير موجودة'];
+    }
+    if ($toHall === 'tables' && ($target['status'] ?? '') !== 'available') {
+        return ['success' => false, 'error' => 'الطاولة الهدف مشغولة بالفعل'];
+    }
+    if ($toHall !== 'tables') {
+        $busy = getRow("SELECT id FROM {$to['sessions']} WHERE " . ($toHall === 'gaming' ? 'device_id' : 'table_id') . " = ? AND status IN ('active', 'paused')", [$targetId]);
+        if ($busy) {
+            return ['success' => false, 'error' => 'الوجهة مشغولة بجلسة قائمة'];
+        }
+    }
+
+    // Freeze the source clock: same billing math as end_session (no payment here)
+    $carried = 0.0;
+    $frozenBillable = 0;
+    if ($fromHall !== 'tables') {
+        $rawSeconds = (int)(getRow("SELECT TIMESTAMPDIFF(SECOND, ?, NOW()) as d", [$source['started_at']])['d'] ?? 0);
+        $totalPaused = (int)($source['total_paused_seconds'] ?? 0);
+        if (($source['status'] ?? '') === 'paused' && !empty($source['paused_at'])) {
+            $totalPaused += (int)(getRow("SELECT TIMESTAMPDIFF(SECOND, ?, NOW()) as d", [$source['paused_at']])['d'] ?? 0);
+        }
+        if ($fromHall === 'billiards' && ($source['billing_mode'] ?? '') === 'per_game') {
+            $carried = round(((int)$source['game_count']) * (float)$source['applied_rate'], 2);
+        } else {
+            $minRow = getRow("SELECT min_billable_minutes as m FROM {$from['entities']} WHERE id = ?", [(int)$source[($fromHall === 'gaming') ? 'device_id' : 'table_id']]);
+            $netMinutes = (int)ceil(max(0, $rawSeconds - $totalPaused) / 60);
+            $frozenBillable = max((int)($minRow['m'] ?? 15), $netMinutes);
+            $carried = round(($frozenBillable / 60) * (float)$source['applied_rate'], 2);
+        }
+    }
+
+    // Target clock: fresh from now; countdown presets carry the remainder
+    $carryMode = 'open';
+    $carryPreset = null;
+    if ($fromHall !== 'tables' && ($source['time_mode'] ?? 'open') === 'countdown' && !empty($source['preset_minutes'])) {
+        $rawSeconds = (int)(getRow("SELECT TIMESTAMPDIFF(SECOND, ?, NOW()) as d", [$source['started_at']])['d'] ?? 0);
+        $elapsedMin = (int)ceil(max(0, $rawSeconds - (int)($source['total_paused_seconds'] ?? 0)) / 60);
+        $carryMode = 'countdown';
+        $carryPreset = max(0, (int)$source['preset_minutes'] - $elapsedMin);
+    }
+    $optName = trim($opts['customer_name'] ?? '');
+    $customerName = ($optName !== '') ? $optName : trim($source['customer_name'] ?? '');
+
+    beginTransaction();
+    try {
+        // 1. Freeze the source session (no payment, no shift movement)
+        if ($fromHall === 'tables') {
+            execute("UPDATE table_sessions SET closed_at = NOW(), status = 'transferred', closed_by = ? WHERE id = ?", [getCurrentUserId(), $sessionId]);
+            execute("UPDATE cafe_tables SET status = 'available' WHERE id = ?", [(int)$source['table_id']]);
+        } else {
+            execute(
+                "UPDATE {$from['sessions']} SET ended_at = NOW(), billable_minutes = ?, gaming_charge = ?, status = 'transferred', closed_by = ? WHERE id = ?",
+                [$frozenBillable, $carried, getCurrentUserId(), $sessionId]
+            );
+        }
+
+        // 2. Open the target session carrying the frozen balance
+        if ($toHall === 'gaming') {
+            $sessionType = in_array(($opts['session_type'] ?? 'single'), ['single', 'multi', 'vip'], true) ? $opts['session_type'] : 'single';
+            $appliedRate = ($sessionType === 'multi')
+                ? (float)getSetting('ps_default_rate_multi', $target['rate_multi'])
+                : (float)getSetting('ps_default_rate_single', $target['rate_single']);
+            if ($sessionType === 'vip' && !empty($target['rate_vip'])) {
+                $appliedRate = (float)$target['rate_vip'];
+            }
+            $newId = insert(
+                "INSERT INTO gaming_sessions (device_id, session_type, started_at, time_mode, preset_minutes, applied_rate, status, opened_by, customer_name, transferred_amount, transfer_from_type, transfer_from_id)
+                 VALUES (?, ?, NOW(), ?, ?, ?, 'active', ?, ?, ?, ?, ?)",
+                [$targetId, $sessionType, $carryMode, $carryPreset, $appliedRate, getCurrentUserId(), $customerName, $carried, $fromHall, $sessionId]
+            );
+        } elseif ($toHall === 'billiards') {
+            $billingMode = (($opts['billing_mode'] ?? 'hourly') === 'per_game') ? 'per_game' : 'hourly';
+            $appliedRate = ($billingMode === 'hourly')
+                ? (float)getSetting('billiard_default_rate_hour', $target['rate_per_hour'])
+                : (float)getSetting('billiard_default_rate_game', $target['rate_per_game']);
+            $newId = insert(
+                "INSERT INTO billiard_sessions (table_id, billing_mode, started_at, game_count, applied_rate, status, opened_by, customer_name, time_mode, preset_minutes, transferred_amount, transfer_from_type, transfer_from_id)
+                 VALUES (?, ?, NOW(), ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)",
+                [$targetId, $billingMode, ($billingMode === 'per_game' ? 1 : 0), $appliedRate, getCurrentUserId(), $customerName, $carryMode, $carryPreset, $carried, $fromHall, $sessionId]
+            );
+        } else {
+            $newId = insert(
+                "INSERT INTO table_sessions (table_id, opened_at, status, customer_name, guest_count, notes, opened_by, transferred_amount, transfer_from_type, transfer_from_id)
+                 VALUES (?, NOW(), 'active', ?, ?, ?, ?, ?, ?, ?)",
+                [$targetId, $customerName, max(1, (int)($opts['guest_count'] ?? ($source['guest_count'] ?? 1))), ($source['notes'] ?? null), getCurrentUserId(), $carried, $fromHall, $sessionId]
+            );
+            execute("UPDATE cafe_tables SET status = 'occupied' WHERE id = ?", [$targetId]);
+        }
+        if (!$newId) {
+            throw new RuntimeException('تعذر إنشاء الجلسة الجديدة');
+        }
+
+        // 3. Move open cafe orders with the guests
+        execute(
+            "UPDATE orders SET {$to['order_col']} = ?, {$from['order_col']} = NULL WHERE {$from['order_col']} = ? AND status != 'cancelled'",
+            [$newId, $sessionId]
+        );
+
+        logActivity('نقل جلسة', "نقل جلسة {$from['label']} #$sessionId إلى {$to['label']} #$newId برصيد مرحل $carried");
+        commit();
+    } catch (Exception $e) {
+        rollback();
+        return ['success' => false, 'error' => $e->getMessage()];
+    }
+
+    return ['success' => true, 'new_session_id' => (int)$newId, 'carried_amount' => $carried];
+}
+
+/**
+ * Arabic label for a carried balance source, e.g. "بلايستيشن - جهاز 3".
+ */
+function transferSourceLabel($session) {
+    $map = ['gaming' => 'بلايستيشن', 'billiards' => 'بلياردو', 'tables' => 'طاولة صالة'];
+    $type = $session['transfer_from_type'] ?? '';
+    $label = $map[$type] ?? 'جلسة سابقة';
+    $fid = (int)($session['transfer_from_id'] ?? 0);
+    if ($fid > 0) {
+        if ($type === 'gaming') {
+            $r = getRow("SELECT gd.display_name FROM gaming_sessions gs JOIN gaming_devices gd ON gd.id = gs.device_id WHERE gs.id = ?", [$fid]);
+        } elseif ($type === 'billiards') {
+            $r = getRow("SELECT bt.display_name FROM billiard_sessions bs JOIN billiard_tables bt ON bt.id = bs.table_id WHERE bs.id = ?", [$fid]);
+        } else {
+            $r = getRow("SELECT ct.display_name FROM table_sessions ts JOIN cafe_tables ct ON ct.id = ts.table_id WHERE ts.id = ?", [$fid]);
+        }
+        if (!empty($r['display_name'])) {
+            $label .= ' - ' . $r['display_name'];
+        }
+    }
+    return $label;
 }
 
 /**

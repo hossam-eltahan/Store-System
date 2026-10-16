@@ -146,7 +146,7 @@ require_once '../../includes/navbar.php';
                 ارفع ملف التحديث (ZIP) الذي حصلت عليه من الدعم الفني لتحديث البرنامج.
                 سيتم حفظ نسخة احتياطية من بياناتك تلقائياً قبل التحديث.
             </p>
-            <form method="POST" enctype="multipart/form-data" id="updateForm" onsubmit="return confirmUpdate()">
+            <form method="POST" enctype="multipart/form-data" id="updateForm" onsubmit="return confirmSubmit(this, '⚠️ هل أنت متأكد من تحديث البرنامج؟\n\nسيتم حفظ نسخة احتياطية تلقائياً قبل التحديث.\nلا تغلق المتصفح أثناء عملية التحديث.')">
                 <div style="border:2px dashed rgba(96,165,250,0.3); border-radius:12px; padding:30px; text-align:center; margin-bottom:16px; transition:all 0.2s; cursor:pointer;" 
                      id="dropZone" onclick="document.getElementById('update_file').click()">
                     <i class="fa-solid fa-cloud-arrow-up" style="font-size:2.5rem; color:#60a5fa; margin-bottom:10px; display:block;"></i>
@@ -193,7 +193,7 @@ require_once '../../includes/navbar.php';
                         </ul>
                         <?php endif; ?>
                         <?php if (!empty($onlineUpdate['download_url'])): ?>
-                        <form method="POST" onsubmit="return confirm('هل تريد تنزيل وتثبيت التحديث الآن؟ سيتم أخذ نسخة احتياطية من قاعدة البيانات تلقائياً.')" style="margin-top:12px;">
+                        <form method="POST" onsubmit="return confirmSubmit(this, 'هل تريد تنزيل وتثبيت التحديث الآن؟ سيتم أخذ نسخة احتياطية من قاعدة البيانات تلقائياً.')" style="margin-top:12px;">
                             <input type="hidden" name="install_online_url" value="<?= htmlspecialchars($onlineUpdate['download_url']) ?>">
                             <input type="hidden" name="target_version" value="<?= htmlspecialchars($onlineUpdate['version']) ?>">
                             <button type="submit" class="btn btn-success" style="padding:10px 18px; font-weight:700; display:inline-flex; align-items:center; gap:8px;">
@@ -299,7 +299,7 @@ function onFileSelected(input) {
     if (input.files.length > 0) {
         const file = input.files[0];
         if (!file.name.toLowerCase().endsWith('.zip')) {
-            alert('يرجى اختيار ملف بصيغة ZIP فقط.');
+            appAlert('يرجى اختيار ملف بصيغة ZIP فقط.');
             input.value = '';
             btn.disabled = true;
             return;
@@ -314,9 +314,6 @@ function onFileSelected(input) {
     }
 }
 
-function confirmUpdate() {
-    return confirm('⚠️ هل أنت متأكد من تحديث البرنامج؟\n\nسيتم حفظ نسخة احتياطية تلقائياً قبل التحديث.\nلا تغلق المتصفح أثناء عملية التحديث.');
-}
 
 // Drag and drop
 const dropZone = document.getElementById('dropZone');

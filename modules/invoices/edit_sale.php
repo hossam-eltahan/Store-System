@@ -848,7 +848,7 @@ function calculateTotals() {
 document.getElementById('invoiceForm').addEventListener('submit', function(e) {
     if (items.length === 0) {
         e.preventDefault();
-        alert('يرجى إضافة صنف واحد على الأقل');
+        appAlert('يرجى إضافة صنف واحد على الأقل');
         productSearch.focus();
         return;
     }
@@ -861,9 +861,9 @@ document.getElementById('invoiceForm').addEventListener('submit', function(e) {
     if (paid > maxPayment && total > 0) {
         e.preventDefault();
         if (oldDebt > 0) {
-            alert(`المبلغ المدفوع (${paid}) يتجاوز الحد الأقصى (${maxPayment.toFixed(2)})\n\nالفاتورة: ${total.toFixed(2)}\nالحساب القديم: ${oldDebt.toFixed(2)}`);
+            appAlert(`المبلغ المدفوع (${paid}) يتجاوز الحد الأقصى (${maxPayment.toFixed(2)})\n\nالفاتورة: ${total.toFixed(2)}\nالحساب القديم: ${oldDebt.toFixed(2)}`);
         } else {
-            alert(`المبلغ المدفوع (${paid}) لا يمكن أن يتجاوز قيمة الفاتورة (${total.toFixed(2)})\n\nلا يوجد حساب قديم على العميل`);
+            appAlert(`المبلغ المدفوع (${paid}) لا يمكن أن يتجاوز قيمة الفاتورة (${total.toFixed(2)})\n\nلا يوجد حساب قديم على العميل`);
         }
         return;
     }

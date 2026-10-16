@@ -8,10 +8,7 @@ require_once '../../config/settings.php';
 require_once '../../config/auth.php';
 
 requireLogin();
-
-if (!hasPermission('shifts.view')) {
-    showAccessDenied();
-}
+requirePermission('shifts.view');
 
 $pageTitle = 'الورديات وحركات الخزينة';
 
@@ -331,7 +328,7 @@ async function submitOpenShift() {
     if (data.success) {
         location.reload();
     } else {
-        alert(data.error);
+        appAlert(data.error);
     }
 }
 
@@ -350,7 +347,7 @@ async function submitCashMovement() {
     if (data.success) {
         location.reload();
     } else {
-        alert(data.error);
+        appAlert(data.error);
     }
 }
 
@@ -384,7 +381,7 @@ async function submitCloseShift() {
     const notes = document.getElementById('closingNotesInput').value;
     const reason = document.getElementById('varianceReasonInput').value;
 
-    if (!confirm('هل أنت متأكد من إغلاق وتقفيل الوردية الحالية؟ لا يمكن التراجع عن هذه الخطوة.')) return;
+    if (!await appConfirm('هل أنت متأكد من إغلاق وتقفيل الوردية الحالية؟ لا يمكن التراجع عن هذه الخطوة.')) return;
 
     const fd = new FormData();
     fd.append('actual_cash', actual);
@@ -397,7 +394,7 @@ async function submitCloseShift() {
         openReceiptModal(`receipt.php?id=${data.shift_id}`);
         location.reload();
     } else {
-        alert(data.error);
+        appAlert(data.error);
     }
 }
 </script>

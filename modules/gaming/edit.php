@@ -301,7 +301,7 @@ include '../../includes/navbar.php';
             <div class="form-actions">
                 <a href="index.php" class="btn btn-secondary">🔙 رجوع</a>
                 <button type="submit" class="btn btn-primary">💾 حفظ التعديلات</button>
-                <a href="delete.php?id=<?php echo $deviceId; ?>" class="btn btn-danger" onclick="return confirm('هل أنت متأكد من حذف هذا الجهاز؟');">🗑️ حذف</a>
+                <a href="delete.php?id=<?php echo $deviceId; ?>" class="btn btn-danger" onclick="return confirmAction(this, 'هل أنت متأكد من حذف هذا الجهاز؟');">🗑️ حذف</a>
             </div>
         </form>
     </div>

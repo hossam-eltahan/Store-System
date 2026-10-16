@@ -169,7 +169,7 @@ include '../../includes/navbar.php';
             🗑️ تنفيذ إعادة الضبط
         </div>
         <div class="card-body">
-            <form method="POST" onsubmit="return confirm('تأكيد أخير: سيتم مسح كل بيانات النظام نهائياً. متابعة؟');">
+            <form method="POST" onsubmit="return confirmSubmit(this, 'تأكيد أخير: سيتم مسح كل بيانات النظام نهائياً. متابعة؟');">
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label class="form-label" style="font-weight: 700;">كلمة مرور المدير (للتأكيد) *</label>
                     <input type="password" name="password" class="form-control" required placeholder="أدخل كلمة مرور حسابك">

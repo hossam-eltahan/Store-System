@@ -190,7 +190,7 @@ include '../../includes/navbar.php';
                                 <a href="../invoices/edit_purchase.php?id=<?php echo $invoice['id']; ?>" class="btn btn-info btn-sm" title="تعديل">✏️</a>
                                 <?php endif; ?>
                                 <?php if (hasPermission('invoices.purchase.delete') && (($settings['allow_delete_invoices'] ?? '0') === '1')): ?>
-                                <a href="../invoices/delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger btn-sm" title="مسح" onclick="return confirm('هل أنت متأكد من مسح هذه الفاتورة؟');">🗑️</a>
+                                <a href="../invoices/delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger btn-sm" title="مسح" onclick="return confirmAction(this, 'هل أنت متأكد من مسح هذه الفاتورة؟');">🗑️</a>
                                 <?php endif; ?>
                             </td>
                         </tr>

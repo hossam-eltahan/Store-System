@@ -8,10 +8,7 @@ require_once '../../config/settings.php';
 require_once '../../config/auth.php';
 
 requireLogin();
-
-if (!hasPermission('billiards.view')) {
-    showAccessDenied();
-}
+requirePermission('billiards.view');
 
 $pageTitle = 'صالة البلياردو والسنوكر';
 
@@ -266,6 +263,50 @@ include '../../includes/navbar.php';
     </div>
 </div>
 
+<!-- Modal: intra-hall transfer (billiards -> billiards) -->
+<div class="game-modal-backdrop" id="transferBilliardModal" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; z-index:9999;">
+    <div class="game-modal" style="max-width: 360px;">
+        <div style="padding: 14px 18px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 15px; font-weight: 800; margin: 0; color: #0f172a;">نقل الجلسة لطاولة أخرى</h3>
+            <button onclick="closeModal('transferBilliardModal')" style="background:none; border:none; font-size:20px; cursor:pointer;">&times;</button>
+        </div>
+        <div style="padding: 18px;">
+            <input type="hidden" id="transferBilliardSessionId">
+            <label style="font-size: 12.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 8px;">اختر الطاولة المتاحة:</label>
+            <select id="transferBilliardTargetSelect" style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 13px; font-family: inherit;"></select>
+        </div>
+        <div style="padding: 12px 18px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: left;">
+            <button onclick="submitTransferBilliard()" style="background: #3b82f6; color: white; border: none; border-radius: 8px; padding: 10px 20px; font-size: 13px; font-weight: 800; cursor: pointer;">
+                🔄 نقل الجلسة
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: cross-hall transfer (billiards -> tables/gaming) -->
+<div class="game-modal-backdrop" id="crossTransferModal" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; z-index:9999;">
+    <div class="game-modal" style="max-width: 360px;">
+        <div style="padding: 14px 18px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 15px; font-weight: 800; margin: 0; color: #0f172a;">🔀 نقل لصالة أخرى</h3>
+            <button onclick="closeModal('crossTransferModal')" style="background:none; border:none; font-size:20px; cursor:pointer;">&times;</button>
+        </div>
+        <div style="padding: 18px;">
+            <input type="hidden" id="crossTransferSessionId">
+            <label style="font-size: 12.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 8px;">اختر الوجهة المتاحة:</label>
+            <select id="crossTransferTargetSelect" onchange="renderCrossExtra()" style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 13px; font-family: inherit; margin-bottom:12px;"></select>
+            <div id="crossExtra"></div>
+            <div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:8px; padding:8px 12px; font-size:12px; color:#6d28d9; margin-top:12px;">
+                🔀 الطلبات المفتوحة تنتقل مع الجلسة، والرصيد المستحق يُرحل على الفاتورة الجديدة.
+            </div>
+        </div>
+        <div style="padding: 12px 18px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: left;">
+            <button onclick="submitCrossTransfer()" style="background: #7c3aed; color: white; border: none; border-radius: 8px; padding: 10px 20px; font-size: 13px; font-weight: 800; cursor: pointer;">
+                🔀 تأكيد النقل
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
 let tables = [];
 let activeBilliardSessionId = null;
@@ -342,22 +383,32 @@ function renderTables() {
             }
 
             actionsHtml = `
-                <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                    ${!isHourly ? `<button onclick="addGame(${sess.id})" style="flex:1; background:#047857; color:white; border:none; padding:8px; border-radius:8px; font-weight:bold; cursor:pointer;">➕ إضافة جيم</button>` : ''}
-                    ${isHourly ? (isPaused ? 
-                        `<button onclick="resumeBilliard(${sess.id})" style="flex:1; background:#3b82f6; color:white; border:none; padding:8px; border-radius:8px; font-weight:bold; cursor:pointer;">▶️ استئناف</button>` : 
-                        `<button onclick="pauseBilliard(${sess.id})" style="flex:1; background:#f59e0b; color:white; border:none; padding:8px; border-radius:8px; font-weight:bold; cursor:pointer;">⏸️ إيقاف</button>`) : ''
-                    }
-                    ${isHourly && isCountdown && displaySec <= 0 ? 
-                        `<button onclick="openExtendBilliardModal(${sess.id}, '${escapeHtml(tbl.display_name)}', ${sess.preset_minutes})" style="flex:1; background:#3b82f6; color:white; border:none; padding:8px; border-radius:8px; font-weight:bold; cursor:pointer;">⏰ إضافة وقت</button>` : ''
-                    }
-                    <button onclick="viewBilliardOrders(${sess.id})" style="flex:1; background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1; padding:8px; border-radius:8px; font-weight:bold; text-align:center; font-size:12px; cursor:pointer;">
-                        🧾 الطلبات (${sess.orders ? sess.orders.length : 0})
-                    </button>
-                    <a href="../pos/index.php?billiard_session_id=${sess.id}" style="flex:1; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:8px; border-radius:8px; font-weight:bold; text-align:center; text-decoration:none; font-size:12px;">
+                <div style="display:flex; gap:6px;">
+                    <a href="../pos/index.php?billiard_session_id=${sess.id}" style="flex:1; background:#ea580c; color:#fff; border:none; padding:9px 6px; border-radius:8px; font-weight:bold; text-align:center; text-decoration:none; font-size:12px;">
                         ☕ إضافة طلب
                     </a>
-                    <button onclick="openEndBilliardModal(${sess.id})" style="flex:1; background:#ef4444; color:white; border:none; padding:8px; border-radius:8px; font-weight:bold; cursor:pointer;">
+                    <button onclick="viewBilliardOrders(${sess.id})" style="flex:1; background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1; padding:9px 6px; border-radius:8px; font-weight:bold; text-align:center; font-size:12px; cursor:pointer;">
+                        🧾 الطلبات (${sess.orders ? sess.orders.length : 0})
+                    </button>
+                </div>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                    <button onclick="openTransferBilliardModal(${sess.id})" style="flex:1; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
+                        🔄 نقل
+                    </button>
+                    <button onclick="openCrossTransferModal(${sess.id})" title="نقل الجلسة إلى صالة أخرى" style="flex:1; background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">
+                        🔀 صالة أخرى
+                    </button>
+                </div>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                    ${!isHourly ? `<button onclick="addGame(${sess.id})" style="flex:1; background:#047857; color:white; border:none; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">➕ إضافة جيم</button>` : ''}
+                    ${isHourly ? (isPaused ?
+                        `<button onclick="resumeBilliard(${sess.id})" style="flex:1; background:#3b82f6; color:white; border:none; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">▶️ استئناف</button>` :
+                        `<button onclick="pauseBilliard(${sess.id})" style="flex:1; background:#f59e0b; color:white; border:none; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">⏸️ إيقاف</button>`) : ''
+                    }
+                    ${isHourly && isCountdown && displaySec <= 0 ?
+                        `<button onclick="openExtendBilliardModal(${sess.id}, '${escapeHtml(tbl.display_name)}', ${sess.preset_minutes})" style="flex:1; background:#3b82f6; color:white; border:none; padding:9px 6px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">⏰ إضافة وقت</button>` : ''
+                    }
+                    <button onclick="openEndBilliardModal(${sess.id})" style="flex:1; background:#ef4444; color:white; border:none; padding:9px 6px; border-radius:8px; font-weight:800; font-size:12px; cursor:pointer;">
                         🏁 محاسبة
                     </button>
                 </div>
@@ -397,6 +448,7 @@ function renderTables() {
                         <span style="font-size:16px; font-weight:800; color:#0f172a;">🎱 ${escapeHtml(tbl.display_name)}</span>
                         ${statusBadge}
                     </div>
+                    ${sess && sess.customer_name ? `<div style="display:flex; align-items:center; gap:8px; background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:8px 12px; margin-bottom:10px;"><span style="font-size:18px;">👤</span><span style="font-size:15px; font-weight:800; color:#92400e;">${escapeHtml(sess.customer_name)}</span></div>` : ''}
                     ${feltHtml}
                 </div>
                 ${actionsHtml}
@@ -408,6 +460,104 @@ function renderTables() {
 
 function viewBilliardOrders(sessionId) {
     openReceiptModal(`receipt.php?id=${sessionId}`);
+}
+
+async function openTransferBilliardModal(sessionId) {
+    document.getElementById('transferBilliardSessionId').value = sessionId;
+    const res = await fetch('ajax.php?action=cross_targets');
+    const data = await res.json();
+    if (!data.success) {
+        appAlert(data.error);
+        return;
+    }
+    const free = data.btables || [];
+    if (free.length === 0) {
+        appAlert('لا توجد طاولات بلياردو شاغرة حالياً!', 'info');
+        return;
+    }
+    document.getElementById('transferBilliardTargetSelect').innerHTML = free.map(t => `<option value="${t.id}">${escapeHtml(t.display_name)}</option>`).join('');
+    document.getElementById('transferBilliardModal').style.display = 'flex';
+}
+
+async function submitTransferBilliard() {
+    const sessionId = document.getElementById('transferBilliardSessionId').value;
+    const targetId = document.getElementById('transferBilliardTargetSelect').value;
+    const fd = new FormData();
+    fd.append('session_id', sessionId);
+    fd.append('target_table_id', targetId);
+    const res = await fetch('ajax.php?action=transfer_billiards', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.success) {
+        closeModal('transferBilliardModal');
+        appAlert(data.message, 'success');
+        loadTables();
+    } else {
+        appAlert(data.error);
+    }
+}
+
+async function openCrossTransferModal(sessionId) {
+    document.getElementById('crossTransferSessionId').value = sessionId;
+    const res = await fetch('ajax.php?action=cross_targets');
+    const data = await res.json();
+    if (!data.success) {
+        appAlert(data.error);
+        return;
+    }
+    let html = '';
+    if ((data.ctables || []).length) {
+        html += `<optgroup label="🪑 طاولات الصالة">` + data.ctables.map(t => `<option value="tables:${t.id}">${escapeHtml(t.display_name)}</option>`).join('') + `</optgroup>`;
+    }
+    if ((data.devices || []).length) {
+        html += `<optgroup label="🎮 بلايستيشن">` + data.devices.map(d => `<option value="gaming:${d.id}">${escapeHtml(d.display_name)}</option>`).join('') + `</optgroup>`;
+    }
+    if (!html) {
+        appAlert('لا توجد وجهات شاغرة في الصالات الأخرى حالياً!', 'info');
+        return;
+    }
+    document.getElementById('crossTransferTargetSelect').innerHTML = html;
+    renderCrossExtra();
+    document.getElementById('crossTransferModal').style.display = 'flex';
+}
+
+function renderCrossExtra() {
+    const val = document.getElementById('crossTransferTargetSelect').value || '';
+    const hall = val.split(':')[0];
+    document.getElementById('crossExtra').innerHTML = hall === 'gaming'
+        ? `<label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">نوع الجلسة:</label>
+           <select id="crossSessionType" style="width:100%; padding:10px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:13px; font-family:inherit;"><option value="single">سنجل</option><option value="multi">مالتي</option></select>`
+        : '';
+}
+
+async function submitCrossTransfer() {
+    const sessionId = document.getElementById('crossTransferSessionId').value;
+    const val = document.getElementById('crossTransferTargetSelect').value || '';
+    const parts = val.split(':');
+    if (parts.length !== 2) return;
+    const hall = parts[0];
+    const targetId = parts[1];
+    if (!await appConfirm('سيتم نقل الجلسة وطلباتها المفتوحة، وأي رصيد مستحق سيُرحل على الفاتورة الجديدة. متابعة؟')) return;
+    const fd = new FormData();
+    fd.append('session_id', sessionId);
+    let action = 'transfer_to_table';
+    if (hall === 'gaming') {
+        action = 'transfer_to_gaming';
+        fd.append('target_device_id', targetId);
+        const st = document.getElementById('crossSessionType');
+        fd.append('session_type', st ? st.value : 'single');
+    } else {
+        fd.append('target_table_id', targetId);
+    }
+    const res = await fetch('ajax.php?action=' + action, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.success) {
+        appAlert(data.error);
+        return;
+    }
+    closeModal('crossTransferModal');
+    const carried = parseFloat(data.carried_amount || 0);
+    appAlert(carried > 0 ? `تم النقل بنجاح برصيد مرحل ${carried.toFixed(2)} ج.م` : 'تم النقل بنجاح', 'success');
+    loadTables();
 }
 
 function tickBilliardsLocally() {
@@ -506,7 +656,7 @@ async function submitStartBilliard() {
         closeModal('startBilliardModal');
         loadTables();
     } else {
-        alert(data.error);
+        appAlert(data.error);
     }
 }
 
@@ -556,6 +706,10 @@ async function openEndBilliardModal(sessionId) {
                 ${parseFloat(data.cafe_total) > 0 ? `
                 <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
                     <span>مشروبات كافيه:</span><strong style="color:#0284c7;">${parseFloat(data.cafe_total).toFixed(2)} ج.م</strong>
+                </div>` : ''}
+                ${parseFloat(data.transferred_amount) > 0 ? `
+                <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                    <span>رصيد منقول من جلسة سابقة:</span><strong style="color:#7c3aed;">${parseFloat(data.transferred_amount).toFixed(2)} ج.م</strong>
                 </div>` : ''}
                 <div style="display:flex; justify-content:space-between; margin-bottom:6px; color:#059669;">
                     <span>المدفوع مسبقاً:</span><strong>${parseFloat(data.cafe_paid).toFixed(2)} ج.م</strong>
@@ -622,7 +776,7 @@ async function submitEndBilliard() {
         closeModal('endBilliardModal');
         loadTables();
     } else {
-        alert(data.error);
+        appAlert(data.error);
     }
 }
 
@@ -652,7 +806,7 @@ async function submitExtendBilliardSession() {
         expiredBilliardSessions.clear();
         loadTables();
     } else {
-        alert(data.error);
+        appAlert(data.error);
     }
 }
 

@@ -79,13 +79,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $qty = floatval($_POST['adjustment_quantity'] ?? 0);
         $type = sanitize(trim($_POST['movement_type'] ?? 'adjustment'));
         $reason = sanitize(trim($_POST['reason'] ?? ''));
+        $price = max(0, floatval($_POST['unit_price'] ?? 0));
         $userId = getCurrentUserId();
 
         $ing = getRow("SELECT * FROM ingredients WHERE id = ?", [$ingId]);
         if ($ing && $qty > 0) {
             $newBalance = $ing['current_stock'];
+            $moveCost = floatval($ing['weighted_avg_cost'] ?? 0);
             if ($type === 'purchase' || $type === 'opening') {
                 $newBalance += $qty;
+                // Direct-supply valuation: weighted average cost
+                if ($price > 0) {
+                    $oldStock = floatval($ing['current_stock']);
+                    $denom = $oldStock + $qty;
+                    $newAvg = $denom > 0 ? (($oldStock * $moveCost + $qty * $price) / $denom) : $price;
+                    execute("UPDATE ingredients SET weighted_avg_cost = ? WHERE id = ?", [$newAvg, $ingId]);
+                    $moveCost = $price;
+                }
             } elseif ($type === 'waste' || $type === 'consumption') {
                 $newBalance = max(0, $newBalance - $qty);
             } elseif ($type === 'adjustment') {
@@ -96,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             insert("
                 INSERT INTO ingredient_stock_movements (ingredient_id, movement_type, quantity, unit_cost, balance_after, reason, created_by)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            ", [$ingId, $type, $qty, $ing['weighted_avg_cost'], $newBalance, $reason, $userId]);
+            ", [$ingId, $type, $qty, $moveCost, $newBalance, $reason, $userId]);
 
             setSuccess('تم تسجيل حركة المخزون وتحديث الرصيد بنجاح');
         }
@@ -419,7 +429,7 @@ include '../../includes/navbar.php';
                                         </td>
                                         <td style="text-align: left; padding-left: 20px;">
                                             <button class="btn btn-sm btn-outline-success" onclick='openStockModal(<?php echo json_encode($ing); ?>)' style="border-radius: 6px;">
-                                                📥 توريد / جرد
+                                                🚚 توريد مباشر
                                             </button>
                                             <button class="btn btn-sm btn-outline-primary" onclick='editIngredient(<?php echo json_encode($ing); ?>)' style="border-radius: 6px;">
                                                 ✏️ تعديل
@@ -652,7 +662,7 @@ include '../../includes/navbar.php';
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">📥 توريد / تسوية مخزون: <span id="stockIngName"></span></h5>
+                <h5 class="modal-title">🚚 توريد مباشر: <span id="stockIngName"></span></h5>
                 <button type="button" class="btn-close" onclick="closeModals()"></button>
             </div>
             <form method="POST">
@@ -670,6 +680,10 @@ include '../../includes/navbar.php';
                     <div class="mb-3">
                         <label class="form-label" style="font-weight: 600;">الكمية * (<span id="stockIngUnit"></span>)</label>
                         <input type="number" step="0.1" name="adjustment_quantity" class="form-control" required placeholder="أدخل الكمية">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" style="font-weight: 600;">سعر الوحدة (اختياري — يحدّث متوسط التكلفة)</label>
+                        <input type="number" step="0.01" min="0" name="unit_price" class="form-control" placeholder="مثال: 12.50">
                     </div>
                     <div class="mb-3">
                         <label class="form-label" style="font-weight: 600;">البيان / ملاحظات</label>

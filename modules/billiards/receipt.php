@@ -68,6 +68,7 @@ $isCompleted = $session['status'] === 'completed';
 $gamingCharge = (float)($session['gaming_charge'] ?? 0);
 $discountAmount = (float)($session['discount_amount'] ?? 0);
 $sessionTotal = (float)($session['total_amount'] ?? 0);
+$carriedRow = (float)($session['transferred_amount'] ?? 0);
 
 if (!$isCompleted) {
     if ($isHourly) {
@@ -88,7 +89,7 @@ if (!$isCompleted) {
     $minutes = (int)($session['billable_minutes'] ?? 0);
 }
 
-$grossTotal = max(0, $gamingCharge + $cafeGrossTotal - $discountAmount);
+$grossTotal = max(0, $gamingCharge + $carriedRow + $cafeGrossTotal - $discountAmount);
 $displayTotal = $isCompleted ? $sessionTotal : $grossTotal;
 $grandDue = max(0, $displayTotal - $prepaidCafeTotal - $paidAtClose);
 $endedAtLabel = !empty($session['ended_at'])
@@ -411,6 +412,12 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
             <td>حساب الطاولة:</td>
             <td class="text-left"><?php echo number_format($gamingCharge, 2); ?> ج.م</td>
         </tr>
+        <?php if ($carriedRow > 0): ?>
+        <tr>
+            <td>رصيد منقول (<?php echo htmlspecialchars(transferSourceLabel($session)); ?>):</td>
+            <td class="text-left"><?php echo number_format($carriedRow, 2); ?> ج.م</td>
+        </tr>
+        <?php endif; ?>
         <?php if ($cafeGrossTotal > 0): ?>
         <tr>
             <td>طلبات كافيه:</td>

@@ -298,7 +298,7 @@ function getProduct() {
 }
 
 function getInvoiceItems() {
-    requireAnyPermission(['invoices.sale.view', 'invoices.purchase.view', 'returns.create_customer', 'returns.create_supplier']);
+    requireAnyPermission(['invoices.sale.view', 'invoices.purchase.view']);
     $invoiceId = $_GET['invoice_id'] ?? 0;
 
     $items = getRows(

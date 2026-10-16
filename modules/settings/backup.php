@@ -155,7 +155,7 @@ include '../../includes/navbar.php';
                                 </a>
                                 <a href="backup.php?delete=<?php echo $backup['id']; ?>" 
                                    class="btn btn-danger"
-                                   onclick="return confirmDelete('هل أنت متأكد من حذف هذه النسخة؟')">
+                                   onclick="return confirmAction(this, 'هل أنت متأكد من حذف هذه النسخة؟')">
                                     🗑️ حذف
                                 </a>
                             </td>

@@ -22,13 +22,25 @@ if ($filterUser) {
     $params[] = $filterUser;
 }
 
+// Pagination (filter-preserving)
+$perPage = 20;
+$page = max(1, (int)($_GET['page'] ?? 1));
+$offset = ($page - 1) * $perPage;
+
+$totalItems = (int)(getRow(
+    "SELECT COUNT(*) AS c FROM user_sessions s JOIN users u ON s.user_id = u.id $where",
+    $params
+)['c'] ?? 0);
+$totalPages = max(1, (int)ceil($totalItems / $perPage));
+if ($page > $totalPages) { $page = $totalPages; $offset = ($page - 1) * $perPage; }
+
 $sessions = getRows(
     "SELECT s.*, u.full_name, u.username, u.role
      FROM user_sessions s 
      JOIN users u ON s.user_id = u.id 
      $where
      ORDER BY s.created_at DESC 
-     LIMIT 100",
+     LIMIT $perPage OFFSET $offset",
     $params
 );
 
@@ -68,7 +80,7 @@ include '../../includes/navbar.php';
     <!-- Sessions Table -->
     <div class="card">
         <div class="card-header" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white;">
-            📋 آخر 100 جلسة
+            📋 سجل الجلسات (<?php echo $totalItems; ?>)
         </div>
         <div class="card-body" style="padding: 0; overflow-x: auto;">
             <table class="table" style="margin: 0;">
@@ -128,6 +140,17 @@ include '../../includes/navbar.php';
                 </tbody>
             </table>
         </div>
+        <?php if ($totalPages > 1): ?>
+        <div style="display: flex; gap: 6px; justify-content: center; align-items: center; padding: 12px; flex-wrap: wrap;">
+            <?php if ($page > 1): ?>
+                <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $page - 1])); ?>" style="padding: 6px 14px; border: 1px solid #cbd5e1; border-radius: 8px; text-decoration: none; color: #334155; background: #fff;">→ السابق</a>
+            <?php endif; ?>
+            <span style="font-size: 0.85em; color: #64748b;">صفحة <?php echo $page; ?> من <?php echo $totalPages; ?></span>
+            <?php if ($page < $totalPages): ?>
+                <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $page + 1])); ?>" style="padding: 6px 14px; border: 1px solid #cbd5e1; border-radius: 8px; text-decoration: none; color: #334155; background: #fff;">التالي ←</a>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 

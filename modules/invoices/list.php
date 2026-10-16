@@ -44,7 +44,7 @@ $parts = [];
 $params = [];
 $like = $search !== '' ? "%$search%" : null;
 
-if ($canViewPurchases && $filterType !== 'sale') {
+if ($canViewPurchases && ($filterType === '' || $filterType === 'purchase')) {
     $q = "SELECT i.id AS id, i.invoice_number AS number, 'purchase' AS kind, i.date AS date,
                  i.total_amount AS total, i.paid_amount AS paid, i.remaining_amount AS remaining,
                  i.payment_status AS pay_status, i.status AS status,
@@ -70,7 +70,7 @@ if ($canViewPurchases && $filterType !== 'sale') {
     $parts[] = $q;
 }
 
-if ($canViewSales && $filterType !== 'purchase' && $filterSupplier <= 0) {
+if ($canViewSales && ($filterType === '' || $filterType === 'sale') && $filterSupplier <= 0) {
     // Legacy manual sale invoices (if any exist)
     $q = "SELECT i.id AS id, i.invoice_number AS number, 'sale' AS kind, i.date AS date,
                  i.total_amount AS total, i.paid_amount AS paid, i.remaining_amount AS remaining,
@@ -442,7 +442,7 @@ include '../../includes/navbar.php';
                                 ?>
                                 <a href="#" onclick="openReceiptModal('print_purchase.php?id=<?php echo $invoice['id']; ?>'); return false;" class="btn btn-primary" title="طباعة">🖨️</a>
                                 <?php if (($invoice['status'] ?? 'approved') === 'draft' && hasAnyPermission(['invoices.purchase.create', 'invoices.purchase.edit'])): ?>
-                                <form method="POST" action="approve_purchase.php" style="display: inline;" onsubmit="return confirm('اعتماد هذه الفاتورة؟ سيتم إضافة الأصناف للمخزون وتحديث حساب المورد.');">
+                                <form method="POST" action="approve_purchase.php" style="display: inline;" onsubmit="return confirmSubmit(this, 'اعتماد هذه الفاتورة؟ سيتم إضافة الأصناف للمخزون وتحديث حساب المورد.');">
                                     <input type="hidden" name="id" value="<?php echo $invoice['id']; ?>">
                                     <button type="submit" class="btn btn-success" title="اعتماد الفاتورة">✅</button>
                                 </form>
@@ -456,7 +456,7 @@ include '../../includes/navbar.php';
                                 <a href="returns.php?kind=purchase&id=<?php echo $invoice['id']; ?>" class="btn btn-warning" title="مرتجع">↩️</a>
                                 <?php endif; ?>
                                 <?php if ($canDeleteThis): ?>
-                                <a href="delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger" title="مسح" onclick="return confirm('هل أنت متأكد من مسح هذه الفاتورة تماماً واسترجاع الأرصدة؟ لا يمكن التراجع عن هذه الخطوة!');">🗑️</a>
+                                <a href="delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger" title="مسح" onclick="return confirmAction(this, 'هل أنت متأكد من مسح هذه الفاتورة تماماً واسترجاع الأرصدة؟ لا يمكن التراجع عن هذه الخطوة!');">🗑️</a>
                                 <?php endif; ?>
                                 <?php elseif ($kind === 'pos'): ?>
                                 <a href="#" onclick="openReceiptModal('../pos/receipt.php?id=<?php echo $invoice['id']; ?>&type=customer'); return false;" class="btn btn-primary" title="طباعة البون">🖨️</a>
@@ -479,7 +479,7 @@ include '../../includes/navbar.php';
                                 <a href="edit_sale.php?id=<?php echo $invoice['id']; ?>" class="btn btn-info" title="تعديل">✏️</a>
                                 <?php endif; ?>
                                 <?php if ($canDeleteThis): ?>
-                                <a href="delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger" title="مسح" onclick="return confirm('هل أنت متأكد من مسح هذه الفاتورة تماماً واسترجاع الأرصدة؟ لا يمكن التراجع عن هذه الخطوة!');">🗑️</a>
+                                <a href="delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger" title="مسح" onclick="return confirmAction(this, 'هل أنت متأكد من مسح هذه الفاتورة تماماً واسترجاع الأرصدة؟ لا يمكن التراجع عن هذه الخطوة!');">🗑️</a>
                                 <?php endif; ?>
                                 <?php if (hasPermission('returns.create')): ?>
                                 <a href="returns.php?kind=sale&id=<?php echo $invoice['id']; ?>" class="btn btn-warning" title="مرتجع">↩️</a>

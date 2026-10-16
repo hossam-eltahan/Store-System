@@ -183,7 +183,7 @@ $statusText = $isLife ? '💎 ترخيص دائم مدى الحياة' : ($isDev
         <summary>تفاصيل الجهاز والتواصل</summary>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap;">
             <span>المعرف: <code style="font-family: monospace; font-size: 12px; font-weight: 700; background: #e2e8f0; padding: 2px 6px; border-radius: 4px;"><?php echo htmlspecialchars($hwid); ?></code></span>
-            <button type="button" onclick="navigator.clipboard.writeText('<?php echo htmlspecialchars($hwid); ?>'); alert('تم نسخ معرف الجهاز بنجاح!');" class="btn btn-sm" style="background: #e2e8f0; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">📋 نسخ</button>
+            <button type="button" onclick="navigator.clipboard.writeText('<?php echo htmlspecialchars($hwid); ?>'); appAlert('تم نسخ معرف الجهاز بنجاح!', 'success');" class="btn btn-sm" style="background: #e2e8f0; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">📋 نسخ</button>
             <a href="https://wa.me/201271191616?text=<?php echo urlencode("مرحباً، أود تجديد اشتراك نظام إدارة الأجهزة.\nمعرف جهازي: " . $hwid); ?>" target="_blank" class="btn btn-sm" style="background: #25d366; color: white; font-weight: 700; text-decoration: none; padding: 4px 12px; font-size: 11px; border-radius: 6px;">💬 واتساب التجديد</a>
         </div>
     </details>

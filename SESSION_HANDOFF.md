@@ -2,79 +2,66 @@
 
 ## 1. Project Overview
 
-- **Project name:** Store-System (café cashier / management system; README still describes the older home-appliance-store version and is stale)
-- **Purpose:** Local café POS and session management: cashier orders (POS), PlayStation sessions, billiards sessions, hall tables sessions, invoices, installments, inventory/warehouses, suppliers, customers, shifts/safe, reports, backups — all with an RTL Arabic UI and 80mm thermal receipts
-- **Tech stack:** Vanilla PHP (no framework, no composer) + MySQL/MariaDB via PDO + plain CSS/JS. No test suite, no linter, no CI
-- **Environment:** XAMPP on Windows. Docroot `C:\xampp\htdocs\Store-System` → `http://127.0.0.1/Store-System/`. DB `cafe_management` @ 127.0.0.1, user `root`, empty password (port auto-detected from `config/ports.ini`, else 3306). Branch: `cafe-system`
+- **Project:** Store-System — café cashier/management system (vanilla PHP, no framework/composer + MySQL/MariaDB via PDO, RTL Arabic UI, 80mm thermal receipts). No test suite, no CI.
+- **Runtime (trust this, README is stale):** Docroot `C:\xampp\htdocs\Store-System` → `http://127.0.0.1/Store-System/`. DB `cafe_management` @ 127.0.0.1 root/empty (port from `config/ports.ini`, else 3306). Branch `cafe-system`, HEAD `1f2c6c5`, pushed.
+- **Versions:** `APP_VERSION 1.0.7` (`config/version.php`), `DB_SCHEMA_VERSION 3`, migrations `001`–`013` in `database/migrations/`.
+- **Live-data rule:** the dev copy at `C:\xampp\htdocs\Store-System` is the owner's live test env — never touch their rows (their invoices `PUR-00001/2/6`, session 27, supplies, return #3). Open shift id 2 is live — reverse any test cash movement. Test admin hash `$2y$10$UaTK6e2Qo1mEuhLHRabvt.ZF4/2EE00MC1NQgWc57rO08grQ5nbzK` (`admin123`); always restore the original hash byte-identically afterward. Delete all scratch `zz_*` files when done.
 
-## 2. Architecture
+## 2. Architecture (verified in code)
 
-- **Main directories:**
-  - `modules/{pos,gaming,billiards,tables,notifications,invoices,products,customers,suppliers,installments,reports,settings,users,shifts,payments,expenses,categories,recipes,about}/` — each module is typically `index.php` + `ajax.php` + `receipt.php`
-  - `config/` — `database.php` (PDO + helpers), `auth.php` (permissions), `settings.php` (runs on every request: timezone, BASE_URL, license enforcement), `license.php`, `version.php`
-  - `includes/` — `header.php`, `footer.php` (injects `APP_BASE_URL`, cache-busted `main.js`), `notifications.php`
-  - `assets/js/main.js` — global timer poller + `openReceiptModal()` receipt preview modal
-  - `database/` — `schema.sql`, `cafe_schema.sql`, `migrations/` (`001_baseline.sql`, `002_session_timer_notifications.sql`), seeds
-- **Important files:** `index.php` (dashboard), `login.php`, `assets/js/main.js`, `includes/footer.php`, `modules/notifications/ajax.php` (`check_timers`), `modules/gaming|billiards|pos|tables/receipt.php`, `AGENTS.md` (agent playbook)
-- **Database schema (verified tables):** `orders`, `order_items`, `payment_records` (`source_type` = `order` / `gaming_session` / `billiard_session`), `gaming_sessions`, `gaming_devices`, `billiard_sessions`, `billiard_tables`, `users`, `user_permissions`, `user_sessions`, `settings`, `products`, `warehouses`, `warehouse_stock`, `invoices`, `activity_log`
-- **Important dependencies:** none external (no composer/npm). Runtime depends on XAMPP Apache + MySQL + PHP
+- **Layout:** `modules/<area>/{index.php, ajax.php, receipt.php}`; shared shell `includes/header.php` + `includes/footer.php`; `config/settings.php` runs on every request (timezone `Africa/Cairo`, `BASE_URL`, license enforcement — do not break that chain).
+- **DB access:** only via `config/database.php` helpers (`query/getRow/getRows/insert/execute`); `query()` returns `false` on error — check it.
+- **Auth:** every page `requireLogin()` then `requirePermission()/requireAnyPermission()`; admin bypasses. Keys in `config/auth.php::getAllPermissions()`.
+- **Stock engine** (`config/settings.php`, verified functions present): `recordProductMovement` (append-only `product_stock_movements` ledger), `addProductStock`/`removeProductStock`, `approvePurchaseInvoice` (exactly-once via status check + row locks), `createInvoiceReturn` (per-line caps incl. cumulative returns), purchase-to-stock conversion via per-product purchase unit + factor.
+- **Key semantics:** `track_stock` per product (purchases always add; sales deduct only when tracked; `prevent_negative_stock` default warn-only); purchase invoices draft (no movement) vs approved; POS checkout deducts inside transaction + `client_key` idempotency; POS order edit = in-place reverse+reapply with auto-refund (`REF` records), blocked on cancelled orders / closed sessions; session billing 15-min minimum pro-rata; receipts via `openReceiptModal()` only, never `window.open`.
+- **Navbar:** compact grouped (categories merged as products tab, supplies merged as inventory tab).
+- **Ship vehicle:** portable self-contained installer + `StoreSystem_Update_*` ZIP; VC++ runtime installs on normal (non-silent) installs only. `config/.dev_license` is dev-only: untracked, git-ignored, excluded from installer.
 
-## 3. Current Status
+## 3. Current Task — DONE (verified 2026-10-16)
 
-- **Completed features:**
-  - Extend-time works for expired/paused PlayStation and billiards countdown sessions (extend accounts for ongoing pause duration)
-  - Global timer-expiry alerts: `check_timers` covers active + paused expired sessions; `assets/js/main.js` polls every 5s from any page, updates badge/dropdown, plays sound + browser notification
-  - Dashboard compacted (no vertical scroll): removed duplicate POS button, latest 3 orders, active PS + billiards sections
-  - All receipts unified to the tables-bill base style: 80mm, Arabic labels, previewed in `openReceiptModal()` iframe modal (no leftover windows), auto-print only for top-level tabs
-  - PlayStation + billiards bills include: order number, cashier, order count, café items grid (الصنف/العدد/السعر/الإجمالي, single-line totals via `white-space:nowrap`), end time (`غير منتهية` when open), prepaid / paid-at-close / remaining-due (المتبقي للتحصيل), payment method
-  - Billiards bill rebuilt to be exactly like the PlayStation bill (only session rows differ: الطاولة/نظام الحساب/المدة or per-game counts)
-- **Current implementation:** receipts read cafe orders + `payment_records` per session; remaining due = total − prepaid café − paid-at-close
-- **Working features:** verified via `php -l` + `curl` rendered-output checks (labels present, zero mojibake bytes)
-- **Known bugs/limits:**
-  - Browser sound autoplay / Notification permission require real user interaction — cannot be fully verified headlessly
-  - `README.md` is outdated (wrong DB name `store_management`, old paths) — trust `config/database.php` instead
+**Batch: modifiers merge, supply buttons, returns filter, sessions pagination, navbar fixes, remember-me.**
+- Modifiers master (`modifiers.php`) merged as third tab `?tab=mods` in products/index (same table → cashier window stays linked); old file is a redirect stub.
+- Ingredients row button renamed 🚚 توريد مباشر + optional unit price with weighted-average cost update; products rows gained 🚚 توريد button deep-linking inventory supply modal auto-open (`?supply_product=`).
+- Invoices `type=returns` filter fixed (parts now gated on exact type).
+- `users/sessions.php` paginated (20/page, filter-preserving).
+- Navbar: group labels hidden when collapsed (new `.sidebar-group`); nav scrollbar forced to the right edge (direction trick).
+- Customer name banner on busy session cards (all 3 halls, identical style — amber bar, 15px extrabold); start modals already had the input in all halls. Verified `customer_name` present in card payloads.
 
-## 4. Current Task
+## 4. Last Changes (all on `cafe-system`, uncommitted)
 
-- **What we are working on:** nothing in flight — working tree is clean (only untracked `AGENTS.md`, created this session, not yet committed)
-- **Exact file/function:** n/a (last touched: `modules/gaming/receipt.php`, `modules/billiards/receipt.php`)
-- **Expected result:** next session should do real-browser verification (timer alerts/sound from the POS page, receipt modal buttons) and an 80mm printer test
+| Commit | What |
+|---|---|
+| `1f2c6c5` | grouped boxes screen-only, merged table on print |
+| `25ae007` | per-order groups with edit buttons in session receipts |
+| `b68fd29` | per-order edit buttons with return-to-settlement (`back=` param) |
+| `72efb7d` | empty-cart edit fully cancels order with refund |
+| `d0ff998` | POS receipt links session settlement bill for linked orders |
+| `c392b17` | services (`is_service`) not returnable; manual-service over timed-session warning |
+| `9ba19e6` | auto-refund on edit overpay; block edits on closed sessions, returns on open ones |
+| `5fe0601` | capped per-line sale/purchase returns + history + receipts (current returns impl; `a1a7265`/`fbc31f1` in-place attempt was reverted — history intentional, do not "fix") |
+| `f3aa757` | unified invoices ledger with POS rows + in-POS order editing |
+| `09c0454`/`5dbcf9f` | navbar regroup (18 entries); categories→products, supplies→inventory |
 
-## 5. Decisions and Constraints
+## 5. Tests Run (actual results, 2026-10-16)
 
-- **Decisions already made:**
-  - All bills follow the tables-bill layout/font/sections; only session-specific rows may differ
-  - Receipts open only via `openReceiptModal(url)`; `window.open` bill popups were removed
-  - Extend endpoints must handle paused + already-expired sessions; `check_timers` must include paused-expired sessions
-  - Branch was once reset to `adc9963` with force-push; old history survives on local branch `backup-before-revert`
-- **Requirements that must not change:** Arabic UTF-8 output on every receipt; remaining-due + payment-method rows on session bills; permission checks on every page
-- **Coding conventions:** DB only via `query/getRow/getRows/insert/execute`; `requireLogin()` first, then `requirePermission()/requireAnyPermission()`; admin bypasses checks
-- **Security requirements:** do not break the `config/license.php::enforceLicense()` chain in `config/settings.php`; local-only system (never expose publicly); restore the real admin password hash immediately after any temporary reset for testing
+- Batch verified: mods tab renders + CRUD works (created/deleted ZZTESTSAUCE, 0 left); old modifiers.php 302-redirects; type=returns page shows only RTN rows (PUR- hits are source-ref column); sessions page "صفحة 1 من N"; supply prefill auto-open present; ingredient purchase 1000×0.60 → avg exactly 0.375 then fully reversed; remember-me cookie issued (Max-Age 30d) → cookie-only dashboard+ajax 200 → logout clears token and cookie dies (302).
+- Transfer round 2 (previous): all directions executed with full reversal (baselines matched); billiards-intra success unexecuted (no free pair); owner's live session 29 shows `transferred` (owner-side, untouched by tests).
+- `php -l` clean everywhere; `node --check main.js` clean; zero native dialogs; all files byte-clean; password restored; scratch deleted.
 
-## 6. Last Changes
+## 6. Known Bugs / Unresolved
 
-- **Files modified:** `modules/gaming/receipt.php`, `modules/billiards/receipt.php`
-- **What changed:**
-  - `6c7faf9` — PS & billiards bills match table-bill details (order no., cashier, order count, end time, remaining due, payment method)
-  - `8e6797d` — billiards bill rebuilt exactly like the PlayStation bill; removed triple-nested `meta-table`, duplicated order/cashier/count rows, duplicated end-time row, duplicated totals block with garbled labels; fixed default end-time label `غير منتهية`; also fixed the same double-`<table>` nesting bug in the gaming bill
-- **Tests performed:** `C:/xampp/php/php.exe -l` on both files; `curl` render of `gaming/receipt.php?id=17` and `billiards/receipt.php?id=1` after admin login; byte-scan for mojibake
-- **Test results:** lint clean; order-number / end-time / remaining-due / payment-method rows render; **0 mojibake bytes** in both outputs
+- Browser sound autoplay / Notification permission need real user gesture — can't verify headlessly.
+- `README.md` stale (wrong DB name `store_management`) — trust `config/database.php`.
+- `SESSION_HANDOFF.md` was stale pre-1.0.6 before this rewrite.
 
 ## 7. Next Steps
 
-1. Real-browser test: expire a timer and confirm alert badge + sound + browser notification fire from the POS page (needs user gesture for autoplay permission)
-2. Print POS / gaming / billiards / tables receipts on an 80mm printer and in the in-app modal; confirm café item totals stay on one line
-3. Decide whether to commit `AGENTS.md` (currently untracked) and push on `cafe-system`
+1. If shipping, confirm version bump then build `StoreSystem_Update_*` ZIP + `StoreSystem_Setup_*.exe` and validate signature as done for 1.0.6.
+2. Still untested in a real browser: pretty dialogs, transfer modals/buttons, unified cards, mods tab, remember-me checkbox, 80mm print output.
 
-## 8. Important Notes
+## 8. Playbook (must-follow)
 
-- **Unresolved questions:** none blocking — only the browser-permission behavior (autoplay/notifications) depends on real user interaction
-- **Relevant commands:**
-  - `C:/xampp/php/php.exe -l <file>`
-  - `curl.exe -c jar.txt -X POST "http://127.0.0.1/Store-System/login.php" -d "username=admin&password=..."`
-  - `curl.exe -b jar.txt "http://127.0.0.1/Store-System/modules/<mod>/receipt.php?id=<N>"`
-  - `C:/xampp/mysql/bin/mysql.exe -u root cafe_management`
-- **Anything that must be verified before editing:**
-  - Keep every PHP file UTF-8 — PowerShell `Set-Content` defaults to ANSI and corrupts Arabic; use `-Encoding UTF8` or `\uXXXX` escapes
-  - Never commit scratch files (`database/tmp_*.sql`), `backups/*.sql`, `assets/uploads/*`
-  - If tester reports a stale bill after a change, hard-refresh with `Ctrl+F5` (static assets are `filemtime`-busted, but receipt HTML may sit in browser cache)
+- PHP files must stay UTF-8 — never write Arabic through PowerShell (mangles to `?`); write Arabic SQL via UTF-8 files sourced into mysql.
+- After any edit with Arabic: `php -l` the file + curl-render and scan for `?` runs / `Ã`/`Ø` mojibake.
+- Never commit `database/tmp_*.sql`, `backups/*.sql`, `assets/uploads/*`, `data/updates/*`, `zz_*` scratch.
+- Confirm with the user before any destructive remote git action (force-push precedent exists).

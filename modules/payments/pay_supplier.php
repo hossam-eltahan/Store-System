@@ -482,7 +482,7 @@ document.getElementById('paymentForm').addEventListener('submit', function(e) {
     const amount = parseFloat(document.getElementById('paymentAmount').value) || 0;
     if (amount > currentBalance) {
         e.preventDefault();
-        alert('المبلغ المدفوع أكبر من المستحق للمورد!');
+        appAlert('المبلغ المدفوع أكبر من المستحق للمورد!');
     }
 });
 

@@ -154,7 +154,7 @@ include '../../includes/navbar.php';
                                     </a>
                                     
                                     <?php if ($user['id'] != getCurrentUserId()): ?>
-                                        <a href="delete.php?id=<?php echo $user['id']; ?>" class="btn btn-sm" style="background: #ef4444; color: white; padding: 4px 10px; border-radius: 6px; font-size: 0.8em; text-decoration: none;" onclick="return confirm('هل أنت متأكد من حذف هذا المستخدم؟');">🗑️ حذف</a>
+                                        <a href="delete.php?id=<?php echo $user['id']; ?>" class="btn btn-sm" style="background: #ef4444; color: white; padding: 4px 10px; border-radius: 6px; font-size: 0.8em; text-decoration: none;" onclick="return confirmAction(this, 'هل أنت متأكد من حذف هذا المستخدم؟');">🗑️ حذف</a>
                                     <?php endif; ?>
                                 <?php endif; ?>
                             </div>

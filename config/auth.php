@@ -199,7 +199,7 @@ function getAllPermissions() {
 /**
  * Attempt login
  */
-function attemptLogin($username, $password) {
+function attemptLogin($username, $password, $remember = false) {
     $user = getRow("SELECT * FROM users WHERE username = ? AND is_active = 1", [$username]);
     
     if (!$user) {
@@ -210,6 +210,20 @@ function attemptLogin($username, $password) {
         return ['success' => false, 'message' => 'اسم المستخدم أو كلمة المرور غير صحيحة'];
     }
     
+    establishUserSession($user);
+
+    if ($remember) {
+        issueRememberToken((int)$user['id']);
+    }
+    
+    return ['success' => true, 'user' => $user];
+}
+
+/**
+ * Build the PHP session for an authenticated user (shared by password
+ * login and remember-me cookie login).
+ */
+function establishUserSession($user) {
     // Load permissions
     $permissions = [];
     if ($user['role'] === 'admin') {
@@ -250,8 +264,69 @@ function attemptLogin($username, $password) {
         $ip,
         $_SERVER['HTTP_USER_AGENT'] ?? ''
     ]);
-    
-    return ['success' => true, 'user' => $user];
+}
+
+/**
+ * Issue a long-lived remember-me cookie (30 days). Only the hash is stored.
+ */
+function issueRememberToken($userId) {
+    $token = bin2hex(random_bytes(32));
+    execute(
+        "UPDATE users SET remember_token = ?, remember_expiry = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE id = ?",
+        [hash('sha256', $token), $userId]
+    );
+    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    setcookie('remember_me', $userId . ':' . $token, [
+        'expires' => time() + 30 * 86400,
+        'path' => '/',
+        'secure' => $secure,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
+
+/**
+ * Remove the remember-me cookie and its server-side token.
+ */
+function clearRememberToken($userId = null) {
+    if ($userId) {
+        execute("UPDATE users SET remember_token = NULL, remember_expiry = NULL WHERE id = ?", [$userId]);
+    }
+    if (isset($_COOKIE['remember_me'])) {
+        setcookie('remember_me', '', ['expires' => time() - 3600, 'path' => '/']);
+        unset($_COOKIE['remember_me']);
+    }
+}
+
+/**
+ * Silent auto-login from a valid remember-me cookie. Runs at most once
+ * per request and only when no PHP session exists.
+ */
+function tryRememberLogin() {
+    static $tried = false;
+    if ($tried) {
+        return false;
+    }
+    $tried = true;
+
+    if (!empty($_SESSION['user_id']) || empty($_COOKIE['remember_me'])) {
+        return false;
+    }
+    $parts = explode(':', $_COOKIE['remember_me'], 2);
+    if (count($parts) !== 2 || !ctype_digit($parts[0]) || $parts[1] === '') {
+        return false;
+    }
+    $user = getRow(
+        "SELECT * FROM users WHERE id = ? AND is_active = 1 AND remember_token IS NOT NULL AND remember_expiry > NOW()",
+        [(int)$parts[0]]
+    );
+    if (!$user || !hash_equals((string)$user['remember_token'], hash('sha256', $parts[1]))) {
+        clearRememberToken();
+        return false;
+    }
+
+    establishUserSession($user);
+    return true;
 }
 
 /**
@@ -265,6 +340,7 @@ function performLogout() {
             [$_SESSION['user_id'], $_SESSION['session_token']]
         );
     }
+    clearRememberToken($_SESSION['user_id'] ?? null);
     
     // Destroy session
     $_SESSION = [];
@@ -276,10 +352,13 @@ function performLogout() {
 }
 
 /**
- * Check if user is logged in
+ * Check if user is logged in (falls back to a valid remember-me cookie)
  */
 function isLoggedIn() {
-    return isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
+    if (isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])) {
+        return true;
+    }
+    return tryRememberLogin();
 }
 
 /**
@@ -468,83 +547,23 @@ function showAccessDenied() {
         exit;
     }
 
-    $baseUrl = getBaseUrl();
-    echo '<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>غير مسموح - 403</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: "Cairo", sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #e2e8f0;
-        }
-        .denied-container {
-            text-align: center;
-            padding: 40px;
-            max-width: 500px;
-        }
-        .denied-icon {
-            font-size: 80px;
-            margin-bottom: 20px;
-            animation: shake 0.5s ease-in-out;
-        }
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-10px); }
-            75% { transform: translateX(10px); }
-        }
-        .denied-title {
-            font-size: 2em;
-            font-weight: 700;
-            margin-bottom: 10px;
-            color: #f87171;
-        }
-        .denied-message {
-            font-size: 1.1em;
-            color: #94a3b8;
-            margin-bottom: 30px;
-            line-height: 1.8;
-        }
-        .denied-btn {
-            display: inline-block;
-            padding: 12px 30px;
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
-            color: white;
-            text-decoration: none;
-            border-radius: 10px;
-            font-size: 1em;
-            font-weight: 600;
-            font-family: "Cairo", sans-serif;
-            transition: all 0.3s ease;
-            border: none;
-            cursor: pointer;
-        }
-        .denied-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);
-        }
-    </style>
-</head>
-<body>
-    <div class="denied-container">
-        <div class="denied-icon">🚫</div>
-        <h1 class="denied-title">غير مسموح</h1>
-        <p class="denied-message">عذراً، ليس لديك صلاحية للوصول لهذه الصفحة.<br>تواصل مع المدير لمنحك الصلاحيات المطلوبة.</p>
-        <a href="' . $baseUrl . 'index.php" class="denied-btn">🏠 العودة للرئيسية</a>
+    // Render inside the normal app shell (header + sidebar + footer) so a
+    // denied page looks exactly like any other page. Must be called before
+    // any output; mid-page callers must deny earlier instead.
+    $pageTitle = 'غير مسموح - 403';
+    include __DIR__ . '/../includes/header.php';
+    include __DIR__ . '/../includes/navbar.php';
+    ?>
+    <div class="card" style="max-width:560px; margin:40px auto; border-radius:12px; border:none; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); text-align:center; padding:40px 30px;">
+        <div style="font-size:64px; margin-bottom:10px;">🚫</div>
+        <h2 style="font-weight:800; margin-bottom:10px; color:#dc2626;">غير مسموح</h2>
+        <p style="color:#64748b; margin-bottom:25px; line-height:1.9;">عذراً، ليس لديك صلاحية للوصول لهذه الصفحة.<br>تواصل مع المدير لمنحك الصلاحيات المطلوبة.</p>
+        <a href="<?php echo getBaseUrl(); ?>index.php" style="display:inline-block; padding:10px 28px; background:#2563eb; color:#fff; text-decoration:none; border-radius:8px; font-weight:700;">🏠 العودة للرئيسية</a>
     </div>
-</body>
-</html>';
+    <?php
+    include __DIR__ . '/../includes/footer.php';
+    // Fail-closed: callers must not continue rendering after denial.
+    exit;
 }
 
 /**

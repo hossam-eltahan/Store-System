@@ -351,7 +351,8 @@ body {
 }
 
 .sidebar.collapsed .sidebar-store-name,
-.sidebar.collapsed .sidebar-text {
+.sidebar.collapsed .sidebar-text,
+.sidebar.collapsed .sidebar-group {
     display: none;
 }
 
@@ -416,6 +417,12 @@ body {
     padding: 2px 0;
     overflow-y: auto;
     scrollbar-width: thin;
+    direction: ltr;
+    /* keep the scrollbar on the right edge */
+}
+
+.sidebar-nav .sidebar-menu {
+    direction: rtl;
 }
 
 .sidebar-menu {
@@ -1104,7 +1111,8 @@ h1.mb-2,
     }
 
     .sidebar-store-name,
-    .sidebar-text {
+    .sidebar-text,
+    .sidebar-group {
         display: none;
     }
 

@@ -1099,7 +1099,7 @@ document.addEventListener('click', function(e) {
 document.getElementById('invoiceForm').addEventListener('submit', function(e) {
     if (items.length === 0) {
         e.preventDefault();
-        alert('يرجى إضافة صنف واحد على الأقل');
+        appAlert('يرجى إضافة صنف واحد على الأقل');
         productSearch.focus();
         return;
     }
@@ -1112,9 +1112,9 @@ document.getElementById('invoiceForm').addEventListener('submit', function(e) {
     if (paid > maxPayment && total > 0) {
         e.preventDefault();
         if (weOweSupplier > 0) {
-            alert(`المبلغ المدفوع (${paid}) يتجاوز الحد الأقصى (${maxPayment.toFixed(2)})\n\nالفاتورة: ${total.toFixed(2)}\nالمستحق للمورد: ${weOweSupplier.toFixed(2)}`);
+            appAlert(`المبلغ المدفوع (${paid}) يتجاوز الحد الأقصى (${maxPayment.toFixed(2)})\n\nالفاتورة: ${total.toFixed(2)}\nالمستحق للمورد: ${weOweSupplier.toFixed(2)}`);
         } else {
-            alert(`المبلغ المدفوع (${paid}) لا يمكن أن يتجاوز قيمة الفاتورة (${total.toFixed(2)})\n\nلا يوجد حساب قديم مستحق للمورد`);
+            appAlert(`المبلغ المدفوع (${paid}) لا يمكن أن يتجاوز قيمة الفاتورة (${total.toFixed(2)})\n\nلا يوجد حساب قديم مستحق للمورد`);
         }
         return;
     }
@@ -1171,12 +1171,12 @@ document.getElementById('newProductForm').addEventListener('submit', function(e)
         body: new URLSearchParams(productData)
     })
     .then(r => r.json())
-    .then(data => {
+    .then(async data => {
         if (data.success) {
             onProductCreated(data, productData);
         } else if (data.similar && data.similar.length) {
             const names = data.similar.map(s => '• ' + s.name + ' (' + s.code + ')').join('\n');
-            if (confirm('⚠️ توجد أصناف مشابهة بالفعل:\n' + names + '\n\nاضغط «موافق» لإنشاء صنف جديد على أي حال، أو «إلغاء» للرجوع واختيار الموجود.')) {
+            if (await appConfirm('⚠️ توجد أصناف مشابهة بالفعل:\n' + names + '\n\nاضغط «موافق» لإنشاء صنف جديد على أي حال، أو «إلغاء» للرجوع واختيار الموجود.')) {
                 productData.force_create = 1;
                 fetch('ajax.php', {
                     method: 'POST',
@@ -1186,15 +1186,15 @@ document.getElementById('newProductForm').addEventListener('submit', function(e)
                 .then(r => r.json())
                 .then(data2 => {
                     if (data2.success) { onProductCreated(data2, productData); }
-                    else { alert('❌ خطأ: ' + (data2.error || 'حدث خطأ')); }
+                    else { appAlert('❌ خطأ: ' + (data2.error || 'حدث خطأ')); }
                 })
-                .catch(() => alert('❌ حدث خطأ في الاتصال'));
+                .catch(() => appAlert('❌ حدث خطأ في الاتصال'));
             }
         } else {
-            alert('❌ خطأ: ' + (data.error || 'حدث خطأ'));
+            appAlert('❌ خطأ: ' + (data.error || 'حدث خطأ'));
         }
     })
-    .catch(() => alert('❌ حدث خطأ في الاتصال'));
+    .catch(() => appAlert('❌ حدث خطأ في الاتصال'));
 });
 
 function onProductCreated(data, productData) {
@@ -1215,7 +1215,7 @@ function onProductCreated(data, productData) {
     products.push(newProduct);
 
     closeNewProductModal();
-    alert('✅ تم إضافة الصنف بنجاح وإضافته للفاتورة');
+    appAlert('✅ تم إضافة الصنف بنجاح وإضافته للفاتورة', 'success');
 }
 </script>
 

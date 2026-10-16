@@ -14,9 +14,158 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
-// Confirm delete actions
-function confirmDelete(message = 'هل أنت متأكد من الحذف؟') {
-    return confirm(message);
+// ---- Pretty dialogs (replace native alert/confirm/prompt, no "localhost" boxes) ----
+function appDialogBase() {
+    var old = document.getElementById('appDialogOverlay');
+    if (old) old.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'appDialogOverlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.65);backdrop-filter:blur(4px);z-index:100001;display:flex;align-items:center;justify-content:center;padding:16px;';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;width:100%;max-width:420px;border-radius:16px;box-shadow:0 20px 30px rgba(0,0,0,0.25);padding:24px 22px;text-align:center;font-family:inherit;';
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    return { overlay: overlay, box: box };
+}
+
+function appDialogIcon(box, icon, bg) {
+    var ic = document.createElement('div');
+    ic.style.cssText = 'width:56px;height:56px;border-radius:50%;background:' + bg + ';display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px;';
+    ic.textContent = icon;
+    box.appendChild(ic);
+}
+
+function appDialogText(box, message) {
+    var p = document.createElement('div');
+    p.style.cssText = 'font-size:14px;font-weight:600;color:#0f172a;line-height:2;white-space:pre-line;margin-bottom:20px;';
+    p.textContent = String(message == null ? '' : message);
+    box.appendChild(p);
+}
+
+function appDialogButtons(box, buttons) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;justify-content:center;';
+    buttons.forEach(function (b) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = b.label;
+        btn.style.cssText = 'border:none;border-radius:10px;padding:10px 26px;font-weight:800;font-size:13.5px;cursor:pointer;font-family:inherit;background:' + b.bg + ';color:' + b.color + ';';
+        btn.onclick = b.onClick;
+        row.appendChild(btn);
+    });
+    box.appendChild(row);
+}
+
+// Pretty information / error message. type: 'error' | 'success' | 'info'
+function appAlert(message, type) {
+    type = type || 'error';
+    var conf = {
+        error: { icon: '❌', bg: '#fee2e2', title: 'حدث خطأ' },
+        success: { icon: '✅', bg: '#dcfce7', title: 'تم بنجاح' },
+        info: { icon: '🔔', bg: '#dbeafe', title: 'تنبيه' }
+    }[type] || { icon: '🔔', bg: '#dbeafe', title: 'تنبيه' };
+    return new Promise(function (resolve) {
+        var d = appDialogBase();
+        appDialogIcon(d.box, conf.icon, conf.bg);
+        var t = document.createElement('div');
+        t.style.cssText = 'font-weight:800;font-size:15px;color:#0f172a;margin-bottom:6px;';
+        t.textContent = conf.title;
+        d.box.appendChild(t);
+        appDialogText(d.box, message);
+        appDialogButtons(d.box, [{
+            label: 'حسناً', bg: '#2563eb', color: '#fff',
+            onClick: function () { d.overlay.remove(); resolve(true); }
+        }]);
+    });
+}
+
+// Pretty confirmation. Resolves true (confirmed) or false.
+function appConfirm(message, opts) {
+    opts = opts || {};
+    var okLabel = opts.okLabel || 'تأكيد';
+    var cancelLabel = opts.cancelLabel || 'تراجع';
+    var danger = opts.danger !== false;
+    return new Promise(function (resolve) {
+        var d = appDialogBase();
+        appDialogIcon(d.box, '⚠️', '#fef3c7');
+        var t = document.createElement('div');
+        t.style.cssText = 'font-weight:800;font-size:15px;color:#0f172a;margin-bottom:6px;';
+        t.textContent = 'تأكيد الإجراء';
+        d.box.appendChild(t);
+        appDialogText(d.box, message);
+        function done(val) { d.overlay.remove(); resolve(val); }
+        appDialogButtons(d.box, [
+            { label: cancelLabel, bg: '#f1f5f9', color: '#334155', onClick: function () { done(false); } },
+            { label: okLabel, bg: danger ? '#dc2626' : '#2563eb', color: '#fff', onClick: function () { done(true); } }
+        ]);
+        d.overlay.addEventListener('click', function (e) { if (e.target === d.overlay) done(false); });
+    });
+}
+
+// Pretty single-choice list (replaces native prompt for picking an option).
+// options: [{value, label}]. Resolves the chosen value or null.
+function appPromptSelect(message, options, opts) {
+    opts = opts || {};
+    return new Promise(function (resolve) {
+        var d = appDialogBase();
+        appDialogIcon(d.box, '🔀', '#dbeafe');
+        var t = document.createElement('div');
+        t.style.cssText = 'font-weight:800;font-size:15px;color:#0f172a;margin-bottom:6px;';
+        t.textContent = opts.title || 'اختيار';
+        d.box.appendChild(t);
+        appDialogText(d.box, message);
+        var list = document.createElement('div');
+        list.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:18px;max-height:240px;overflow-y:auto;';
+        (options || []).forEach(function (opt) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.style.cssText = 'border:1px solid #cbd5e1;background:#f8fafc;border-radius:10px;padding:10px 14px;font-weight:700;font-size:13.5px;color:#0f172a;cursor:pointer;font-family:inherit;';
+            b.textContent = opt.label;
+            b.onmouseover = function () { b.style.background = '#e0e7ff'; };
+            b.onmouseout = function () { b.style.background = '#f8fafc'; };
+            b.onclick = function () { d.overlay.remove(); resolve(opt.value); };
+            list.appendChild(b);
+        });
+        d.box.appendChild(list);
+        appDialogButtons(d.box, [
+            { label: 'إلغاء', bg: '#f1f5f9', color: '#334155', onClick: function () { d.overlay.remove(); resolve(null); } }
+        ]);
+        d.overlay.addEventListener('click', function (e) { if (e.target === d.overlay) { d.overlay.remove(); resolve(null); } });
+    });
+}
+
+// Inline-handler bridge for links/buttons: onclick="return confirmAction(this, '...')"
+var _appConfirmedEls = (typeof WeakSet !== 'undefined') ? new WeakSet() : null;
+var _appConfirmedList = [];
+function appConfirmWasArmed(el) {
+    if (_appConfirmedEls) return _appConfirmedEls.has(el);
+    return _appConfirmedList.indexOf(el) !== -1;
+}
+function appConfirmArm(el) {
+    if (_appConfirmedEls) _appConfirmedEls.add(el);
+    else _appConfirmedList.push(el);
+}
+function appConfirmDisarm(el) {
+    if (_appConfirmedEls) _appConfirmedEls.delete(el);
+    else { var i = _appConfirmedList.indexOf(el); if (i !== -1) _appConfirmedList.splice(i, 1); }
+}
+function confirmAction(el, message, opts) {
+    if (appConfirmWasArmed(el)) { appConfirmDisarm(el); return true; }
+    appConfirm(message, opts).then(function (ok) {
+        if (!ok) return;
+        appConfirmArm(el);
+        if (el && typeof el.click === 'function') el.click();
+        else if (el && el.href) window.location.href = el.href;
+    });
+    return false;
+}
+
+// Inline-handler bridge for forms: onsubmit="return confirmSubmit(this, '...')"
+function confirmSubmit(form, message, opts) {
+    appConfirm(message, opts).then(function (ok) {
+        if (ok && form && typeof form.submit === 'function') form.submit();
+    });
+    return false;
 }
 
 // Format number with commas

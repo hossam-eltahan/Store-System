@@ -213,7 +213,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <li style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ التشغيل اليومي</li>
+            <li class="sidebar-group" style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ التشغيل اليومي</li>
 
             <!-- كاشير الكافيه POS -->
             <?php if (hasPermission('pos.view')): ?>
@@ -265,7 +265,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <li style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ المنيو والمخزون والمشتريات</li>
+            <li class="sidebar-group" style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ المنيو والمخزون والمشتريات</li>
 
             <!-- المنيو والأصناف -->
             <?php if (hasPermission('products.view')): ?>
@@ -325,7 +325,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
 
 
 
-            <li style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ الحسابات والعملاء</li>
+            <li class="sidebar-group" style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ الحسابات والعملاء</li>
 
 <!-- المصروفات -->
             <?php if (hasPermission('expenses.view') || hasPermission('expenses.add')): ?>
@@ -357,7 +357,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <li style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ الإدارة</li>
+            <li class="sidebar-group" style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ الإدارة</li>
 
             <!-- الإعدادات -->
             <?php if (hasPermission('settings.manage')): ?>

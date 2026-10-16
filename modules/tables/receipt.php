@@ -67,7 +67,8 @@ foreach ($orders as $ord) {
     $grandTotal += floatval($ord['total_amount']);
 }
 $sessionDiscount = (float)($session['discount_amount'] ?? 0);
-$grandTotalAfterDiscount = max(0, $grandTotal - $sessionDiscount);
+$carriedRow = (float)($session['transferred_amount'] ?? 0);
+$grandTotalAfterDiscount = max(0, $grandTotal + $carriedRow - $sessionDiscount);
 $sessionPayment = getRow(
     "SELECT COALESCE(SUM(amount), 0) AS total FROM payment_records WHERE source_type = 'table_session' AND source_id = ? AND payment_type = 'payment'",
     [$sessionId]
@@ -407,6 +408,12 @@ $receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - ن�
             <td>المجموع الفرعي:</td>
             <td class="text-left"><?php echo number_format($grandSubtotal, 2); ?> ج.م</td>
         </tr>
+        <?php if ($carriedRow > 0): ?>
+        <tr>
+            <td>رصيد منقول (<?php echo htmlspecialchars(transferSourceLabel($session)); ?>):</td>
+            <td class="text-left"><?php echo number_format($carriedRow, 2); ?> ج.م</td>
+        </tr>
+        <?php endif; ?>
         <?php if ($grandDiscount > 0): ?>
         <tr style="color: #dc2626;">
             <td>الخصم:</td>
