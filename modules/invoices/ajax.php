@@ -218,7 +218,8 @@ function searchProducts() {
         $products = getRows(
             "SELECT p.id, p.code, p.name, p.unit, p.price, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name,
                     COALESCE(ws.quantity, 0) as stock_quantity,
-                    p.stock_quantity as total_stock_quantity
+                    p.stock_quantity as total_stock_quantity,
+                    'product' AS kind, NULL AS ingredient_id
              FROM products p
              LEFT JOIN categories c ON c.id = p.category_id
              LEFT JOIN warehouse_stock ws ON ws.product_id = p.id AND ws.warehouse_id = ?
@@ -229,7 +230,8 @@ function searchProducts() {
         );
     } else {
         $products = getRows(
-            "SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name
+            "SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name,
+                    'product' AS kind, NULL AS ingredient_id
              FROM products p LEFT JOIN categories c ON c.id = p.category_id
              WHERE code LIKE ? OR name LIKE ? OR description LIKE ?
              ORDER BY name
@@ -238,9 +240,22 @@ function searchProducts() {
         );
     }
 
+    // Raw materials (ingredients) live in their own table — searchable the same way
+    $ingredients = getRows(
+        "SELECT i.id AS ingredient_id, i.id, i.sku AS code, i.name, i.base_unit AS unit,
+                i.last_purchase_price AS price, i.current_stock AS stock_quantity,
+                i.purchase_unit, i.conversion_factor AS units_per_purchase,
+                i.category AS category_name, 'ingredient' AS kind
+         FROM ingredients i
+         WHERE i.is_active = 1 AND (i.sku LIKE ? OR i.name LIKE ?)
+         ORDER BY i.name
+         LIMIT 20",
+        [$searchTerm, $searchTerm]
+    );
+
     echo json_encode([
         'success' => true,
-        'products' => $products
+        'products' => array_merge($products, $ingredients)
     ]);
 }
 

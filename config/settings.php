@@ -434,6 +434,61 @@ function validateSupplyLink($movementId, $productId, $excludeInvoiceId = 0) {
 }
 
 /**
+ * Add raw-material stock (in base units, decimals allowed) and log an
+ * ingredient movement. Returns the added base quantity.
+ */
+function addIngredientStock($ingredientId, $purchaseQty, $factor, $unitPrice, $movementType, $referenceType = null, $referenceId = null, $reason = null) {
+    $ingredientId = (int)$ingredientId;
+    $purchaseQty = (float)$purchaseQty;
+    $factor = (float)$factor;
+    if ($purchaseQty <= 0 || $factor <= 0) {
+        throw new RuntimeException('كمية الشراء ومعامل التحويل يجب أن يكونا أكبر من صفر');
+    }
+    $ing = getRow("SELECT * FROM ingredients WHERE id = ? FOR UPDATE", [$ingredientId]);
+    if (!$ing) {
+        throw new RuntimeException('المادة الخام غير موجودة');
+    }
+    $stockQty = round($purchaseQty * $factor, 3);
+    if ($stockQty <= 0) {
+        throw new RuntimeException('ناتج التحويل لوحدات المخزون غير صالح');
+    }
+    $newBal = round((float)$ing['current_stock'] + $stockQty, 3);
+    execute("UPDATE ingredients SET current_stock = ?, last_purchase_price = ? WHERE id = ?", [$newBal, (float)$unitPrice, $ingredientId]);
+    $unitCost = $factor > 0 ? round((float)$unitPrice / $factor, 4) : null;
+    insert(
+        "INSERT INTO ingredient_stock_movements (ingredient_id, movement_type, quantity, unit_cost, reference_type, reference_id, balance_after, reason, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [$ingredientId, $movementType, $stockQty, $unitCost, $referenceType, $referenceId ? (int)$referenceId : null, $newBal, $reason,
+         function_exists('getCurrentUserId') ? getCurrentUserId() : null]
+    );
+    return $stockQty;
+}
+
+/**
+ * Remove raw-material stock (reversals) and log the movement.
+ */
+function removeIngredientStock($ingredientId, $stockQty, $movementType, $referenceType = null, $referenceId = null, $reason = null) {
+    $ingredientId = (int)$ingredientId;
+    $stockQty = round((float)$stockQty, 3);
+    if ($stockQty <= 0) {
+        return;
+    }
+    $ing = getRow("SELECT * FROM ingredients WHERE id = ? FOR UPDATE", [$ingredientId]);
+    if (!$ing) {
+        throw new RuntimeException('المادة الخام غير موجودة');
+    }
+    $newBal = round(max(0, (float)$ing['current_stock'] - $stockQty), 3);
+    execute("UPDATE ingredients SET current_stock = ? WHERE id = ?", [$newBal, $ingredientId]);
+    insert(
+        "INSERT INTO ingredient_stock_movements (ingredient_id, movement_type, quantity, unit_cost, reference_type, reference_id, balance_after, reason, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [$ingredientId, $movementType, $stockQty, null, $referenceType, $referenceId ? (int)$referenceId : null, $newBal, $reason,
+         function_exists('getCurrentUserId') ? getCurrentUserId() : null]
+    );
+    return $newBal;
+}
+
+/**
  * Convert a purchase quantity to base stock units.
  * Throws when the factor is invalid or the result is not a whole number.
  */
@@ -485,6 +540,27 @@ function approvePurchaseInvoice($invoiceId) {
         }
 
         foreach ($items as $item) {
+            // Raw-material lines go to ingredients stock + ledger
+            if (!empty($item['ingredient_id'])) {
+                $ing = getRow("SELECT id FROM ingredients WHERE id = ? FOR UPDATE", [(int)$item['ingredient_id']]);
+                if (!$ing) {
+                    throw new RuntimeException('مادة خام غير موجودة في الفاتورة');
+                }
+                $factor = $item['conversion_factor'] !== null ? (float)$item['conversion_factor'] : 1;
+                if ($factor <= 0) {
+                    throw new RuntimeException('معامل التحويل غير صالح');
+                }
+                $stockQty = round((float)$item['quantity'] * $factor, 3);
+                if ($stockQty <= 0) {
+                    throw new RuntimeException('كمية غير صالحة في الفاتورة');
+                }
+                execute(
+                    "UPDATE invoice_items SET stock_quantity = ? WHERE id = ?",
+                    [$stockQty, (int)$item['id']]
+                );
+                addIngredientStock((int)$item['ingredient_id'], (float)$item['quantity'], $factor, (float)$item['unit_price'], 'purchase', 'purchase_invoice', $invoiceId, 'اعتماد فاتورة شراء ' . $invoice['invoice_number']);
+                continue;
+            }
             $product = getRow("SELECT id, unit FROM products WHERE id = ? FOR UPDATE", [(int)$item['product_id']]);
             if (!$product) {
                 throw new RuntimeException('صنف غير موجود في الفاتورة');
@@ -521,6 +597,16 @@ function approvePurchaseInvoice($invoiceId) {
         rollback();
         return ['success' => false, 'already' => false, 'error' => $e->getMessage()];
     }
+}
+
+/**
+ * All purchasable lines for purchase invoices: products + raw materials.
+ * Ingredients carry kind='ingredient' and their own unit config.
+ */
+function getPurchaseables() {
+    $products = getRows("SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name, 'product' AS kind, NULL AS ingredient_id FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
+    $ingredients = getRows("SELECT i.id AS ingredient_id, i.id, i.sku AS code, i.name, i.base_unit AS unit, i.last_purchase_price AS price, i.current_stock AS stock_quantity, i.purchase_unit, i.conversion_factor AS units_per_purchase, i.category AS category_name, 'ingredient' AS kind FROM ingredients i WHERE i.is_active = 1 ORDER BY i.name");
+    return array_merge($products, $ingredients);
 }
 
 /**

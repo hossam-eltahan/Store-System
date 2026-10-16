@@ -617,7 +617,7 @@ CREATE TABLE IF NOT EXISTS `invoice_items` (
     `total` DECIMAL(10,2) NOT NULL,
     `purchase_unit` VARCHAR(50) DEFAULT NULL,
     `conversion_factor` DECIMAL(12,4) DEFAULT NULL,
-    `stock_quantity` INT DEFAULT NULL,
+    `stock_quantity` DECIMAL(12,3) DEFAULT NULL,
     `source_movement_id` INT DEFAULT NULL,
     UNIQUE KEY `unique_source_movement` (`source_movement_id`),
     FOREIGN KEY (`invoice_id`) REFERENCES `invoices`(`id`) ON DELETE CASCADE

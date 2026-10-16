@@ -50,10 +50,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $totalAmount = 0;
         $preparedItems = [];
         foreach ($items as $item) {
+            $isIngredient = (($item['kind'] ?? 'product') === 'ingredient');
+            $unitPrice = floatval($item['price'] ?? 0);
+            if ($unitPrice < 0) {
+                throw new Exception('سعر الشراء غير صالح في الفاتورة');
+            }
+
+            if ($isIngredient) {
+                // ---- Raw material line ----
+                $ingredientId = (int)($item['ingredient_id'] ?? $item['product_id'] ?? 0);
+                $purchaseQty = (float)($item['quantity'] ?? 0);
+                if ($ingredientId <= 0 || $purchaseQty <= 0) {
+                    throw new Exception('بيانات خامة غير صالحة في الفاتورة');
+                }
+                if (!empty($item['source_movement_id'])) {
+                    throw new Exception('ربط التوريد متاح لأصناف المنيو فقط');
+                }
+                $ing = getRow("SELECT id, sku, name, base_unit, purchase_unit, conversion_factor FROM ingredients WHERE id = ? AND is_active = 1", [$ingredientId]);
+                if (!$ing) {
+                    throw new Exception('مادة خام غير موجودة في الفاتورة');
+                }
+                $factor = isset($item['factor']) && (float)$item['factor'] > 0
+                    ? (float)$item['factor']
+                    : (float)($ing['conversion_factor'] ?: 1);
+                if ($factor <= 0) {
+                    throw new Exception('معامل التحويل غير صالح للخامة: ' . $ing['name']);
+                }
+                $stockQty = round($purchaseQty * $factor, 3);
+                if ($stockQty <= 0) {
+                    throw new Exception('ناتج التحويل غير صالح للخامة: ' . $ing['name']);
+                }
+                $purchaseUnit = sanitize(trim($item['purchase_unit'] ?? '')) !== ''
+                    ? sanitize(trim($item['purchase_unit']))
+                    : ($ing['purchase_unit'] ?: $ing['base_unit']);
+                $totalAmount += $purchaseQty * $unitPrice;
+                $preparedItems[] = [
+                    'kind' => 'ingredient',
+                    'ingredient_id' => $ingredientId,
+                    'product_id' => null,
+                    'code' => $ing['sku'] ?: ('ING-' . $ingredientId),
+                    'name' => $ing['name'],
+                    'unit' => $ing['base_unit'],
+                    'purchase_unit' => $purchaseUnit,
+                    'factor' => $factor,
+                    'quantity' => $purchaseQty,
+                    'stock_quantity' => $stockQty,
+                    'price' => $unitPrice,
+                    'source_movement_id' => null,
+                ];
+                continue;
+            }
+
             $productId = (int)($item['product_id'] ?? 0);
             $purchaseQty = (int)($item['quantity'] ?? 0);
-            $unitPrice = floatval($item['price'] ?? 0);
-            if ($productId <= 0 || $purchaseQty <= 0 || $unitPrice < 0) {
+            if ($productId <= 0 || $purchaseQty <= 0) {
                 throw new Exception('بيانات صنف غير صالحة في الفاتورة');
             }
             $product = getRow("SELECT id, code, name, unit, purchase_unit, units_per_purchase FROM products WHERE id = ?", [$productId]);
@@ -82,6 +132,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             $preparedItems[] = [
+                'kind' => 'product',
+                'ingredient_id' => null,
                 'product_id' => $productId,
                 'code' => $product['code'],
                 'name' => $product['name'],
@@ -138,9 +190,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Insert items with unit snapshots; stock moves only on approval
         foreach ($preparedItems as $item) {
             $lineId = insert(
-                "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, item_name, unit, quantity, unit_price, total, purchase_unit, conversion_factor, stock_quantity, source_movement_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [$invoiceId, $item['product_id'], $item['code'], $item['name'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price'],
+                "INSERT INTO invoice_items (invoice_id, product_id, ingredient_id, product_code, product_name, item_name, unit, quantity, unit_price, total, purchase_unit, conversion_factor, stock_quantity, source_movement_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [$invoiceId, $item['product_id'], $item['ingredient_id'], $item['code'], $item['name'], $item['name'], $item['unit'], $item['quantity'], $item['price'], $item['quantity'] * $item['price'],
                  $item['purchase_unit'], $item['factor'], $item['stock_quantity'], $item['source_movement_id']]
             );
             if (!$lineId) {
@@ -148,6 +200,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if (!$isDraft) {
+                if (($item['kind'] ?? 'product') === 'ingredient') {
+                    // Raw materials go to ingredients stock + ledger (no warehouse split)
+                    addIngredientStock($item['ingredient_id'], $item['quantity'], $item['factor'], $item['price'], 'purchase', 'purchase_invoice', $invoiceId, 'فاتورة شراء ' . $invoiceNumber);
+                    continue;
+                }
                 // Lines linked to an applied quick supply: link only, never add stock twice
                 if (!empty($item['source_movement_id'])) {
                     execute("UPDATE product_stock_movements SET linked_invoice_id = ? WHERE id = ?", [$invoiceId, (int)$item['source_movement_id']]);
@@ -217,7 +274,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get suppliers and products with balance (+ stock unit config for purchase lines)
 $suppliers = getRows("SELECT id, name, phone, balance FROM suppliers ORDER BY name");
-$products = getRows("SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
+$products = getPurchaseables();
 $knownUnits = getKnownUnits();
 $warehouses = getAllWarehouses(true);
 $userWarehouseId = getCurrentWarehouseId();
@@ -845,8 +902,8 @@ productSearch.addEventListener('input', function() {
     if (matches.length > 0) {
         productResults.innerHTML = matches.map(p => `
             <div class="autocomplete-item" onclick='addProduct(${JSON.stringify(p)})'>
-                <strong>${p.name}</strong> (${p.code})<br>
-                <small style="color: #6b7280;">شراء: ${p.purchase_unit || p.unit} | مخزون: ${p.unit} | المخزون الحالي: ${p.stock_quantity}</small>
+                <strong>${p.kind === 'ingredient' ? '🧪 ' : ''}${p.name}</strong> (${p.code})<br>
+                <small style="color: #6b7280;">${p.kind === 'ingredient' ? 'خامة • ' : ''}شراء: ${p.purchase_unit || p.unit} | مخزون: ${p.unit} | المخزون الحالي: ${p.stock_quantity}</small>
             </div>
         `).join('');
         productResults.style.display = 'block';
@@ -857,8 +914,10 @@ productSearch.addEventListener('input', function() {
 });
 
 function addProduct(product) {
-    // Check if already added
-    const existing = items.find(i => i.product_id == product.id);
+    // Check if already added (products by product_id, ingredients by ingredient_id)
+    const newPid = product.kind === 'ingredient' ? null : product.id;
+    const newIid = product.kind === 'ingredient' ? (product.ingredient_id || product.id) : null;
+    const existing = items.find(i => (i.product_id || null) == newPid && (i.ingredient_id || null) == newIid);
     if (existing) {
         existing.quantity++;
         renderItems();
@@ -869,7 +928,9 @@ function addProduct(product) {
 
     items.push({
         id: itemCounter++,
-        product_id: product.id,
+        product_id: product.kind === 'ingredient' ? null : product.id,
+        ingredient_id: product.kind === 'ingredient' ? (product.ingredient_id || product.id) : null,
+        kind: product.kind || 'product',
         code: product.code,
         name: product.name,
         unit: product.unit,
@@ -903,7 +964,7 @@ function renderItems() {
         <tr>
             <td>${index + 1}</td>
             <td style="font-size: 0.9em;">${item.code}</td>
-            <td style="text-align: right;"><strong>${item.name}</strong><br><small style="color:#6b7280;">وحدة المخزون: ${item.unit}</small>${item.source_movement_id ? '<br><small style="color:#2563eb; font-weight:700;">🚚 توثيق توريد — الكمية ثابتة</small>' : ''}</td>
+            <td style="text-align: right;"><strong>${item.kind === 'ingredient' ? '🧪 ' : ''}${item.name}</strong><br><small style="color:#6b7280;">وحدة المخزون: ${item.unit}</small>${item.source_movement_id ? '<br><small style="color:#2563eb; font-weight:700;">🚚 توثيق توريد — الكمية ثابتة</small>' : ''}</td>
             <td>
                 <input type="text" list="purchaseUnitsList" value="${item.purchase_unit}"
                        onchange="updatePurchaseUnit(${item.id}, this.value)" ${locked}>

@@ -59,6 +59,13 @@ try {
                 if (!empty($item['source_movement_id'])) {
                     continue;
                 }
+                // Raw-material lines reverse from ingredients stock + ledger
+                if (!empty($item['ingredient_id'])) {
+                    $reverseQty = ($item['stock_quantity'] !== null) ? (float)$item['stock_quantity'] : (float)$item['quantity'];
+                    removeIngredientStock((int)$item['ingredient_id'], $reverseQty, 'return', 'purchase_invoice', $id,
+                        'عكس فاتورة شراء قبل الحذف ' . $invoice['invoice_number']);
+                    continue;
+                }
                 $reverseQty = ($item['stock_quantity'] !== null) ? (int)$item['stock_quantity'] : (int)$item['quantity'];
                 updateWarehouseStock($warehouseId, $item['product_id'], $reverseQty, 'subtract');
                 $delProd = getRow("SELECT unit FROM products WHERE id = ?", [(int)$item['product_id']]);
