@@ -476,13 +476,6 @@ include '../../includes/navbar.php';
 <div class="container">
     <div class="invoice-container">
         <form method="POST" id="invoiceForm">
-            <?php if ($supplyPrefill): ?>
-            <div style="background: #eff6ff; border: 2px dashed #2563eb; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; font-size: 0.85em; color: #1e40af;">
-                🚚 هذه الفاتورة توثّق توريدًا مباشرًا سبق تطبيقه على المخزون —
-                <strong>عند الاعتماد لن يُضاف المخزون مرة أخرى</strong>، وسيُحدَّث حساب المورد فقط.
-                <br><small style="color:#475569;"><?php echo htmlspecialchars($supplyPrefill['reason'] ?? ''); ?></small>
-            </div>
-            <?php endif; ?>
             <!-- Invoice Header -->
             <div class="invoice-header">
                 <div class="invoice-title">📦 فاتورة شراء</div>

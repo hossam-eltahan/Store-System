@@ -57,30 +57,39 @@ $dateTo = $_GET['date_to'] ?? '';
 $products = getRows("SELECT id, code, name, unit FROM products ORDER BY name");
 $warehouses = getAllWarehouses(false);
 
+$whereMov = "1=1";
+$whereParams = [];
+if ($filterProduct > 0) {
+    $whereMov .= " AND m.product_id = ?";
+    $whereParams[] = $filterProduct;
+}
+if ($filterType !== '') {
+    $whereMov .= " AND m.movement_type = ?";
+    $whereParams[] = $filterType;
+}
+if ($dateFrom !== '') {
+    $whereMov .= " AND DATE(m.created_at) >= ?";
+    $whereParams[] = $dateFrom;
+}
+if ($dateTo !== '') {
+    $whereMov .= " AND DATE(m.created_at) <= ?";
+    $whereParams[] = $dateTo;
+}
+
+$perPage = 20;
+$totalMoves = (int)(getRow("SELECT COUNT(*) c FROM product_stock_movements m WHERE {$whereMov}", $whereParams)['c'] ?? 0);
+$totalMovePages = max(1, (int)ceil($totalMoves / $perPage));
+$movePage = max(1, min($totalMovePages, (int)($_GET['page'] ?? 1)));
+$moveOffset = ($movePage - 1) * $perPage;
+
 $sql = "SELECT m.*, p.name AS product_name, p.code AS product_code, w.name AS warehouse_name, u.full_name AS user_name
         FROM product_stock_movements m
         LEFT JOIN products p ON p.id = m.product_id
         LEFT JOIN warehouses w ON w.id = m.warehouse_id
         LEFT JOIN users u ON u.id = m.user_id
-        WHERE 1=1";
-$params = [];
-if ($filterProduct > 0) {
-    $sql .= " AND m.product_id = ?";
-    $params[] = $filterProduct;
-}
-if ($filterType !== '') {
-    $sql .= " AND m.movement_type = ?";
-    $params[] = $filterType;
-}
-if ($dateFrom !== '') {
-    $sql .= " AND DATE(m.created_at) >= ?";
-    $params[] = $dateFrom;
-}
-if ($dateTo !== '') {
-    $sql .= " AND DATE(m.created_at) <= ?";
-    $params[] = $dateTo;
-}
-$sql .= " ORDER BY m.id DESC LIMIT 200";
+        WHERE {$whereMov}";
+$params = $whereParams;
+$sql .= " ORDER BY m.id DESC LIMIT $perPage OFFSET $moveOffset";
 $moves = getRows($sql, $params);
 
 $typeLabels = [
@@ -94,25 +103,23 @@ include '../../includes/header.php';
 include '../../includes/navbar.php';
 ?>
 
-<div class="container">
+<div class="container movements-compact">
+    <style>
+        .movements-compact .card-body { padding: 12px 14px; }
+        .movements-compact .form-control { font-size: 12px; padding: 5px 8px; min-height: 32px; }
+        .movements-compact .btn { font-size: 12px; padding: 5px 12px; }
+        .movements-compact .table th, .movements-compact .table td { font-size: 12px; padding: 5px 7px; }
+        .movements-compact .badge { font-size: 11px; }
+    </style>
     <div class="card">
         <div class="card-header d-flex justify-between align-center">
             <span>📜 سجل حركات المخزون</span>
             <a href="index.php" class="btn btn-secondary">🏭 المخزون</a>
         </div>
         <div class="card-body">
-            <div class="alert alert-info" style="margin-bottom: 15px;">
-                <strong>📌 يعني إيه الصفحة دي؟</strong>
-                كل زيادة أو نقص في مخزون أي صنف بتتسجل هنا سطر بسطر:
-                <strong>شراء</strong> (فاتورة معتمدة) • <strong>بيع</strong> (كاشير) •
-                <strong>رصيد افتتاحي</strong> • <strong>تسوية</strong> (جرد/تالف) •
-                <strong>عكس قيد</strong> (تعديل أو حذف فاتورة).
-                كل سطر بيوضح الداخل والخارج والرصيد بعد الحركة والمرجع (رقم الفاتورة) والمستخدم اللي نفذها —
-                والسجل للمراجعة فقط: ممنوع التعديل أو الحذف، وأي تصحيح بيتسجل كحركة جديدة من جزء التسوية تحت.
-            </div>
             <form method="GET" class="mb-1">
-                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
-                    <select name="product_id" class="form-control" style="flex: 2; min-width: 180px;" onchange="this.form.submit()">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                    <select name="product_id" class="form-control" style="flex: 2; min-width: 150px;" onchange="this.form.submit()">
                         <option value="0">كل الأصناف</option>
                         <?php foreach ($products as $p): ?>
                             <option value="<?php echo $p['id']; ?>" <?php echo $filterProduct == $p['id'] ? 'selected' : ''; ?>>
@@ -120,14 +127,14 @@ include '../../includes/navbar.php';
                             </option>
                         <?php endforeach; ?>
                     </select>
-                    <select name="type" class="form-control" style="flex: 1; min-width: 140px;" onchange="this.form.submit()">
+                    <select name="type" class="form-control" style="flex: 1; min-width: 110px;" onchange="this.form.submit()">
                         <option value="">كل الأنواع</option>
                         <?php foreach ($typeLabels as $k => $lbl): ?>
                             <option value="<?php echo $k; ?>" <?php echo $filterType === $k ? 'selected' : ''; ?>><?php echo $lbl; ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <input type="date" name="date_from" class="form-control" value="<?php echo htmlspecialchars($dateFrom); ?>" onchange="this.form.submit()">
-                    <input type="date" name="date_to" class="form-control" value="<?php echo htmlspecialchars($dateTo); ?>" onchange="this.form.submit()">
+                    <input type="date" name="date_from" class="form-control" style="flex: 1; min-width: 120px;" value="<?php echo htmlspecialchars($dateFrom); ?>" onchange="this.form.submit()">
+                    <input type="date" name="date_to" class="form-control" style="flex: 1; min-width: 120px;" value="<?php echo htmlspecialchars($dateTo); ?>" onchange="this.form.submit()">
                     <a href="movements.php" class="btn btn-secondary">↺</a>
                 </div>
             </form>
@@ -183,6 +190,25 @@ include '../../includes/navbar.php';
                         <?php endif; ?>
                     </tbody>
                 </table>
+            </div>
+
+            <?php
+            $movPagerParams = http_build_query([
+                'product_id' => $filterProduct, 'type' => $filterType,
+                'date_from' => $dateFrom, 'date_to' => $dateTo,
+            ]);
+            ?>
+            <div class="d-flex justify-between align-center mb-1" style="margin-top: 10px;">
+                <span class="badge badge-primary">إجمالي الحركات: <?php echo $totalMoves; ?></span>
+                <div>
+                    <?php if ($movePage > 1): ?>
+                    <a href="?page=<?php echo $movePage - 1; ?>&<?php echo $movPagerParams; ?>" class="btn btn-secondary btn-sm">← السابق</a>
+                    <?php endif; ?>
+                    <span class="badge badge-info">صفحة <?php echo $movePage; ?> من <?php echo $totalMovePages; ?></span>
+                    <?php if ($movePage < $totalMovePages): ?>
+                    <a href="?page=<?php echo $movePage + 1; ?>&<?php echo $movPagerParams; ?>" class="btn btn-secondary btn-sm">التالي →</a>
+                    <?php endif; ?>
+                </div>
             </div>
 
             <?php if (hasPermission('inventory.adjust')): ?>

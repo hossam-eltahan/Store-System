@@ -65,12 +65,6 @@ include '../../includes/navbar.php';
             </div>
         </div>
         <div class="card-body">
-            <div class="alert alert-info" style="margin-bottom: 15px;">
-                التوريد المباشر بضاعة دخلت المخزون <strong>بدون فاتورة</strong> (من زر «🚚 توريد سريع»).
-                زر <strong>«🧾 إنشاء فاتورة»</strong> يفتح فاتورة شراء جاهزة ببيانات التوريد —
-                اعتمادها <strong>لا يضيف المخزون مرة أخرى</strong>، بل يوثّقها ويحدّث حساب المورد فقط.
-            </div>
-
             <form method="GET" class="mb-1">
                 <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
                     <input type="date" name="date_from" class="form-control" style="flex: 1; min-width: 130px;" value="<?php echo htmlspecialchars($dateFrom); ?>" onchange="this.form.submit()">
