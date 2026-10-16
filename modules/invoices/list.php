@@ -413,6 +413,11 @@ include '../../includes/navbar.php';
                                 <?php endif; ?>
                                 <?php if ($canEditThis): ?>
                                 <a href="edit_purchase.php?id=<?php echo $invoice['id']; ?>" class="btn btn-info" title="تعديل">✏️</a>
+                                <?php elseif (($invoice['status'] ?? 'approved') === 'draft' && hasPermission('invoices.purchase.edit')): ?>
+                                <a href="edit_purchase.php?id=<?php echo $invoice['id']; ?>" class="btn btn-info" title="تعديل المسودة">✏️</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('returns.create')): ?>
+                                <a href="returns.php?kind=purchase&id=<?php echo $invoice['id']; ?>" class="btn btn-warning" title="مرتجع">↩️</a>
                                 <?php endif; ?>
                                 <?php if ($canDeleteThis): ?>
                                 <a href="delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger" title="مسح" onclick="return confirm('هل أنت متأكد من مسح هذه الفاتورة تماماً واسترجاع الأرصدة؟ لا يمكن التراجع عن هذه الخطوة!');">🗑️</a>
@@ -421,6 +426,9 @@ include '../../includes/navbar.php';
                                 <a href="#" onclick="openReceiptModal('../pos/receipt.php?id=<?php echo $invoice['id']; ?>&type=customer'); return false;" class="btn btn-primary" title="طباعة البون">🖨️</a>
                                 <?php if (($invoice['status'] ?? '') !== 'cancelled' && hasPermission('pos.create_order')): ?>
                                 <a href="../pos/index.php?edit_order=<?php echo $invoice['id']; ?>" class="btn btn-info" title="تعديل في الكاشير">✏️</a>
+                                <?php endif; ?>
+                                <?php if (($invoice['status'] ?? '') !== 'cancelled' && hasPermission('returns.create')): ?>
+                                <a href="returns.php?kind=pos&id=<?php echo $invoice['id']; ?>" class="btn btn-warning" title="مرتجع بيع">↩️</a>
                                 <?php endif; ?>
                                 <?php else: ?>
                                 <?php
@@ -436,6 +444,9 @@ include '../../includes/navbar.php';
                                 <?php endif; ?>
                                 <?php if ($canDeleteThis): ?>
                                 <a href="delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger" title="مسح" onclick="return confirm('هل أنت متأكد من مسح هذه الفاتورة تماماً واسترجاع الأرصدة؟ لا يمكن التراجع عن هذه الخطوة!');">🗑️</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('returns.create')): ?>
+                                <a href="returns.php?kind=sale&id=<?php echo $invoice['id']; ?>" class="btn btn-warning" title="مرتجع">↩️</a>
                                 <?php endif; ?>
                                 <?php endif; ?>
                             </td>

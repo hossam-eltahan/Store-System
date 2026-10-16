@@ -489,6 +489,214 @@ function removeIngredientStock($ingredientId, $stockQty, $movementType, $referen
 }
 
 /**
+ * Generate the next return number (e.g. RTN-00001)
+ */
+function generateReturnNumber() {
+    $last = getRow("SELECT id FROM invoice_returns ORDER BY id DESC LIMIT 1");
+    return 'RTN-' . str_pad(((int)($last['id'] ?? 0)) + 1, 5, '0', STR_PAD_LEFT);
+}
+
+/**
+ * Create a capped return against a purchase invoice or a POS/sale order.
+ *
+ * $kind: 'purchase' | 'pos' | 'sale'
+ * $lines: [['line_id' => <source line id>, 'quantity' => <qty>], ...]
+ * Prices, names and caps always come from the server — never the client.
+ * Cumulative returned qty per source line can never exceed the line qty,
+ * no matter how many separate returns are made (checked + locked in one
+ * transaction, plus an idempotency key against double submits).
+ *
+ * Stock: purchase returns subtract (supplier_return), sale/POS returns add
+ * back tracked products only (customer_return). Money: purchase returns
+ * reduce the supplier debt + invoice remainder; POS/sale returns move no
+ * money (cashier settles cash by hand; the receipt shows the refund value).
+ *
+ * @return array{success:bool,already:bool,return_id:int,return_number:string,total:float,error?:string}
+ */
+function createInvoiceReturn($kind, $invoiceId, $lines, $notes = '', $returnKey = null) {
+    $kind = in_array($kind, ['purchase', 'pos', 'sale'], true) ? $kind : null;
+    $invoiceId = (int)$invoiceId;
+    if (!$kind || $invoiceId <= 0 || empty($lines) || !is_array($lines)) {
+        return ['success' => false, 'already' => false, 'error' => 'بيانات المرتجع غير مكتملة'];
+    }
+
+    beginTransaction();
+    try {
+        // Idempotency: retried submit returns the original return
+        if ($returnKey) {
+            $dup = getRow("SELECT id, return_number, total_amount FROM invoice_returns WHERE return_key = ?", [$returnKey]);
+            if ($dup) {
+                rollback();
+                return ['success' => true, 'already' => true, 'return_id' => (int)$dup['id'], 'return_number' => $dup['return_number'], 'total' => (float)$dup['total_amount']];
+            }
+        }
+
+        $isPurchase = ($kind === 'purchase');
+        $lineTable = $isPurchase ? 'invoice_items' : null;
+
+        // Lock the parent document
+        if ($kind === 'pos') {
+            $parent = getRow("SELECT * FROM orders WHERE id = ? FOR UPDATE", [$invoiceId]);
+            if (!$parent) {
+                throw new RuntimeException('طلب البيع غير موجود');
+            }
+            if (($parent['status'] ?? '') === 'cancelled') {
+                throw new RuntimeException('لا يمكن الإرجاع من طلب ملغي');
+            }
+        } else {
+            $wantType = $isPurchase ? 'purchase' : 'sale';
+            $parent = getRow("SELECT * FROM invoices WHERE id = ? AND type = ? FOR UPDATE", [$invoiceId, $wantType]);
+            if (!$parent) {
+                throw new RuntimeException('الفاتورة غير موجودة');
+            }
+            if ($isPurchase && ($parent['status'] ?? 'approved') !== 'approved') {
+                throw new RuntimeException('لا يمكن الإرجاع من مسودة لم تُعتمد');
+            }
+        }
+
+        // Source lines with already-returned totals
+        if ($kind === 'pos') {
+            $srcLines = getRows(
+                "SELECT oi.*,
+                        COALESCE((SELECT SUM(ri.quantity) FROM invoice_return_items ri
+                                  JOIN invoice_returns r ON r.id = ri.return_id
+                                  WHERE r.invoice_kind = 'pos' AND r.invoice_id = ?
+                                    AND ri.line_kind = 'order' AND ri.line_id = oi.id), 0) AS returned_qty
+                 FROM order_items oi WHERE oi.order_id = ?",
+                [$invoiceId, $invoiceId]
+            );
+        } else {
+            $wantType = $isPurchase ? 'purchase' : 'sale';
+            $srcLines = getRows(
+                "SELECT ii.*,
+                        COALESCE((SELECT SUM(ri.quantity) FROM invoice_return_items ri
+                                  JOIN invoice_returns r ON r.id = ri.return_id
+                                  WHERE r.invoice_kind = ? AND r.invoice_id = ?
+                                    AND ri.line_kind = 'invoice' AND ri.line_id = ii.id), 0) AS returned_qty
+                 FROM invoice_items ii WHERE ii.invoice_id = ?",
+                [$kind, $invoiceId, $invoiceId]
+            );
+        }
+        $byId = [];
+        foreach ($srcLines as $sl) {
+            $byId[(int)$sl['id']] = $sl;
+        }
+
+        // Validate + prepare every line (server-side truth only)
+        $prepared = [];
+        $total = 0;
+        foreach ($lines as $ln) {
+            $lineId = (int)($ln['line_id'] ?? 0);
+            $qty = round((float)($ln['quantity'] ?? 0), 3);
+            if (!isset($byId[$lineId])) {
+                throw new RuntimeException('بند غير تابع لهذه الفاتورة');
+            }
+            $src = $byId[$lineId];
+            $lineQty = (float)$src['quantity'];
+            $already = (float)$src['returned_qty'];
+            if ($qty <= 0) {
+                throw new RuntimeException('كمية الإرجاع يجب أن تكون أكبر من صفر');
+            }
+            if ($already + $qty > $lineQty + 0.0001) {
+                $srcName = $kind === 'pos' ? ($src['product_name'] ?? '') : ($src['product_name'] ?? $src['item_name'] ?? '');
+                $left = max(0, $lineQty - $already);
+                throw new RuntimeException('تجاوز الحد المسموح للصنف "' . $srcName . '" — المتبقي القابل للإرجاع: ' . rtrim(rtrim(number_format($left, 3), '0'), '.'));
+            }
+            if ($kind === 'pos') {
+                $unitPrice = (float)$src['unit_price'] + (float)($src['modifiers_total'] ?? 0);
+                $prepared[] = [
+                    'line_kind' => 'order', 'line_id' => $lineId,
+                    'product_id' => $src['product_id'] ? (int)$src['product_id'] : null,
+                    'ingredient_id' => null,
+                    'name' => $src['product_name'],
+                    'unit' => null, 'qty' => $qty, 'price' => $unitPrice,
+                ];
+            } else {
+                $prepared[] = [
+                    'line_kind' => 'invoice', 'line_id' => $lineId,
+                    'product_id' => $src['product_id'] ? (int)$src['product_id'] : null,
+                    'ingredient_id' => $src['ingredient_id'] ? (int)$src['ingredient_id'] : null,
+                    'name' => $src['product_name'] ?? $src['item_name'],
+                    'unit' => $src['unit'],
+                    'qty' => $qty, 'price' => (float)$src['unit_price'],
+                ];
+            }
+            $total += $qty * end($prepared)['price'];
+        }
+        $total = round($total, 2);
+        if (empty($prepared)) {
+            throw new RuntimeException('لا توجد بنود صالحة للإرجاع');
+        }
+
+        $returnNumber = generateReturnNumber();
+        $userId = function_exists('getCurrentUserId') ? getCurrentUserId() : null;
+        $returnId = insert(
+            "INSERT INTO invoice_returns (return_number, invoice_kind, invoice_id, return_date, total_amount, notes, return_key, created_by)
+             VALUES (?, ?, ?, CURDATE(), ?, ?, ?, ?)",
+            [$returnNumber, $kind, $invoiceId, $total, $notes ? sanitize($notes) : null, $returnKey ?: null, $userId]
+        );
+        if (!$returnId) {
+            throw new RuntimeException('تعذر حفظ المرتجع');
+        }
+
+        $whId = $isPurchase
+            ? (int)($parent['warehouse_id'] ?: (function_exists('getCurrentWarehouseId') ? getCurrentWarehouseId() : 1))
+            : (function_exists('getCurrentWarehouseId') ? (int)getCurrentWarehouseId() : 1);
+        $refLabel = $kind === 'pos' ? ('طلب كاشير #' . ($parent['order_number'] ?? $invoiceId)) : ('فاتورة ' . ($parent['invoice_number'] ?? $invoiceId));
+
+        foreach ($prepared as $pl) {
+            $lineTotal = round($pl['qty'] * $pl['price'], 2);
+            $ri = insert(
+                "INSERT INTO invoice_return_items (return_id, line_kind, line_id, product_id, ingredient_id, item_name, unit, quantity, unit_price, line_total)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [$returnId, $pl['line_kind'], $pl['line_id'], $pl['product_id'], $pl['ingredient_id'], $pl['name'], $pl['unit'], $pl['qty'], $pl['price'], $lineTotal]
+            );
+            if (!$ri) {
+                throw new RuntimeException('تعذر حفظ بند المرتجع: ' . $pl['name']);
+            }
+
+            if ($isPurchase) {
+                // Supplier return: stock leaves the warehouse / ingredients
+                if (!empty($pl['ingredient_id'])) {
+                    removeIngredientStock($pl['ingredient_id'], $pl['qty'], 'return', 'purchase_return', $returnId, 'مرتجع مشتريات ' . $returnNumber);
+                } elseif (!empty($pl['product_id'])) {
+                    $pp = getRow("SELECT unit FROM products WHERE id = ? FOR UPDATE", [$pl['product_id']]);
+                    $stockQty = (int)round($pl['qty']);
+                    updateWarehouseStock($whId, $pl['product_id'], $stockQty, 'subtract');
+                    recordProductMovement($pl['product_id'], $whId, 'supplier_return', 0, $stockQty, $pp ? $pp['unit'] : $pl['unit'], 'purchase_return', $returnId, 'مرتجع مشتريات ' . $returnNumber);
+                }
+            } else {
+                // Customer return: tracked products go back on the shelf
+                if (!empty($pl['product_id'])) {
+                    $pp = getRow("SELECT unit, track_stock FROM products WHERE id = ? FOR UPDATE", [$pl['product_id']]);
+                    if ($pp && (int)$pp['track_stock'] === 1) {
+                        $stockQty = (int)round($pl['qty']);
+                        updateWarehouseStock($whId, $pl['product_id'], $stockQty, 'add');
+                        recordProductMovement($pl['product_id'], $whId, 'customer_return', $stockQty, 0, $pp['unit'], 'sale_return', $returnId, 'مرتجع مبيعات ' . $returnNumber);
+                    }
+                }
+            }
+        }
+
+        // Money: purchase returns reduce what we owe the supplier + the invoice remainder
+        if ($isPurchase && !empty($parent['supplier_id'])) {
+            execute("UPDATE suppliers SET balance = balance - ? WHERE id = ?", [$total, (int)$parent['supplier_id']]);
+        }
+        if ($isPurchase) {
+            $newRemaining = round((float)$parent['remaining_amount'] - $total, 2);
+            $newPayStatus = $newRemaining <= 0 ? 'paid' : ((float)$parent['paid_amount'] > 0 ? 'partial' : 'unpaid');
+            execute("UPDATE invoices SET remaining_amount = ?, payment_status = ? WHERE id = ?", [$newRemaining, $newPayStatus, $invoiceId]);
+        }
+
+        commit();
+        return ['success' => true, 'already' => false, 'return_id' => (int)$returnId, 'return_number' => $returnNumber, 'total' => $total];
+    } catch (Throwable $e) {
+        rollback();
+        return ['success' => false, 'already' => false, 'error' => $e->getMessage()];
+    }
+}
+
+/**
  * Convert a purchase quantity to base stock units.
  * Throws when the factor is invalid or the result is not a whole number.
  */

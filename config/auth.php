@@ -87,6 +87,14 @@ function getAllPermissions() {
                 'invoices.purchase.delete' => 'حذف فاتورة شراء',
             ]
         ],
+        'returns' => [
+            'label' => 'المرتجعات',
+            'icon' => '↩️',
+            'permissions' => [
+                'returns.view' => 'عرض المرتجعات',
+                'returns.create' => 'إنشاء مرتجع بيع أو شراء',
+            ]
+        ],
         'payments' => [
             'label' => 'المدفوعات',
             'icon' => '💰',
