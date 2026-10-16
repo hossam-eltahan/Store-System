@@ -161,9 +161,13 @@ function confirmAction(el, message, opts) {
 }
 
 // Inline-handler bridge for forms: onsubmit="return confirmSubmit(this, '...')"
+// NOTE: uses the native submitter, NOT form.submit() — any named control
+// (e.g. <button name="do_reset">) shadows form.submit with an element,
+// which silently kills the submit. The action marker must therefore travel
+// as a hidden input inside the form (programmatic submit sends no button value).
 function confirmSubmit(form, message, opts) {
     appConfirm(message, opts).then(function (ok) {
-        if (ok && form && typeof form.submit === 'function') form.submit();
+        if (ok && form && form instanceof HTMLFormElement) HTMLFormElement.prototype.submit.call(form);
     });
     return false;
 }

@@ -170,6 +170,7 @@ include '../../includes/navbar.php';
         </div>
         <div class="card-body">
             <form method="POST" onsubmit="return confirmSubmit(this, 'تأكيد أخير: سيتم مسح كل بيانات النظام نهائياً. متابعة؟');">
+                <input type="hidden" name="do_reset" value="1">
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label class="form-label" style="font-weight: 700;">كلمة مرور المدير (للتأكيد) *</label>
                     <input type="password" name="password" class="form-control" required placeholder="أدخل كلمة مرور حسابك">
@@ -180,7 +181,7 @@ include '../../includes/navbar.php';
                         <span>أفهم أن كل البيانات سيتم مسحها نهائياً ولا يمكن التراجع</span>
                     </label>
                 </div>
-                <button type="submit" name="do_reset" class="btn btn-danger" style="font-weight: 800; padding: 12px 30px; border-radius: 8px; font-size: 1em;"
+                <button type="submit" class="btn btn-danger" style="font-weight: 800; padding: 12px 30px; border-radius: 8px; font-size: 1em;"
                         <?php echo $backupFresh ? '' : 'disabled title="خذ نسخة احتياطية حديثة أولاً"'; ?>>
                     🗑️ مسح كل البيانات وإعادة الضبط
                 </button>
