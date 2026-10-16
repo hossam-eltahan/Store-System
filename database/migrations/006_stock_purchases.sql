@@ -48,9 +48,11 @@ ALTER TABLE `orders`
     ADD COLUMN IF NOT EXISTS `client_key` VARCHAR(64) DEFAULT NULL,
     ADD UNIQUE KEY IF NOT EXISTS `unique_client_key` (`client_key`);
 
--- 6. Negative-stock prevention flag (0 = warn only, 1 = block oversell)
-INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`) VALUES
-('prevent_negative_stock', '0');
+-- 6. Negative-stock prevention flag (0 = warn only, 1 = block oversell).
+--    NOTE: no seed row here on purpose — the app reads this key with a '0'
+--    fallback, and settings older than 016 still use the legacy key/value
+--    column names (the INSERT would abort the whole update on those DBs).
+--    Fresh installs seed it from installer_build/fresh_install.sql.
 
 -- 7. Align invoice_items with the invoice code: the code reads/writes
 --    product_code/product_name everywhere (sale + purchase + print + ajax).

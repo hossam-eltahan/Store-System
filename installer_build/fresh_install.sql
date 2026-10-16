@@ -57,8 +57,9 @@ CREATE TABLE IF NOT EXISTS `user_sessions` (
 -- 4. إعدادات النظام (Settings)
 CREATE TABLE IF NOT EXISTS `settings` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `key` VARCHAR(50) NOT NULL UNIQUE,
-    `value` TEXT DEFAULT NULL,
+    `setting_key` VARCHAR(50) NOT NULL UNIQUE,
+    `setting_value` TEXT DEFAULT NULL,
+    `description` VARCHAR(255) DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -301,6 +302,7 @@ CREATE TABLE IF NOT EXISTS `gaming_sessions` (
     `notes` TEXT DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `notified_at` TIMESTAMP NULL DEFAULT NULL,
     FOREIGN KEY (`device_id`) REFERENCES `gaming_devices`(`id`),
     FOREIGN KEY (`opened_by`) REFERENCES `users`(`id`),
     FOREIGN KEY (`closed_by`) REFERENCES `users`(`id`)
@@ -375,6 +377,7 @@ CREATE TABLE IF NOT EXISTS `billiard_sessions` (
     `notes` TEXT DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `notified_at` TIMESTAMP NULL DEFAULT NULL,
     FOREIGN KEY (`table_id`) REFERENCES `billiard_tables`(`id`),
     FOREIGN KEY (`opened_by`) REFERENCES `users`(`id`),
     FOREIGN KEY (`closed_by`) REFERENCES `users`(`id`)
@@ -606,6 +609,8 @@ CREATE TABLE IF NOT EXISTS `invoices` (
     `user_id` INT DEFAULT NULL,
     `notes` TEXT DEFAULT NULL,
     `status` ENUM('draft','approved','cancelled') NOT NULL DEFAULT 'approved',
+    `warehouse_id` INT DEFAULT NULL,
+    `old_balance` DECIMAL(10,2) DEFAULT 0.00,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (`customer_id`) REFERENCES `customers`(`id`) ON DELETE SET NULL,
