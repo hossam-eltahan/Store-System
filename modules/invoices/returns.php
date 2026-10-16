@@ -25,6 +25,10 @@ if ($kind === 'pos') {
         setError('الطلب غير موجود');
         redirect('list.php?type=sale');
     }
+    if (orderSessionIsOpen($parent)) {
+        setError('الطلب مرتبط بجلسة مفتوحة — عدّل كمياته من الكاشير (تعديل الطلب) بدل الإرجاع حتى لا تختل محاسبة الجلسة');
+        redirect('list.php?type=sale');
+    }
     $srcLines = getRows(
         "SELECT oi.*, oi.id AS line_id,
                 COALESCE((SELECT SUM(ri.quantity) FROM invoice_return_items ri

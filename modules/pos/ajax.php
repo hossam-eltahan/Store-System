@@ -35,6 +35,10 @@ try {
                 echo json_encode(['success' => false, 'error' => 'لا يمكن تعديل طلب ملغي']);
                 exit;
             }
+            if (orderSessionIsClosed($editOrder)) {
+                echo json_encode(['success' => false, 'error' => 'لا يمكن تعديل هذا الطلب لأن جلسته مغلقة ومحاسبتها نهائية']);
+                exit;
+            }
             $editItems = getRows("SELECT * FROM order_items WHERE order_id = ? ORDER BY id ASC", [$editOrderId]);
             foreach ($editItems as &$eit) {
                 $eit['modifiers'] = getRows("SELECT * FROM order_item_modifiers WHERE order_item_id = ?", [(int)$eit['id']]);
@@ -223,6 +227,9 @@ try {
                 if (($oldOrder['status'] ?? '') === 'cancelled') {
                     throw new RuntimeException('لا يمكن تعديل طلب ملغي');
                 }
+                if (orderSessionIsClosed($oldOrder)) {
+                    throw new RuntimeException('لا يمكن تعديل هذا الطلب لأن جلسته مغلقة ومحاسبتها نهائية');
+                }
                 // Destination, type and sessions stay exactly as originally stored
                 $orderType = $oldOrder['order_type'];
                 $gamingSessionId = !empty($oldOrder['gaming_session_id']) ? (int)$oldOrder['gaming_session_id'] : null;
@@ -303,16 +310,47 @@ try {
                 $orderId = (int)$oldOrder['id'];
                 $orderNumber = $oldOrder['order_number'];
                 $oldTotal = (float)$oldOrder['total_amount'];
-                // Money already collected stays untouched; only the status follows the new total
-                $paidAmount = (float)$oldOrder['paid_amount'];
+                // Money already collected stays untouched, EXCEPT overpayment:
+                // if the new total drops below what was paid, the difference is
+                // refunded on the books (refund receipt + cash-out + shift decrement)
+                // so drawer, shift and reports stay consistent — no negative remainder.
+                $paidKept = (float)$oldOrder['paid_amount'];
+                if ($paidKept > $totalAmount) {
+                    $refundAmount = round($paidKept - $totalAmount, 2);
+                    if ($refundAmount > 0) {
+                        $refundNumber = 'REF-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
+                        $refundMethod = $oldOrder['payment_method'] ?: 'cash';
+                        insert(
+                            "INSERT INTO payment_records (payment_number, source_type, source_id, amount, payment_method, payment_type, shift_id, created_by)
+                             VALUES (?, 'order', ?, ?, ?, 'refund', ?, ?)",
+                            [$refundNumber, $orderId, $refundAmount, $refundMethod, $shiftId, getCurrentUserId()]
+                        );
+                        if ($shiftId) {
+                            insert(
+                                "INSERT INTO cash_movements (shift_id, movement_type, amount, payment_method, description, reference_type, reference_id, created_by)
+                                 VALUES (?, 'refund', ?, ?, ?, 'order', ?, ?)",
+                                [$shiftId, $refundAmount, $refundMethod, "استرداد فرق تعديل طلب كاشير #$orderNumber", $orderId, getCurrentUserId()]
+                            );
+                            if ($refundMethod === 'cash') {
+                                execute("UPDATE shifts SET total_sales_cash = total_sales_cash - ? WHERE id = ?", [$refundAmount, $shiftId]);
+                            } elseif ($refundMethod === 'card') {
+                                execute("UPDATE shifts SET total_sales_card = total_sales_card - ? WHERE id = ?", [$refundAmount, $shiftId]);
+                            } else {
+                                execute("UPDATE shifts SET total_sales_wallet = total_sales_wallet - ? WHERE id = ?", [$refundAmount, $shiftId]);
+                            }
+                        }
+                        $paidKept = $totalAmount;
+                    }
+                }
+                $paidAmount = $paidKept;
                 $paymentStatus = $paidAmount >= $totalAmount ? 'paid' : ($paidAmount > 0 ? 'partial' : 'unpaid');
                 $isDeferred = false;
 
                 execute(
-                    "UPDATE orders SET subtotal = ?, discount_amount = ?, tax_amount = ?, total_amount = ?,
+                    "UPDATE orders SET subtotal = ?, discount_amount = ?, tax_amount = ?, total_amount = ?, paid_amount = ?,
                                      payment_status = ?, customer_name = ?, customer_phone = ?, notes = ?
                      WHERE id = ?",
-                    [$subtotal, $discountAmount, $taxAmount, $totalAmount, $paymentStatus, $customerName, $customerPhone, $orderNotes, $orderId]
+                    [$subtotal, $discountAmount, $taxAmount, $totalAmount, $paidAmount, $paymentStatus, $customerName, $customerPhone, $orderNotes, $orderId]
                 );
 
                 // Reverse the old stock deduction (tracked items only), then clear old lines

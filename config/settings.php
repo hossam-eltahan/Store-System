@@ -697,6 +697,58 @@ function createInvoiceReturn($kind, $invoiceId, $lines, $notes = '', $returnKey 
 }
 
 /**
+ * Is the order attached to a session that is already closed/completed?
+ * Editing such orders would corrupt settled accounts — refuse it.
+ */
+function orderSessionIsClosed($order) {
+    if (!empty($order['gaming_session_id'])) {
+        $s = getRow("SELECT status FROM gaming_sessions WHERE id = ?", [(int)$order['gaming_session_id']]);
+        if ($s && in_array(($s['status'] ?? ''), ['completed', 'cancelled'], true)) {
+            return true;
+        }
+    }
+    if (!empty($order['billiard_session_id'])) {
+        $s = getRow("SELECT status FROM billiard_sessions WHERE id = ?", [(int)$order['billiard_session_id']]);
+        if ($s && in_array(($s['status'] ?? ''), ['completed', 'cancelled'], true)) {
+            return true;
+        }
+    }
+    if (!empty($order['table_session_id'])) {
+        $s = getRow("SELECT status FROM table_sessions WHERE id = ?", [(int)$order['table_session_id']]);
+        if ($s && in_array(($s['status'] ?? ''), ['closed', 'cancelled'], true)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Is the order attached to a still-open session?
+ * Returns on such orders would desync the session bill — edit instead.
+ */
+function orderSessionIsOpen($order) {
+    if (!empty($order['gaming_session_id'])) {
+        $s = getRow("SELECT status FROM gaming_sessions WHERE id = ?", [(int)$order['gaming_session_id']]);
+        if ($s && in_array(($s['status'] ?? ''), ['active', 'paused'], true)) {
+            return true;
+        }
+    }
+    if (!empty($order['billiard_session_id'])) {
+        $s = getRow("SELECT status FROM billiard_sessions WHERE id = ?", [(int)$order['billiard_session_id']]);
+        if ($s && in_array(($s['status'] ?? ''), ['active', 'paused'], true)) {
+            return true;
+        }
+    }
+    if (!empty($order['table_session_id'])) {
+        $s = getRow("SELECT status FROM table_sessions WHERE id = ?", [(int)$order['table_session_id']]);
+        if ($s && ($s['status'] ?? '') === 'active') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * Convert a purchase quantity to base stock units.
  * Throws when the factor is invalid or the result is not a whole number.
  */
