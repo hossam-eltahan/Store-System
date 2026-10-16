@@ -294,52 +294,63 @@ $receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - ن�
 
     <div class="double-divider"></div>
 
-    <?php if (!empty($allItems)): ?>
-    <!-- تفاصيل جميع الأصناف مجمعة -->
+    <?php if (!empty($orders)): ?>
+    <!-- تفاصيل الطلبات grouped per order -->
     <div style="font-size:12px; font-weight:bold; margin-bottom:5px; text-align:center;">📋 تفاصيل الطلبات</div>
     <?php $canEditSessionOrders = (($session['status'] ?? '') !== 'closed') && hasPermission('pos.create_order'); ?>
-    <?php if ($canEditSessionOrders): ?>
-    <div class="no-print" style="text-align:center; margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap; justify-content:center;">
-        <?php foreach ($orders as $ord): ?>
-            <?php if (($ord['status'] ?? '') === 'cancelled') continue; ?>
-            <a class="btn-print" style="background:#0284c7; text-decoration:none; display:inline-block; font-size:11px; padding:4px 12px;" target="_top" href="../../modules/pos/index.php?edit_order=<?php echo (int)$ord['id']; ?>&back=<?php echo urlencode('../tables/receipt.php?id=' . (int)$session['id']); ?>">✏️ <?php echo htmlspecialchars($ord['order_number']); ?></a>
-        <?php endforeach; ?>
+    <?php foreach ($orders as $ord):
+        $ordItems = getRows("SELECT * FROM order_items WHERE order_id = ? ORDER BY id ASC", [(int)$ord['id']]);
+        foreach ($ordItems as &$oit) {
+            $oit['modifiers'] = getRows("SELECT * FROM order_item_modifiers WHERE order_item_id = ?", [(int)$oit['id']]);
+        }
+        unset($oit);
+        if (empty($ordItems)) continue;
+        $ordEditable = $canEditSessionOrders && ($ord['status'] ?? '') !== 'cancelled';
+    ?>
+    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:5px 8px; margin-bottom:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; font-weight:800; margin-bottom:4px;">
+            <span>🧾 <?php echo htmlspecialchars($ord['order_number']); ?> — <?php echo number_format((float)$ord['total_amount'], 2); ?> ج.م</span>
+            <?php if ($ordEditable): ?>
+            <span class="no-print" style="background:none; border:none; padding:0; margin:0;">
+                <a class="btn-print" style="background:#0284c7; text-decoration:none; display:inline-block; font-size:11px; padding:4px 12px;" target="_top" href="../../modules/pos/index.php?edit_order=<?php echo (int)$ord['id']; ?>&back=<?php echo urlencode('../tables/receipt.php?id=' . (int)$session['id']); ?>">✏️ تعديل</a>
+            </span>
+            <?php endif; ?>
+        </div>
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th style="width: 50%;" class="text-right">الصنف</th>
+                    <th style="width: 15%;" class="text-center">العدد</th>
+                    <th style="width: 15%;" class="text-center">السعر</th>
+                    <th style="width: 20%;" class="text-left">الإجمالي</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($ordItems as $item): ?>
+                <tr class="item-row">
+                    <td class="text-right">
+                        <span class="fw-bold"><?php echo htmlspecialchars($item['product_name']); ?></span>
+                        <?php if (!empty($item['variant_name'])): ?>
+                            <span class="variant-tag">(<?php echo htmlspecialchars($item['variant_name']); ?>)</span>
+                        <?php endif; ?>
+                        <?php if (!empty($item['modifiers'])): ?>
+                            <?php foreach ($item['modifiers'] as $mod): ?>
+                                <span class="mod-tag">+ <?php echo htmlspecialchars($mod['modifier_name']); ?> (<?php echo number_format($mod['modifier_price'], 2); ?>)</span>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                        <?php if (!empty($item['item_notes'])): ?>
+                            <span class="note-tag">⚠️ <?php echo htmlspecialchars($item['item_notes']); ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-center fw-bold" style="font-size: 13px;">x<?php echo $item['quantity']; ?></td>
+                    <td class="text-center"><?php echo number_format($item['unit_price'], 2); ?></td>
+                    <td class="text-left fw-bold"><?php echo number_format($item['line_total'], 2); ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
     </div>
-    <?php endif; ?>
-
-    <table class="items-table">
-        <thead>
-            <tr>
-                <th style="width: 50%;" class="text-right">الصنف</th>
-                <th style="width: 15%;" class="text-center">العدد</th>
-                <th style="width: 15%;" class="text-center">السعر</th>
-                <th style="width: 20%;" class="text-left">الإجمالي</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($allItems as $item): ?>
-            <tr class="item-row">
-                <td class="text-right">
-                    <span class="fw-bold"><?php echo htmlspecialchars($item['product_name']); ?></span>
-                    <?php if (!empty($item['variant_name'])): ?>
-                        <span class="variant-tag">(<?php echo htmlspecialchars($item['variant_name']); ?>)</span>
-                    <?php endif; ?>
-                    <?php if (!empty($item['modifiers'])): ?>
-                        <?php foreach ($item['modifiers'] as $mod): ?>
-                            <span class="mod-tag">+ <?php echo htmlspecialchars($mod['modifier_name']); ?> (<?php echo number_format($mod['modifier_price'], 2); ?>)</span>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                    <?php if (!empty($item['item_notes'])): ?>
-                        <span class="note-tag">⚠️ <?php echo htmlspecialchars($item['item_notes']); ?></span>
-                    <?php endif; ?>
-                </td>
-                <td class="text-center fw-bold" style="font-size: 13px;">x<?php echo $item['quantity']; ?></td>
-                <td class="text-center"><?php echo number_format($item['unit_price'], 2); ?></td>
-                <td class="text-left fw-bold"><?php echo number_format($item['line_total'], 2); ?></td>
-            </tr>
-            <?php endforeach; ?>
-        </tbody>
-    </table>
+    <?php endforeach; ?>
     <?php else: ?>
     <div style="text-align:center; padding:10px; font-size:12px; color:#666;">
         لا توجد طلبات مسجلة على هذه الطاولة

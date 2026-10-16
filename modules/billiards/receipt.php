@@ -333,37 +333,45 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
 
     <div style="border-top:2px solid #000;margin:6px 0;"></div>
 
-    <?php if (!empty($allOrderItems)): ?>
+    <?php if (!empty($cafeOrders)): ?>
     <div style="font-size:12px; font-weight:bold; margin-bottom:5px; text-align:center;">طلبات كافيه</div>
     <?php $canEditSessionOrders = ($session['status'] !== 'completed') && hasPermission('pos.create_order'); ?>
-    <?php if ($canEditSessionOrders): ?>
-    <div class="no-print" style="text-align:center; margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap; justify-content:center;">
-        <?php foreach ($cafeOrders as $ord): ?>
-            <?php if (($ord['status'] ?? '') === 'cancelled') continue; ?>
-            <a class="btn-print" style="background:#0284c7; text-decoration:none; display:inline-block; font-size:11px; padding:4px 12px;" target="_top" href="../../modules/pos/index.php?edit_order=<?php echo (int)$ord['id']; ?>&back=<?php echo urlencode('../billiards/receipt.php?id=' . (int)$session['id']); ?>">✏️ <?php echo htmlspecialchars($ord['order_number']); ?></a>
-        <?php endforeach; ?>
+    <?php foreach ($cafeOrders as $ord):
+        $ordItems = getRows("SELECT * FROM order_items WHERE order_id = ? ORDER BY id ASC", [(int)$ord['id']]);
+        if (empty($ordItems)) continue;
+        $ordEditable = $canEditSessionOrders && ($ord['status'] ?? '') !== 'cancelled';
+    ?>
+    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:5px 8px; margin-bottom:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; font-weight:800; margin-bottom:4px;">
+            <span>🧾 <?php echo htmlspecialchars($ord['order_number']); ?> — <?php echo number_format((float)$ord['total_amount'], 2); ?> ج.م</span>
+            <?php if ($ordEditable): ?>
+            <span class="no-print" style="background:none; border:none; padding:0; margin:0;">
+                <a class="btn-print" style="background:#0284c7; text-decoration:none; display:inline-block; font-size:11px; padding:4px 12px;" target="_top" href="../../modules/pos/index.php?edit_order=<?php echo (int)$ord['id']; ?>&back=<?php echo urlencode('../billiards/receipt.php?id=' . (int)$session['id']); ?>">✏️ تعديل</a>
+            </span>
+            <?php endif; ?>
+        </div>
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th class="text-right">الصنف</th>
+                    <th class="text-center">العدد</th>
+                    <th class="text-center">السعر</th>
+                    <th class="text-left" style="white-space:nowrap;">الإجمالي</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($ordItems as $it): ?>
+                <tr>
+                    <td class="text-right"><?php echo htmlspecialchars($it['product_name']); ?></td>
+                    <td class="text-center">x<?php echo $it['quantity']; ?></td>
+                    <td class="text-center"><?php echo number_format($it['unit_price'], 2); ?></td>
+                    <td class="text-left" style="white-space:nowrap;"><?php echo number_format($it['line_total'], 2); ?> ج.م</td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
     </div>
-    <?php endif; ?>
-    <table class="items-table">
-        <thead>
-            <tr>
-                <th class="text-right">الصنف</th>
-                <th class="text-center">العدد</th>
-                <th class="text-center">السعر</th>
-                <th class="text-left" style="white-space:nowrap;">الإجمالي</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($allOrderItems as $it): ?>
-            <tr>
-                <td class="text-right"><?php echo htmlspecialchars($it['product_name']); ?></td>
-                <td class="text-center">x<?php echo $it['quantity']; ?></td>
-                <td class="text-center"><?php echo number_format($it['unit_price'], 2); ?></td>
-                <td class="text-left" style="white-space:nowrap;"><?php echo number_format($it['line_total'], 2); ?> ج.م</td>
-            </tr>
-            <?php endforeach; ?>
-        </tbody>
-    </table>
+    <?php endforeach; ?>
     <div style="border-top:2px solid #000;margin:6px 0;"></div>
     <?php endif; ?>
 
