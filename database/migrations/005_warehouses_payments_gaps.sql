@@ -61,18 +61,20 @@ ALTER TABLE `warehouses`
     ADD COLUMN IF NOT EXISTS `is_active` TINYINT(1) NOT NULL DEFAULT 1,
     ADD COLUMN IF NOT EXISTS `notes` TEXT DEFAULT NULL;
 
-INSERT INTO `warehouses` (`id`, `name`, `code`, `location`, `is_default`, `is_active`, `notes`)
-VALUES (1, 'المخزن الرئيسي', 'WH-MAIN', 'المقر الرئيسي', 1, 1, 'المخزن الرئيسي الافتراضي للنظام')
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `is_default` = 1;
+INSERT IGNORE INTO `warehouses` (`id`, `name`, `code`, `location`, `is_default`, `is_active`, `notes`)
+VALUES (1, 'المخزن الرئيسي', 'WH-MAIN', 'المقر الرئيسي', 1, 1, 'المخزن الرئيسي الافتراضي للنظام');
+
+-- Guarantee exactly one default warehouse without touching customer rows:
+-- mark #1 default only when no other warehouse is already default.
+UPDATE `warehouses` SET `is_default` = 1 WHERE `id` = 1 AND NOT EXISTS (SELECT 1 FROM (SELECT 1 FROM `warehouses` WHERE `is_default` = 1) AS `dflt`);
 
 -- Same guard for the stock backfill target columns.
 ALTER TABLE `warehouse_stock`
     ADD COLUMN IF NOT EXISTS `quantity` INT NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS `min_stock_level` INT DEFAULT NULL;
 
-INSERT INTO `warehouse_stock` (`warehouse_id`, `product_id`, `quantity`, `min_stock_level`)
-SELECT 1, `id`, `stock_quantity`, `min_stock_level` FROM `products`
-ON DUPLICATE KEY UPDATE `quantity` = VALUES(`quantity`), `min_stock_level` = VALUES(`min_stock_level`);
+INSERT IGNORE INTO `warehouse_stock` (`warehouse_id`, `product_id`, `quantity`, `min_stock_level`)
+SELECT 1, `id`, `stock_quantity`, `min_stock_level` FROM `products`;
 
 UPDATE `users` SET `default_warehouse_id` = 1 WHERE `default_warehouse_id` IS NULL;
 UPDATE `invoices` SET `warehouse_id` = 1 WHERE `warehouse_id` IS NULL;
