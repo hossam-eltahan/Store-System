@@ -263,7 +263,7 @@ html, body {
     </a>
 
     <?php if (hasPermission('inventory.view')): ?>
-    <a href="<?php echo BASE_URL; ?>modules/inventory/supplies.php" class="quick-action-card">
+    <a href="<?php echo BASE_URL; ?>modules/inventory/index.php?tab=supplies" class="quick-action-card">
         <div class="quick-action-icon" style="background: #ecfdf5; color: #059669;">
             🚚
         </div>

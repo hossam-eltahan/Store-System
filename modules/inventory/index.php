@@ -11,6 +11,8 @@ requirePermission('inventory.view');
 
 $pageTitle = 'المخزون';
 
+$tab = ($_GET['tab'] ?? 'stock') === 'supplies' ? 'supplies' : 'stock';
+
 $search = trim($_GET['search'] ?? '');
 $defaultWh = getDefaultWarehouse();
 $defaultWhId = $defaultWh ? (int)$defaultWh['id'] : 1;
@@ -77,6 +79,40 @@ $statLow = getRow("SELECT COUNT(*) c FROM products WHERE track_stock = 1 AND sto
 $statOut = getRow("SELECT COUNT(*) c FROM products WHERE track_stock = 1 AND stock_quantity <= 0")['c'] ?? 0;
 $suppliers = getRows("SELECT id, name FROM suppliers ORDER BY name");
 $canSupply = hasPermission('inventory.adjust');
+$canInvoice = hasPermission('invoices.purchase.create');
+
+// ---- Supplies tab data (quick supplies without invoices) ----
+$supDateFrom = $_GET['date_from'] ?? '';
+$supDateTo = $_GET['date_to'] ?? '';
+$supSupplier = (int)($_GET['supplier_id'] ?? 0);
+$supLinked = $_GET['linked'] ?? '';
+$supWhere = "m.movement_type = 'supply'";
+$supParams = [];
+if ($supDateFrom !== '') { $supWhere .= " AND DATE(m.created_at) >= ?"; $supParams[] = $supDateFrom; }
+if ($supDateTo !== '') { $supWhere .= " AND DATE(m.created_at) <= ?"; $supParams[] = $supDateTo; }
+if ($supSupplier > 0) { $supWhere .= " AND m.supplier_id = ?"; $supParams[] = $supSupplier; }
+if ($supLinked === 'yes') { $supWhere .= " AND m.linked_invoice_id IS NOT NULL"; }
+elseif ($supLinked === 'no') { $supWhere .= " AND m.linked_invoice_id IS NULL"; }
+$supPerPage = 15;
+$supTotal = (int)(getRow("SELECT COUNT(*) c FROM product_stock_movements m WHERE {$supWhere}", $supParams)['c'] ?? 0);
+$supPages = max(1, (int)ceil($supTotal / $supPerPage));
+$supPage = max(1, min($supPages, (int)($_GET['sup_page'] ?? 1)));
+$supOffset = ($supPage - 1) * $supPerPage;
+$supRows = getRows("
+    SELECT m.*, p.name AS product_name, p.code AS product_code,
+           w.name AS warehouse_name, u.full_name AS user_name,
+           COALESCE(s.name, '-') AS supplier_name,
+           i.id AS linked_inv_id, i.invoice_number AS linked_inv_number
+    FROM product_stock_movements m
+    LEFT JOIN products p ON p.id = m.product_id
+    LEFT JOIN warehouses w ON w.id = m.warehouse_id
+    LEFT JOIN users u ON u.id = m.user_id
+    LEFT JOIN suppliers s ON s.id = m.supplier_id
+    LEFT JOIN invoices i ON i.id = m.linked_invoice_id
+    WHERE {$supWhere}
+    ORDER BY m.id DESC
+    LIMIT $supPerPage OFFSET $supOffset
+", $supParams);
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -94,6 +130,17 @@ include '../../includes/navbar.php';
             </div>
         </div>
         <div class="card-body">
+            <!-- Stock / Supplies Tabs -->
+            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                <a href="index.php" style="padding: 8px 20px; border-radius: 10px; font-weight: 800; font-size: 13px; text-decoration: none; <?php echo $tab === 'stock' ? 'background: #059669; color: #fff; box-shadow: 0 3px 8px rgba(5,150,105,0.3);' : 'background: #fff; color: #475569; border: 1px solid #e2e8f0;'; ?>">
+                    🏭 المخزون
+                </a>
+                <a href="index.php?tab=supplies" style="padding: 8px 20px; border-radius: 10px; font-weight: 800; font-size: 13px; text-decoration: none; <?php echo $tab === 'supplies' ? 'background: #059669; color: #fff; box-shadow: 0 3px 8px rgba(5,150,105,0.3);' : 'background: #fff; color: #475569; border: 1px solid #e2e8f0;'; ?>">
+                    🚚 التوريد المباشر (<?php echo (int)$supTotal; ?>)
+                </a>
+            </div>
+
+            <?php if ($tab === 'stock'): ?>
             <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
                 <span class="badge badge-primary">أصناف متتبعة: <?php echo (int)$statTracked; ?></span>
                 <span class="badge badge-warning">وصلت حد التنبيه: <?php echo (int)$statLow; ?></span>
@@ -203,6 +250,99 @@ include '../../includes/navbar.php';
                     <?php endif; ?>
                 </div>
             </div>
+            <?php else: ?>
+            <!-- Supplies Tab (merged from supplies.php) -->
+            <form method="GET" class="mb-1">
+                <input type="hidden" name="tab" value="supplies">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
+                    <input type="date" name="date_from" class="form-control" style="flex: 1; min-width: 130px;" value="<?php echo htmlspecialchars($supDateFrom); ?>" onchange="this.form.submit()">
+                    <input type="date" name="date_to" class="form-control" style="flex: 1; min-width: 130px;" value="<?php echo htmlspecialchars($supDateTo); ?>" onchange="this.form.submit()">
+                    <select name="supplier_id" class="form-control" style="flex: 1; min-width: 140px;" onchange="this.form.submit()">
+                        <option value="0">كل الموردين</option>
+                        <?php foreach ($suppliers as $s): ?>
+                            <option value="<?php echo $s['id']; ?>" <?php echo $supSupplier == $s['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($s['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <select name="linked" class="form-control" style="flex: 1; min-width: 140px;" onchange="this.form.submit()">
+                        <option value="">الكل (مفوتر + غير مفوتر)</option>
+                        <option value="no" <?php echo $supLinked === 'no' ? 'selected' : ''; ?>>بدون فاتورة</option>
+                        <option value="yes" <?php echo $supLinked === 'yes' ? 'selected' : ''; ?>>صدرت له فاتورة</option>
+                    </select>
+                    <a href="index.php?tab=supplies" class="btn btn-secondary">↺</a>
+                </div>
+            </form>
+
+            <div class="table-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>التاريخ</th>
+                            <th>الصنف والكمية</th>
+                            <th>المخزن</th>
+                            <th>المورد</th>
+                            <th>القيمة التقديرية</th>
+                            <th>المستخدم</th>
+                            <th>الفاتورة</th>
+                            <th>إجراء</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($supRows)): ?>
+                        <tr><td colspan="8" class="text-center">لا توجد توريدات مسجلة</td></tr>
+                        <?php else: ?>
+                        <?php foreach ($supRows as $r): ?>
+                        <tr>
+                            <td style="white-space: nowrap;"><?php echo date('Y/m/d H:i', strtotime($r['created_at'])); ?></td>
+                            <td style="text-align: right;">
+                                <strong><?php echo htmlspecialchars($r['product_name'] ?? ('#' . $r['product_id'])); ?></strong>
+                                <br><small style="color: #059669; font-weight: 700;">+<?php echo (int)$r['qty_in']; ?> <?php echo htmlspecialchars($r['unit'] ?? ''); ?></small>
+                                <br><small style="color: #6b7280;"><?php echo htmlspecialchars($r['reason'] ?? ''); ?></small>
+                            </td>
+                            <td><?php echo htmlspecialchars($r['warehouse_name'] ?? ''); ?></td>
+                            <td><?php echo htmlspecialchars($r['supplier_name']); ?></td>
+                            <td><?php echo formatCurrency((int)$r['qty_in'] * (float)($r['unit_cost'] ?: 0)); ?></td>
+                            <td><?php echo htmlspecialchars($r['user_name'] ?? ''); ?></td>
+                            <td>
+                                <?php if (!empty($r['linked_inv_id'])): ?>
+                                    <span class="badge badge-success">✅ <?php echo htmlspecialchars($r['linked_inv_number'] ?? ('#' . $r['linked_inv_id'])); ?></span>
+                                <?php else: ?>
+                                    <span class="badge badge-warning">بدون فاتورة</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if (empty($r['linked_inv_id']) && $canInvoice): ?>
+                                <a href="../invoices/purchase.php?from_supply=<?php echo (int)$r['id']; ?>" class="btn btn-success btn-sm">🧾 إنشاء فاتورة</a>
+                                <?php elseif (!empty($r['linked_inv_id'])): ?>
+                                <a href="#" onclick="openReceiptModal('../invoices/print_purchase.php?id=<?php echo (int)$r['linked_inv_id']; ?>'); return false;" class="btn btn-info btn-sm">🖨️ الفاتورة</a>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <?php
+            $supPagerParams = http_build_query([
+                'tab' => 'supplies',
+                'date_from' => $supDateFrom, 'date_to' => $supDateTo,
+                'supplier_id' => $supSupplier, 'linked' => $supLinked,
+            ]);
+            ?>
+            <div class="d-flex justify-between align-center mb-1" style="margin-top: 12px;">
+                <span class="badge badge-primary">إجمالي التوريدات: <?php echo $supTotal; ?></span>
+                <div>
+                    <?php if ($supPage > 1): ?>
+                    <a href="?sup_page=<?php echo $supPage - 1; ?>&<?php echo $supPagerParams; ?>" class="btn btn-secondary btn-sm">← السابق</a>
+                    <?php endif; ?>
+                    <span class="badge badge-info">صفحة <?php echo $supPage; ?> من <?php echo $supPages; ?></span>
+                    <?php if ($supPage < $supPages): ?>
+                    <a href="?sup_page=<?php echo $supPage + 1; ?>&<?php echo $supPagerParams; ?>" class="btn btn-secondary btn-sm">التالي →</a>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>

@@ -287,17 +287,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <!-- التوريد المباشر -->
-            <?php if (hasPermission('inventory.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/inventory/supplies.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'inventory/supplies') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">📦</span>
-                    <span class="sidebar-text">التوريد المباشر</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-<!-- فواتير الشراء -->
+            <!-- فواتير الشراء -->
             <?php if (hasAnyPermission(['invoices.purchase.view', 'invoices.purchase.create'])): ?>
             <li>
                 <a href="<?php echo BASE_URL; ?>modules/invoices/list.php?type=purchase" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'invoices') !== false ? 'active' : ''; ?>">
