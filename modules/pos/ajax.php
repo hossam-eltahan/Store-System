@@ -75,11 +75,22 @@ try {
                 [$productId]
             );
 
-            // جلب الإضافات المتاحة لهذا الصنف أو العامة
-            $modifiers = getRows(
-                "SELECT * FROM product_modifiers WHERE is_available = 1 AND (applies_to_category_id IS NULL OR applies_to_category_id = ?) ORDER BY display_order ASC",
-                [$product['category_id']]
+            // جلب الإضافات: المربوطة بالصنف نفسه أولاً، وإلا العامة/القسم (توافق قديم)
+            $linkedModifiers = getRows(
+                "SELECT m.* FROM product_modifiers m
+                 INNER JOIN product_modifier_links l ON l.modifier_id = m.id
+                 WHERE l.product_id = ? AND m.is_available = 1
+                 ORDER BY l.display_order ASC, m.display_order ASC",
+                [$productId]
             );
+            if (!empty($linkedModifiers)) {
+                $modifiers = $linkedModifiers;
+            } else {
+                $modifiers = getRows(
+                    "SELECT * FROM product_modifiers WHERE is_available = 1 AND (applies_to_category_id IS NULL OR applies_to_category_id = ?) ORDER BY display_order ASC",
+                    [$product['category_id']]
+                );
+            }
 
             echo json_encode([
                 'success' => true,

@@ -22,6 +22,12 @@ if (!$product) {
 
 $existingVariants = getRows("SELECT * FROM product_variants WHERE product_id = ? ORDER BY display_order ASC, id ASC", [$id]);
 $categories = getRows("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC");
+$allModifiers = getRows("SELECT m.*, c.name AS category_name FROM product_modifiers m LEFT JOIN categories c ON c.id = m.applies_to_category_id WHERE m.is_available = 1 ORDER BY m.display_order ASC, m.name ASC");
+$linkedModifierIds = [];
+foreach (getRows("SELECT modifier_id FROM product_modifier_links WHERE product_id = ?", [$id]) as $lm) {
+    $linkedModifierIds[] = (int)$lm['modifier_id'];
+}
+$hasModsInitial = ((int)($product['has_modifiers'] ?? 0) === 1);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $code = sanitize(trim($_POST['code'] ?? ''));
@@ -33,6 +39,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $prepTime = intval($_POST['preparation_time_min'] ?? 5);
     $isAvailable = isset($_POST['is_available']) ? 1 : 0;
     $hasVariants = isset($_POST['has_variants']) ? 1 : 0;
+    $hasModifiers = isset($_POST['has_modifiers']) ? 1 : 0;
+    $modifierIds = isset($_POST['modifier_ids']) && is_array($_POST['modifier_ids'])
+        ? array_values(array_unique(array_map('intval', $_POST['modifier_ids']))) : [];
+    $modifierIds = array_filter($modifierIds, function($v) { return $v > 0; });
     $description = sanitize(trim($_POST['description'] ?? ''));
 
     // Stock tracking configuration
@@ -127,10 +137,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             execute("
                 UPDATE products 
                 SET category_id = ?, code = ?, name = ?, unit = ?, price = ?, cost_price = ?,
-                    is_available = ?, has_variants = ?, preparation_time_min = ?, description = ?, image = ?,
+                    is_available = ?, has_variants = ?, has_modifiers = ?, preparation_time_min = ?, description = ?, image = ?,
                     min_stock_level = ?, purchase_unit = ?, units_per_purchase = ?, track_stock = ?, is_direct_sale = ?
                 WHERE id = ?
-            ", [$categoryId, $code, $name, $unit, $price, $costPrice, $isAvailable, $hasVariants, $prepTime, $description, $imagePath,
+            ", [$categoryId, $code, $name, $unit, $price, $costPrice, $isAvailable, $hasVariants, $hasModifiers, $prepTime, $description, $imagePath,
                 $minStockLevel, $purchaseUnit, $unitsPerPurchase, $trackStock, $isDirectSale, $id]);
 
             // Opening movement when tracking is newly enabled on an existing item
@@ -150,6 +160,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         INSERT INTO product_variants (product_id, variant_name, final_price, is_default, display_order)
                         VALUES (?, ?, ?, ?, ?)
                     ", [$id, $v['name'], $v['price'], $v['is_default'], $idx + 1]);
+                }
+            }
+
+            // Sync linked sauces/extras
+            execute("DELETE FROM product_modifier_links WHERE product_id = ?", [$id]);
+            if ($hasModifiers && !empty($modifierIds)) {
+                $order = 0;
+                foreach ($modifierIds as $mid) {
+                    $exists = getRow("SELECT id FROM product_modifiers WHERE id = ?", [$mid]);
+                    if ($exists) {
+                        $order++;
+                        insert(
+                            "INSERT IGNORE INTO product_modifier_links (product_id, modifier_id, display_order) VALUES (?, ?, ?)",
+                            [$id, $mid, $order]
+                        );
+                    }
                 }
             }
 
@@ -476,6 +502,38 @@ include '../../includes/navbar.php';
             </div>
         </div>
 
+        <!-- Modifiers (Sauces/Extras) Section Card -->
+        <div class="card edit-card" style="border-radius: 12px;">
+            <div class="card-header" style="background: #f8fafc; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0;">
+                <div style="font-weight: 700;">
+                    🍯 الصوصات والإضافات (يختارها الكاشير مثل الأحجام)
+                </div>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" name="has_modifiers" id="hasModifiersToggleEdit" onchange="toggleModifiersSectionEdit()" <?php echo $hasModsInitial ? 'checked' : ''; ?>>
+                    <label class="form-check-label" for="hasModifiersToggleEdit" style="font-weight: 600;">السؤال عن الصوصات في الكاشير</label>
+                </div>
+            </div>
+            <div class="card-body" id="modifiersBodyEdit" style="display: <?php echo $hasModsInitial ? 'block' : 'none'; ?>; padding: 25px;">
+                <p style="color: #64748b; font-size: 13px; margin-bottom: 15px;">
+                    علّم على الصوصات الخاصة بهذا الصنف فقط. لو لم تختر شيئًا سيعرض الكاشير صوصات القسم/العامة.
+                    <a href="modifiers.php">إدارة الصوصات من هنا</a>
+                </p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;">
+                    <?php foreach ($allModifiers as $mod): ?>
+                    <label style="display: flex; align-items: center; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12.5px; cursor: pointer;">
+                        <input type="checkbox" name="modifier_ids[]" value="<?php echo (int)$mod['id']; ?>"
+                            <?php echo in_array((int)$mod['id'], $linkedModifierIds, true) ? 'checked' : ''; ?>>
+                        <span><strong><?php echo htmlspecialchars($mod['name']); ?></strong>
+                        <small style="color: #64748b;">+<?php echo number_format((float)$mod['price'], 2); ?> — <?php echo htmlspecialchars($mod['category_name'] ?? 'عام'); ?></small></span>
+                    </label>
+                    <?php endforeach; ?>
+                    <?php if (empty($allModifiers)): ?>
+                    <p style="color: #94a3b8; font-size: 12px;">لا توجد صوصات مسجلة بعد — <a href="modifiers.php">أضف من هنا</a></p>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
         </div>
 
         <div class="edit-actions" style="display: flex; justify-content: flex-end;">
@@ -488,6 +546,11 @@ include '../../includes/navbar.php';
 </div>
 
 <script>
+function toggleModifiersSectionEdit() {
+    const on = document.getElementById('hasModifiersToggleEdit').checked;
+    document.getElementById('modifiersBodyEdit').style.display = on ? 'block' : 'none';
+}
+
 function toggleStockFieldsEdit() {
     const on = document.getElementById('trackStockCheckEdit').checked;
     document.getElementById('openingStockRowEdit').style.display = on ? 'flex' : 'none';
