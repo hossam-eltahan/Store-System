@@ -236,8 +236,11 @@ $receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - ن�
         .btn-print:hover {
             opacity: 0.9;
         }
+        .print-only { display: none; }
         @media print {
             .no-print { display: none !important; }
+            .screen-only { display: none !important; }
+            .print-only { display: block !important; }
             body { padding: 0; }
         }
     </style>
@@ -295,6 +298,8 @@ $receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - ن�
     <div class="double-divider"></div>
 
     <?php if (!empty($orders)): ?>
+    <!-- Screen-only grouped view (hidden on paper) -->
+    <div class="screen-only">
     <!-- تفاصيل الطلبات grouped per order -->
     <div style="font-size:12px; font-weight:bold; margin-bottom:5px; text-align:center;">📋 تفاصيل الطلبات</div>
     <?php $canEditSessionOrders = (($session['status'] ?? '') !== 'closed') && hasPermission('pos.create_order'); ?>
@@ -351,6 +356,44 @@ $receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - ن�
         </table>
     </div>
     <?php endforeach; ?>
+    </div><!-- /.screen-only -->
+    <!-- Print-only merged table (classic layout, as before) -->
+    <div class="print-only">
+    <div style="font-size:12px; font-weight:bold; margin-bottom:5px; text-align:center;">📋 تفاصيل الطلبات</div>
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width: 50%;" class="text-right">الصنف</th>
+                <th style="width: 15%;" class="text-center">العدد</th>
+                <th style="width: 15%;" class="text-center">السعر</th>
+                <th style="width: 20%;" class="text-left">الإجمالي</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($allItems as $item): ?>
+            <tr class="item-row">
+                <td class="text-right">
+                    <span class="fw-bold"><?php echo htmlspecialchars($item['product_name']); ?></span>
+                    <?php if (!empty($item['variant_name'])): ?>
+                        <span class="variant-tag">(<?php echo htmlspecialchars($item['variant_name']); ?>)</span>
+                    <?php endif; ?>
+                    <?php if (!empty($item['modifiers'])): ?>
+                        <?php foreach ($item['modifiers'] as $mod): ?>
+                            <span class="mod-tag">+ <?php echo htmlspecialchars($mod['modifier_name']); ?> (<?php echo number_format($mod['modifier_price'], 2); ?>)</span>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                    <?php if (!empty($item['item_notes'])): ?>
+                        <span class="note-tag">⚠️ <?php echo htmlspecialchars($item['item_notes']); ?></span>
+                    <?php endif; ?>
+                </td>
+                <td class="text-center fw-bold" style="font-size: 13px;">x<?php echo $item['quantity']; ?></td>
+                <td class="text-center"><?php echo number_format($item['unit_price'], 2); ?></td>
+                <td class="text-left fw-bold"><?php echo number_format($item['line_total'], 2); ?></td>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+    </div><!-- /.print-only -->
     <?php else: ?>
     <div style="text-align:center; padding:10px; font-size:12px; color:#666;">
         لا توجد طلبات مسجلة على هذه الطاولة

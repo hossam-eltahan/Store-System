@@ -247,8 +247,11 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
         .btn-print:hover {
             opacity: 0.9;
         }
+        .print-only { display: none; }
         @media print {
             .no-print { display: none !important; }
+            .screen-only { display: none !important; }
+            .print-only { display: block !important; }
             body { padding: 0; }
         }
     </style>
@@ -318,6 +321,8 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
     <div style="border-top:2px solid #000;margin:6px 0;"></div>
 
     <?php if (!empty($cafeOrders)): ?>
+    <!-- Screen-only grouped view (hidden on paper) -->
+    <div class="screen-only">
     <div style="font-size:12px; font-weight:bold; margin-bottom:5px; text-align:center;">طلبات كافيه</div>
     <?php
     // Per-order groups with their own edit buttons (no-print): only while open.
@@ -361,6 +366,32 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
     </div>
     <?php endforeach; ?>
     <div style="border-top:2px solid #000;margin:6px 0;"></div>
+    </div><!-- /.screen-only -->
+    <!-- Print-only merged table (classic layout, as before) -->
+    <div class="print-only">
+    <div style="font-size:12px; font-weight:bold; margin-bottom:5px; text-align:center;">طلبات كافيه</div>
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th class="text-right">الصنف</th>
+                <th class="text-center">العدد</th>
+                <th class="text-center">السعر</th>
+                <th class="text-left" style="white-space:nowrap;">الإجمالي</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($allOrderItems as $it): ?>
+            <tr>
+                <td class="text-right"><?php echo htmlspecialchars($it['product_name']); ?></td>
+                <td class="text-center">x<?php echo $it['quantity']; ?></td>
+                <td class="text-center"><?php echo number_format($it['unit_price'], 2); ?></td>
+                <td class="text-left" style="white-space:nowrap;"><?php echo number_format($it['line_total'], 2); ?> ج.م</td>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+    <div style="border-top:2px solid #000;margin:6px 0;"></div>
+    </div><!-- /.print-only -->
     <?php endif; ?>
 
     <table class="totals-table">
