@@ -72,7 +72,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!empty($result['success'])) {
         logActivity('إنشاء مرتجع', "مرتجع {$result['return_number']} على {$docLabel} #{$invoiceId} بقيمة {$result['total']}", $_SESSION['full_name'] ?? '');
         setSuccess('تم حفظ المرتجع ' . $result['return_number'] . ' بنجاح');
-        redirect('print_return.php?id=' . (int)$result['return_id']);
+        // Stay on the same page and open the receipt in a modal (like all invoices)
+        redirect('returns.php?kind=' . urlencode($kind) . '&id=' . $invoiceId . '&printed=' . (int)$result['return_id']);
     } else {
         setError('تعذر الحفظ: ' . ($result['error'] ?? 'خطأ غير معروف'));
     }
@@ -225,3 +226,14 @@ document.getElementById('returnForm').addEventListener('submit', function(e) {
 </script>
 
 <?php include '../../includes/footer.php'; ?>
+
+<?php if (!empty($_GET['printed']) && (int)$_GET['printed'] > 0): ?>
+<script>
+// Open the just-saved return receipt in the standard modal (same page)
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof openReceiptModal === 'function') {
+        openReceiptModal('print_return.php?id=<?php echo (int)$_GET['printed']; ?>');
+    }
+});
+</script>
+<?php endif; ?>

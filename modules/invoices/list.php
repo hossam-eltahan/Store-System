@@ -7,13 +7,14 @@
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
 require_once '../../config/auth.php';
-requireAnyPermission(['invoices.sale.view', 'invoices.purchase.view', 'pos.view']);
+requireAnyPermission(['invoices.sale.view', 'invoices.purchase.view', 'pos.view', 'returns.view']);
 
 $pageTitle = 'الفواتير';
 $settings = getAllSettings();
 
 $canViewSales = hasPermission('invoices.sale.view') || hasPermission('pos.view');
 $canViewPurchases = hasPermission('invoices.purchase.view');
+$canViewReturns = hasPermission('returns.view');
 
 // Filters from GET
 $search = trim($_GET['search'] ?? '');
@@ -26,9 +27,11 @@ $dateFrom = $_GET['date_from'] ?? '';
 $dateTo = $_GET['date_to'] ?? '';
 
 // Enforce type restriction based on permissions
-if ($canViewSales && !$canViewPurchases) {
+if (!$canViewSales && !$canViewPurchases && $canViewReturns) {
+    $filterType = 'returns';
+} elseif ($canViewSales && !$canViewPurchases && !$canViewReturns) {
     $filterType = 'sale';
-} elseif ($canViewPurchases && !$canViewSales) {
+} elseif ($canViewPurchases && !$canViewSales && !$canViewReturns) {
     $filterType = 'purchase';
 }
 
@@ -106,6 +109,27 @@ if ($canViewSales && $filterType !== 'purchase' && $filterSupplier <= 0) {
         if ($dateTo !== '') { $q .= " AND DATE(o.created_at) <= ?"; $params[] = $dateTo; }
         $parts[] = $q;
     }
+}
+
+// Returns ledger (all return receipts in the same list). Excluded when a
+// supplier/warehouse filter is active since returns carry neither.
+if ($canViewReturns && in_array($filterType, ['', 'returns'], true) && $filterSupplier <= 0 && $filterWarehouse <= 0) {
+    $q = "SELECT r.id AS id, r.return_number AS number, 'return' AS kind, r.return_date AS date,
+                 r.total_amount AS total, r.total_amount AS paid, 0 AS remaining,
+                 'paid' AS pay_status, 'approved' AS status,
+                 COALESCE(i.invoice_number, o.order_number, '-') AS name,
+                 NULL AS warehouse_name, r.created_at AS created
+          FROM invoice_returns r
+          LEFT JOIN invoices i ON r.invoice_kind IN ('purchase', 'sale') AND i.id = r.invoice_id
+          LEFT JOIN orders o ON r.invoice_kind = 'pos' AND o.id = r.invoice_id
+          WHERE 1=1";
+    if ($search !== '') {
+        $q .= " AND (r.return_number LIKE ? OR i.invoice_number LIKE ? OR o.order_number LIKE ?)";
+        array_push($params, $like, $like, $like);
+    }
+    if ($dateFrom !== '') { $q .= " AND r.return_date >= ?"; $params[] = $dateFrom; }
+    if ($dateTo !== '') { $q .= " AND r.return_date <= ?"; $params[] = $dateTo; }
+    $parts[] = $q;
 }
 
 // Pagination
@@ -216,14 +240,18 @@ include '../../includes/navbar.php';
                     <div class="filter-group">
                         <label>نوع الفاتورة</label>
                         <select name="type" id="filterType" class="form-control">
-                            <?php if ($canViewSales && $canViewPurchases): ?>
+                            <?php $multiKind = ($canViewSales && $canViewPurchases); ?>
+                            <?php if ($multiKind): ?>
                             <option value="">الكل</option>
+                            <?php endif; ?>
+                            <?php if ($canViewSales): ?>
                             <option value="sale" <?php echo $filterType === 'sale' ? 'selected' : ''; ?>>مبيعات (كاشير + يدوي)</option>
+                            <?php endif; ?>
+                            <?php if ($canViewPurchases): ?>
                             <option value="purchase" <?php echo $filterType === 'purchase' ? 'selected' : ''; ?>>مشتريات</option>
-                            <?php elseif ($canViewSales): ?>
-                            <option value="sale" selected>مبيعات</option>
-                            <?php elseif ($canViewPurchases): ?>
-                            <option value="purchase" selected>مشتريات</option>
+                            <?php endif; ?>
+                            <?php if ($canViewReturns): ?>
+                            <option value="returns" <?php echo $filterType === 'returns' ? 'selected' : ''; ?>>↩️ المرتجعات</option>
                             <?php endif; ?>
                         </select>
                     </div>
@@ -339,6 +367,8 @@ include '../../includes/navbar.php';
                                     <span class="badge badge-success">مشتريات</span>
                                 <?php elseif ($kind === 'pos'): ?>
                                     <span class="badge badge-info">مبيعات كاشير</span>
+                                <?php elseif ($kind === 'return'): ?>
+                                    <span class="badge badge-warning">↩️ مرتجع</span>
                                 <?php else: ?>
                                     <span class="badge badge-info">مبيعات</span>
                                 <?php endif; ?>
@@ -352,12 +382,15 @@ include '../../includes/navbar.php';
                                 <span style="color: #94a3b8;">—</span>
                                 <?php endif; ?>
                             </td>
-                            <td><?php echo htmlspecialchars($invoice['name'] ?? '-'); ?></td>
+                            <td><?php echo $kind === 'return' ? ('مرتجع على ' . htmlspecialchars($invoice['name'] ?? '')) : htmlspecialchars($invoice['name'] ?? '-'); ?></td>
                             <td><?php echo date('Y/m/d', strtotime($invoice['date'])); ?></td>
                             <td><?php echo formatCurrency($invoice['total']); ?></td>
                             <td><?php echo formatCurrency($invoice['paid']); ?></td>
                             <td><?php echo formatCurrency($invoice['remaining']); ?></td>
                             <td>
+                                <?php if ($kind === 'return'): ?>
+                                <span class="badge badge-warning">مسترد</span>
+                                <?php else: ?>
                                 <?php
                                 $statusClass = [
                                     'paid' => 'badge-success',
@@ -374,6 +407,7 @@ include '../../includes/navbar.php';
                                 <span class="badge <?php echo $statusClass[$paySt] ?? 'badge-secondary'; ?>">
                                     <?php echo $statusText[$paySt] ?? $paySt; ?>
                                 </span>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <?php if ($kind === 'purchase'): ?>
@@ -393,6 +427,8 @@ include '../../includes/navbar.php';
                                 $oCls = $oMap[$oSt][1] ?? 'badge-warning';
                                 ?>
                                 <span class="badge <?php echo $oCls; ?>"><?php echo $oLbl; ?></span>
+                                <?php elseif ($kind === 'return'): ?>
+                                <span class="badge badge-secondary">↩️ مرتجع موثق</span>
                                 <?php else: ?>
                                 <span class="badge badge-success">✅ معتمدة</span>
                                 <?php endif; ?>
