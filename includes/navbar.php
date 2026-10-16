@@ -213,6 +213,8 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
+            <li style="font-size:10.5px;color:#94a3b8;font-weight:800;padding:10px 14px 2px;">▶ التشغيل اليومي</li>
+
             <!-- كاشير الكافيه POS -->
             <?php if (hasPermission('pos.view')): ?>
             <li>
@@ -265,6 +267,8 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
 
             <li class="sidebar-divider"></li>
 
+            <li style="font-size:10.5px;color:#94a3b8;font-weight:800;padding:10px 14px 2px;">▶ المنيو والمخزون والمشتريات</li>
+
             <!-- المنيو والأصناف -->
             <?php if (hasPermission('products.view')): ?>
             <li>
@@ -285,47 +289,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <!-- مخزون الخامات والوصفات -->
-            <?php if (hasPermission('recipes.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/recipes/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'recipes') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">🥛</span>
-                    <span class="sidebar-text">الخامات والمقادير</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-            <!-- المصروفات -->
-            <?php if (hasPermission('expenses.view') || hasPermission('expenses.add')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/expenses/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'expenses') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">💸</span>
-                    <span class="sidebar-text">المصروفات</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-            <!-- الموردين ومشتريات الخامات -->
-            <?php if (hasPermission('suppliers.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/suppliers/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'suppliers') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">🚚</span>
-                    <span class="sidebar-text">الموردين والمشتريات</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-            <!-- فواتير الشراء -->
-            <?php if (hasAnyPermission(['invoices.purchase.view', 'invoices.purchase.create'])): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/invoices/list.php?type=purchase" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'invoices') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">📥</span>
-                    <span class="sidebar-text">فواتير الشراء</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-            <!-- المخزون -->
+<!-- المخزون -->
             <?php if (hasPermission('inventory.view')): ?>
             <li>
                 <a href="<?php echo BASE_URL; ?>modules/inventory/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'inventory') !== false ? 'active' : ''; ?>">
@@ -339,8 +303,58 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             <?php if (hasPermission('inventory.view')): ?>
             <li>
                 <a href="<?php echo BASE_URL; ?>modules/inventory/supplies.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'inventory/supplies') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">🚚</span>
+                    <span class="sidebar-icon">📦</span>
                     <span class="sidebar-text">التوريد المباشر</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+<!-- فواتير الشراء -->
+            <?php if (hasAnyPermission(['invoices.purchase.view', 'invoices.purchase.create'])): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/invoices/list.php?type=purchase" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'invoices') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">📥</span>
+                    <span class="sidebar-text">فواتير الشراء</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+<!-- الموردين ومشتريات الخامات -->
+            <?php if (hasPermission('suppliers.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/suppliers/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'suppliers') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🚚</span>
+                    <span class="sidebar-text">الموردين</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <!-- مخزون الخامات والوصفات -->
+            <?php if (hasPermission('recipes.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/recipes/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'recipes') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🥛</span>
+                    <span class="sidebar-text">الخامات والمقادير</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+
+
+
+
+
+
+
+
+            <li style="font-size:10.5px;color:#94a3b8;font-weight:800;padding:10px 14px 2px;">▶ الحسابات والعملاء</li>
+
+<!-- المصروفات -->
+            <?php if (hasPermission('expenses.view') || hasPermission('expenses.add')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/expenses/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'expenses') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">💸</span>
+                    <span class="sidebar-text">المصروفات</span>
                 </a>
             </li>
             <?php endif; ?>
@@ -366,6 +380,8 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
                 </a>
             </li>
             <?php endif; ?>
+
+            <li style="font-size:10.5px;color:#94a3b8;font-weight:800;padding:10px 14px 2px;">▶ الإدارة</li>
 
             <!-- الإعدادات -->
             <?php if (hasPermission('settings.manage')): ?>
