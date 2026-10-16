@@ -319,6 +319,19 @@ $durationFormatted = ($hours > 0 ? $hours . " hr " : "") . $remMinutes . " min";
 
     <?php if (!empty($allOrderItems)): ?>
     <div style="font-size:12px; font-weight:bold; margin-bottom:5px; text-align:center;">طلبات كافيه</div>
+    <?php
+    // Per-order edit buttons (no-print): only while the session is still open.
+    // Editing a closed session's orders is refused server-side to protect settled accounts.
+    $canEditSessionOrders = ($session['status'] !== 'completed') && hasPermission('pos.create_order');
+    ?>
+    <?php if ($canEditSessionOrders): ?>
+    <div class="no-print" style="text-align:center; margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap; justify-content:center;">
+        <?php foreach ($cafeOrders as $ord): ?>
+            <?php if (($ord['status'] ?? '') === 'cancelled') continue; ?>
+            <a class="btn-print" style="background:#0284c7; text-decoration:none; display:inline-block; font-size:11px; padding:4px 12px;" target="_top" href="../../modules/pos/index.php?edit_order=<?php echo (int)$ord['id']; ?>&back=<?php echo urlencode('../gaming/receipt.php?id=' . (int)$session['id']); ?>">✏️ <?php echo htmlspecialchars($ord['order_number']); ?></a>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
     <table class="items-table">
         <thead>
             <tr>

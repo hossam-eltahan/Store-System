@@ -297,6 +297,15 @@ $receiptFooter = getSetting('receipt_footer', 'شكراً لزيارتكم - ن�
     <?php if (!empty($allItems)): ?>
     <!-- تفاصيل جميع الأصناف مجمعة -->
     <div style="font-size:12px; font-weight:bold; margin-bottom:5px; text-align:center;">📋 تفاصيل الطلبات</div>
+    <?php $canEditSessionOrders = (($session['status'] ?? '') !== 'closed') && hasPermission('pos.create_order'); ?>
+    <?php if ($canEditSessionOrders): ?>
+    <div class="no-print" style="text-align:center; margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap; justify-content:center;">
+        <?php foreach ($orders as $ord): ?>
+            <?php if (($ord['status'] ?? '') === 'cancelled') continue; ?>
+            <a class="btn-print" style="background:#0284c7; text-decoration:none; display:inline-block; font-size:11px; padding:4px 12px;" target="_top" href="../../modules/pos/index.php?edit_order=<?php echo (int)$ord['id']; ?>&back=<?php echo urlencode('../tables/receipt.php?id=' . (int)$session['id']); ?>">✏️ <?php echo htmlspecialchars($ord['order_number']); ?></a>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
 
     <table class="items-table">
         <thead>

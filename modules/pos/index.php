@@ -762,7 +762,10 @@ body {
         <!-- Edit mode banner (loaded from invoices list) -->
         <div id="editModeBanner" style="display: none; align-items: center; justify-content: space-between; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 7px 10px; margin-bottom: 8px; font-size: 12px; font-weight: 800; color: #1d4ed8;">
             <span>✏️ تعديل طلب <span id="editModeOrderNo"></span> — الوجهة والجلسة ثابتة</span>
-            <button type="button" onclick="cancelEditMode()" style="background: #fff; border: 1px solid #bfdbfe; border-radius: 6px; color: #1d4ed8; font-size: 11px; font-weight: 800; cursor: pointer; padding: 3px 10px;">إلغاء التعديل</button>
+            <span style="display: flex; gap: 6px;">
+                <button type="button" id="editBackBtn" onclick="goBackFromEdit()" style="display: none; background: #1d4ed8; border: none; border-radius: 6px; color: #fff; font-size: 11px; font-weight: 800; cursor: pointer; padding: 3px 10px;">رجوع للمحاسبة</button>
+                <button type="button" onclick="cancelEditMode()" style="background: #fff; border: 1px solid #bfdbfe; border-radius: 6px; color: #1d4ed8; font-size: 11px; font-weight: 800; cursor: pointer; padding: 3px 10px;">إلغاء التعديل</button>
+            </span>
         </div>
 
         <!-- Order Type Selection -->
@@ -984,6 +987,13 @@ let selectedModifiers = [];
 // Edit mode: modify an existing order in place (from the invoices list)
 let editingOrderId = null;
 let editingDiscount = 0;
+let editBackUrl = null;
+
+function goBackFromEdit() {
+    if (editBackUrl) {
+        window.top.location.href = editBackUrl;
+    }
+}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -992,6 +1002,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     const params = new URLSearchParams(window.location.search);
     const editId = parseInt(params.get('edit_order') || '0');
+    // Optional return target (e.g. a session receipt); restricted to in-app paths
+    const backParam = params.get('back') || '';
+    if (backParam && (backParam.startsWith('../') || backParam.startsWith('modules/'))) {
+        editBackUrl = backParam;
+    }
     if (editId > 0) {
         enterEditMode(editId);
     }
@@ -1067,6 +1082,8 @@ function updateEditUI() {
             banner.style.display = 'flex';
             document.getElementById('editModeOrderNo').textContent = '#' + editingOrderId;
         }
+        const backBtn = document.getElementById('editBackBtn');
+        if (backBtn) backBtn.style.display = editBackUrl ? '' : 'none';
         if (deferBtn) deferBtn.style.display = 'none';
     } else {
         if (banner) banner.style.display = 'none';
@@ -1077,6 +1094,7 @@ function updateEditUI() {
 function cancelEditMode() {
     editingOrderId = null;
     editingDiscount = 0;
+    editBackUrl = null;
     cart = [];
     const u = new URL(window.location.href);
     u.searchParams.delete('edit_order');
