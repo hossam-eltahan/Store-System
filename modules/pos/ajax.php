@@ -193,7 +193,9 @@ try {
             $rawInput = file_get_contents('php://input');
             $data = json_decode($rawInput, true);
 
-            if (!$data || empty($data['items'])) {
+            // Edit mode is parsed first: an empty cart means "cancel the whole order"
+            $editOrderIdEarly = !empty($data['edit_order_id']) ? (int)$data['edit_order_id'] : null;
+            if (!$data || (empty($data['items']) && !$editOrderIdEarly)) {
                 echo json_encode(['success' => false, 'error' => 'السلة فارغة، يرجى إضافة أصناف أولاً']);
                 exit;
             }
@@ -203,7 +205,7 @@ try {
             $billiardSessionId = !empty($data['billiard_session_id']) ? (int)$data['billiard_session_id'] : null;
             $tableSessionId = !empty($data['table_session_id']) ? (int)$data['table_session_id'] : null;
             $tableId = !empty($data['table_id']) ? (int)$data['table_id'] : null;
-            $items = $data['items'];
+            $items = (isset($data['items']) && is_array($data['items'])) ? $data['items'] : [];
             $discountAmount = max(0, floatval($data['discount_amount'] ?? 0));
             $paymentMethod = $data['payment_method'] ?? 'cash';
             $clientKey = preg_replace('/[^A-Za-z0-9\-_]/', '', (string)($data['client_key'] ?? ''));
@@ -345,12 +347,15 @@ try {
                 $paidAmount = $paidKept;
                 $paymentStatus = $paidAmount >= $totalAmount ? 'paid' : ($paidAmount > 0 ? 'partial' : 'unpaid');
                 $isDeferred = false;
+                // Empty cart in edit mode = cancel the whole order (refund above settles money)
+                $editCancelled = ($totalAmount <= 0);
+                $newOrderStatus = $editCancelled ? 'cancelled' : $oldOrder['status'];
 
                 execute(
                     "UPDATE orders SET subtotal = ?, discount_amount = ?, tax_amount = ?, total_amount = ?, paid_amount = ?,
-                                     payment_status = ?, customer_name = ?, customer_phone = ?, notes = ?
+                                     payment_status = ?, status = ?, customer_name = ?, customer_phone = ?, notes = ?
                      WHERE id = ?",
-                    [$subtotal, $discountAmount, $taxAmount, $totalAmount, $paidAmount, $paymentStatus, $customerName, $customerPhone, $orderNotes, $orderId]
+                    [$subtotal, $discountAmount, $taxAmount, $totalAmount, $paidAmount, $paymentStatus, $newOrderStatus, $customerName, $customerPhone, $orderNotes, $orderId]
                 );
 
                 // Reverse the old stock deduction (tracked items only), then clear old lines
@@ -490,7 +495,8 @@ try {
                 'paid_amount' => $paidAmount,
                 'is_deferred' => $isDeferred,
                 'edited' => (bool)$oldOrder,
-                'message' => $oldOrder ? 'تم تحديث الطلب بنجاح' : 'تم حفظ الطلب بنجاح'
+                'cancelled' => (bool)($oldOrder && ($editCancelled ?? false)),
+                'message' => $oldOrder ? (($editCancelled ?? false) ? 'تم إلغاء الطلب بالكامل' : 'تم تحديث الطلب بنجاح') : 'تم حفظ الطلب بنجاح'
             ], JSON_UNESCAPED_UNICODE);
             break;
 

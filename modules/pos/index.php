@@ -1562,7 +1562,9 @@ function renderCart() {
             </div>
         `;
         document.getElementById('grandTotalDisplay').textContent = '0.00 ج.م';
-        checkoutBtn.disabled = true;
+        // Empty cart blocks checkout — except in edit mode where empty means
+        // "cancel the whole order"
+        checkoutBtn.disabled = editingOrderId ? false : true;
         updateStockWarning();
         return;
     }
@@ -1635,7 +1637,8 @@ function orderTypeLabel() {
 }
 
 function openCheckoutModal() {
-    if (cart.length === 0) return;
+    const isEditCancel = !!editingOrderId && cart.length === 0;
+    if (cart.length === 0 && !editingOrderId) return;
     const subtotal = cartSubtotal();
     const itemCount = cart.reduce((acc, it) => acc + it.quantity, 0);
     const customer = document.getElementById('customerNameInput').value.trim();
@@ -1685,7 +1688,7 @@ function openCheckoutModal() {
         </div>
 
         <button onclick="submitPosCheckout()" style="width:100%; background:linear-gradient(135deg, #ea580c, #c2410c); color:white; border:none; border-radius:10px; padding:12px; font-size:15px; font-weight:800; cursor:pointer;">
-            🏁 تحصيل الفاتورة وطباعة البون
+            ${isEditCancel ? '🗑️ إلغاء الطلب بالكامل' : '🏁 تحصيل الفاتورة وطباعة البون'}
         </button>
     `;
     updateCoNetTotal(subtotal);
@@ -1720,6 +1723,12 @@ function updateCoNetTotal(baseTotal) {
 }
 
 async function submitPosCheckout() {
+    // Cancelling a whole order from edit mode needs an explicit confirm
+    if (editingOrderId && cart.length === 0) {
+        if (!confirm('سيتم إلغاء الطلب بالكامل واسترجاع أي مبالغ محصلة. متابعة؟')) {
+            return;
+        }
+    }
     const disc = Math.max(0, parseFloat(document.getElementById('coDiscountInput').value) || 0);
     const method = document.getElementById('coPaymentMethod').value;
     closeCheckoutModal();
@@ -1728,7 +1737,7 @@ async function submitPosCheckout() {
 
 // Process Checkout & Payment (discount & method come from the checkout modal)
 async function processCheckout(isDeferred, disc = 0, method = 'cash') {
-    if (cart.length === 0) return;
+    if (cart.length === 0 && !editingOrderId) return;
 
     const checkoutBtn = document.getElementById('checkoutBtn');
     const deferBtn = document.getElementById('deferBtn');
@@ -1783,10 +1792,12 @@ async function processCheckout(isDeferred, disc = 0, method = 'cash') {
         const data = await res.json();
 
         if (data.success) {
-            // Edit mode: receipt reprint, then leave edit mode (destinations untouched)
+            // Edit mode: receipt reprint (unless fully cancelled), then leave edit mode
             if (data.edited) {
-                if (data.order_id) {
+                if (!data.cancelled && data.order_id) {
                     openReceiptModal(`receipt.php?id=${data.order_id}&type=customer`);
+                } else if (data.cancelled) {
+                    alert('تم إلغاء الطلب بالكامل واسترجاع المدفوع');
                 }
                 cancelEditMode();
                 loadProducts();
