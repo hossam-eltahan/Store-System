@@ -213,7 +213,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <li style="font-size:10.5px;color:#94a3b8;font-weight:800;padding:10px 14px 2px;">▶ التشغيل اليومي</li>
+            <li style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ التشغيل اليومي</li>
 
             <!-- كاشير الكافيه POS -->
             <?php if (hasPermission('pos.view')): ?>
@@ -265,9 +265,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <li class="sidebar-divider"></li>
-
-            <li style="font-size:10.5px;color:#94a3b8;font-weight:800;padding:10px 14px 2px;">▶ المنيو والمخزون والمشتريات</li>
+            <li style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ المنيو والمخزون والمشتريات</li>
 
             <!-- المنيو والأصناف -->
             <?php if (hasPermission('products.view')): ?>
@@ -279,17 +277,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <!-- فئات المنيو -->
-            <?php if (hasPermission('categories.view')): ?>
-            <li>
-                <a href="<?php echo BASE_URL; ?>modules/categories/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'categories') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">🏷️</span>
-                    <span class="sidebar-text">أقسام المنيو</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-<!-- المخزون -->
+            <!-- المخزون -->
             <?php if (hasPermission('inventory.view')): ?>
             <li>
                 <a href="<?php echo BASE_URL; ?>modules/inventory/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'inventory') !== false ? 'active' : ''; ?>">
@@ -347,7 +335,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
 
 
 
-            <li style="font-size:10.5px;color:#94a3b8;font-weight:800;padding:10px 14px 2px;">▶ الحسابات والعملاء</li>
+            <li style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ الحسابات والعملاء</li>
 
 <!-- المصروفات -->
             <?php if (hasPermission('expenses.view') || hasPermission('expenses.add')): ?>
@@ -369,8 +357,6 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <li class="sidebar-divider"></li>
-
             <!-- التقارير -->
             <?php if (isAdmin() || hasPermission('reports.view')): ?>
             <li>
@@ -381,7 +367,7 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <li style="font-size:10.5px;color:#94a3b8;font-weight:800;padding:10px 14px 2px;">▶ الإدارة</li>
+            <li style="font-size:10px;color:#94a3b8;font-weight:800;padding:6px 14px 1px;">▶ الإدارة</li>
 
             <!-- الإعدادات -->
             <?php if (hasPermission('settings.manage')): ?>
