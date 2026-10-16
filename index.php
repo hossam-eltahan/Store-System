@@ -64,12 +64,12 @@ $todayExpenses = floatval(getRow(
      WHERE date = CURDATE()"
 )['total'] ?? 0);
 
-// توريدات اليوم المباشرة (بدون فواتير)
-$todaySuppliesCount = 0;
+// توريدات مباشرة بلا فواتير (كلها — ليست مقيدة بيوم)
+$openSuppliesCount = 0;
 if (function_exists('columnExists') && columnExists('product_stock_movements', 'movement_type')) {
-    $todaySuppliesCount = intval(getRow(
+    $openSuppliesCount = intval(getRow(
         "SELECT COUNT(*) as c FROM product_stock_movements
-         WHERE movement_type = 'supply' AND DATE(created_at) = CURDATE()"
+         WHERE movement_type = 'supply' AND linked_invoice_id IS NULL"
     )['c'] ?? 0);
 }
 
@@ -269,7 +269,7 @@ html, body {
         </div>
         <div>
             <div style="font-size: 14px; font-weight: 800; color: #0f172a;">التوريد المباشر</div>
-            <div style="font-size: 11.5px; color: #64748b;"><?php echo $todaySuppliesCount; ?> توريد اليوم • بدون فواتير</div>
+            <div style="font-size: 11.5px; color: #64748b;"><?php echo $openSuppliesCount; ?> توريد بلا فاتورة</div>
         </div>
     </a>
     <?php endif; ?>
