@@ -50,9 +50,25 @@ CREATE TABLE IF NOT EXISTS `payments` (
 ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `default_warehouse_id` INT DEFAULT 1;
 ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `warehouse_id` INT DEFAULT NULL;
 
+-- Older installs may carry a lean warehouses table (missing seed columns).
+-- Ensure every column this migration touches exists before the seed below.
+ALTER TABLE `warehouses`
+    ADD COLUMN IF NOT EXISTS `code` VARCHAR(50) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `location` VARCHAR(255) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `phone` VARCHAR(20) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `manager_name` VARCHAR(100) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `is_default` TINYINT(1) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    ADD COLUMN IF NOT EXISTS `notes` TEXT DEFAULT NULL;
+
 INSERT INTO `warehouses` (`id`, `name`, `code`, `location`, `is_default`, `is_active`, `notes`)
 VALUES (1, 'المخزن الرئيسي', 'WH-MAIN', 'المقر الرئيسي', 1, 1, 'المخزن الرئيسي الافتراضي للنظام')
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `is_default` = 1;
+
+-- Same guard for the stock backfill target columns.
+ALTER TABLE `warehouse_stock`
+    ADD COLUMN IF NOT EXISTS `quantity` INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS `min_stock_level` INT DEFAULT NULL;
 
 INSERT INTO `warehouse_stock` (`warehouse_id`, `product_id`, `quantity`, `min_stock_level`)
 SELECT 1, `id`, `stock_quantity`, `min_stock_level` FROM `products`

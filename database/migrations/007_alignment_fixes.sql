@@ -10,6 +10,7 @@ ALTER TABLE `invoices`
 
 -- 2. suppliers profile columns used by suppliers add/edit/index/view
 ALTER TABLE `suppliers`
+    ADD COLUMN IF NOT EXISTS `company` VARCHAR(100) DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS `company_name` VARCHAR(100) DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS `visit_days` TEXT DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS `expected_products` TEXT DEFAULT NULL;
