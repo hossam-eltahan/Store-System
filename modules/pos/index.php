@@ -1274,6 +1274,13 @@ async function onProductClick(productId) {
 
     // Manual service (settlement without timer/session) → duration/count modal
     if (prod.is_service) {
+        // Guard against double-charging: a manual service item on top of a
+        // running timed session bills the customer twice (item + timer)
+        if (currentOrderType !== 'takeaway') {
+            if (!confirm('⚠️ تنبيه: هذا صنف خدمة يدوي بسعر ثابت، وطلبك مرتبط بجلسة/طاولة تُحاسب بالتوقيت تلقائيًا.\n\nالمتابعة تعني محاسبة العميل مرتين (الصنف + التوقيت). هل أنت متأكد؟')) {
+                return;
+            }
+        }
         openServiceModal(prod);
         return;
     }

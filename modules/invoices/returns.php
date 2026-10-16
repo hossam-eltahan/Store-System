@@ -30,12 +30,13 @@ if ($kind === 'pos') {
         redirect('list.php?type=sale');
     }
     $srcLines = getRows(
-        "SELECT oi.*, oi.id AS line_id,
+        "SELECT oi.*, oi.id AS line_id, COALESCE(p.is_service, 0) AS is_service,
                 COALESCE((SELECT SUM(ri.quantity) FROM invoice_return_items ri
                           JOIN invoice_returns r ON r.id = ri.return_id
                           WHERE r.invoice_kind = 'pos' AND r.invoice_id = ?
                             AND ri.line_kind = 'order' AND ri.line_id = oi.id), 0) AS returned_qty
-         FROM order_items oi WHERE oi.order_id = ? ORDER BY oi.id ASC",
+         FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id
+         WHERE oi.order_id = ? ORDER BY oi.id ASC",
         [$invoiceId, $invoiceId]
     );
 } else {
@@ -47,12 +48,13 @@ if ($kind === 'pos') {
         redirect('list.php');
     }
     $srcLines = getRows(
-        "SELECT ii.*, ii.id AS line_id,
+        "SELECT ii.*, ii.id AS line_id, COALESCE(p.is_service, 0) AS is_service,
                 COALESCE((SELECT SUM(ri.quantity) FROM invoice_return_items ri
                           JOIN invoice_returns r ON r.id = ri.return_id
                           WHERE r.invoice_kind = ? AND r.invoice_id = ?
                             AND ri.line_kind = 'invoice' AND ri.line_id = ii.id), 0) AS returned_qty
-         FROM invoice_items ii WHERE ii.invoice_id = ? ORDER BY ii.id ASC",
+         FROM invoice_items ii LEFT JOIN products p ON p.id = ii.product_id
+         WHERE ii.invoice_id = ? ORDER BY ii.id ASC",
         [$kind, $invoiceId, $invoiceId]
     );
 }
@@ -141,7 +143,9 @@ include '../../includes/navbar.php';
                                 <td style="color: #b45309; font-weight: 700;"><?php echo rtrim(rtrim(number_format($already, 3), '0'), '.'); ?></td>
                                 <td style="color: #059669; font-weight: 700;"><?php echo rtrim(rtrim(number_format($left, 3), '0'), '.'); ?></td>
                                 <td>
-                                    <?php if ($left > 0): ?>
+                                    <?php if ((int)($sl['is_service'] ?? 0) === 1): ?>
+                                    <span class="badge badge-secondary">خدمة — غير قابلة للإرجاع</span>
+                                    <?php elseif ($left > 0): ?>
                                     <input type="number" step="any" min="0" max="<?php echo $left; ?>" value="0"
                                            data-line="<?php echo (int)$sl['line_id']; ?>" data-price="<?php echo $up; ?>" data-max="<?php echo $left; ?>"
                                            class="form-control ret-qty" style="width: 90px;" oninput="calcReturnTotals()">

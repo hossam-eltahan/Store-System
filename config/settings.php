@@ -602,6 +602,15 @@ function createInvoiceReturn($kind, $invoiceId, $lines, $notes = '', $returnKey 
                 $left = max(0, $lineQty - $already);
                 throw new RuntimeException('تجاوز الحد المسموح للصنف "' . $srcName . '" — المتبقي القابل للإرجاع: ' . rtrim(rtrim(number_format($left, 3), '0'), '.'));
             }
+            // Services (e.g. manual PlayStation time) are consumed on the spot — never returnable
+            $chkPid = (int)($src['product_id'] ?? 0);
+            if ($chkPid > 0) {
+                $chk = getRow("SELECT is_service FROM products WHERE id = ?", [$chkPid]);
+                if ($chk && (int)$chk['is_service'] === 1) {
+                    $srcName = $kind === 'pos' ? ($src['product_name'] ?? '') : ($src['product_name'] ?? $src['item_name'] ?? '');
+                    throw new RuntimeException('الخدمات مثل "' . $srcName . '" غير قابلة للإرجاع');
+                }
+            }
             if ($kind === 'pos') {
                 $unitPrice = (float)$src['unit_price'] + (float)($src['modifiers_total'] ?? 0);
                 $prepared[] = [
