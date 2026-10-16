@@ -23,7 +23,7 @@
 - `StoreSystem_Update_v1.0.8_*.zip` (457KB, 107 files, 16 migrations, HMAC signature VALID, min_version 1.0.0) + `StoreSystem_Setup_v1.0.8.exe` (93.7MB, Inno Setup 7).
 - Data-safety proof on TRUE 1.0.4 schema + fake customer rows via the REAL updater engine: 16/16 migrations applied, every row intact (users/products/suppliers/invoices/orders/sessions/settings values preserved, warehouse backfill + company carry-over + settings rename all correct) → DATA_SAFE=YES.
 - Found & fixed 3 real blockers for old customers: (1) migration 006 seed INSERT assumed modern settings table (removed — code fallback covers it); (2) settings key/value→setting_key/setting_value rename never migrated (new 016); (3) fresh_install.sql internally inconsistent (old settings CREATE + modern INSERTs — fresh installs were broken; fixed + verified 44 tables import clean).
-- Schema drift now zero (dev == cafe_schema.sql except intentional warehouses superset).
+- Customer 1.0.6 failure analyzed: their warehouses table predates seed columns → 005 aborted → auto-rollback (data safe). Hardened 005/007 with pre-ADD column guards; re-proven on lean-customer simulation (16/16, DATA_SAFE=YES). New ZIP `..._145108` (same v1.0.8) in output/ + Desktop; pushed as `40b56fc`.
 - Modifiers master (`modifiers.php`) merged as third tab `?tab=mods` in products/index (same table → cashier window stays linked); old file is a redirect stub.
 - Ingredients row button renamed 🚚 توريد مباشر + optional unit price with weighted-average cost update; products rows gained 🚚 توريد button deep-linking inventory supply modal auto-open (`?supply_product=`).
 - Invoices `type=returns` filter fixed (parts now gated on exact type).
