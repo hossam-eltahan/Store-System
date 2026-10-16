@@ -7,12 +7,12 @@
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
 require_once '../../config/auth.php';
-requireAnyPermission(['invoices.sale.view', 'invoices.purchase.view']);
+requireAnyPermission(['invoices.sale.view', 'invoices.purchase.view', 'pos.view']);
 
-$pageTitle = 'قائمة الفواتير';
+$pageTitle = 'الفواتير';
 $settings = getAllSettings();
 
-$canViewSales = hasPermission('invoices.sale.view');
+$canViewSales = hasPermission('invoices.sale.view') || hasPermission('pos.view');
 $canViewPurchases = hasPermission('invoices.purchase.view');
 
 // Filters from GET
@@ -21,6 +21,7 @@ $filterType = $_GET['type'] ?? '';
 $filterPayment = $_GET['payment'] ?? '';
 $filterStatus = $_GET['status'] ?? '';
 $filterWarehouse = (int)($_GET['warehouse_id'] ?? 0);
+$filterSupplier = (int)($_GET['supplier_id'] ?? 0);
 $dateFrom = $_GET['date_from'] ?? '';
 $dateTo = $_GET['date_to'] ?? '';
 
@@ -33,57 +34,78 @@ if ($canViewSales && !$canViewPurchases) {
 
 $warehouses = getAllWarehouses(false);
 
-// Build query
-$sql = "SELECT i.*, 
-        w.name as warehouse_name,
-        COALESCE(c.name, i.customer_name) as display_name,
-        s.name as supplier_name_db
- FROM invoices i
- LEFT JOIN customers c ON i.customer_id = c.id
- LEFT JOIN suppliers s ON i.supplier_id = s.id
- LEFT JOIN warehouses w ON i.warehouse_id = w.id
- WHERE 1=1";
+// Unified ledger: purchase invoices + legacy sale invoices + POS orders.
+// Each part exposes the same columns: id, number, kind, date, total, paid,
+// remaining, pay_status, status, name, warehouse_name, created.
+$parts = [];
 $params = [];
+$like = $search !== '' ? "%$search%" : null;
 
-// Apply type permissions to query
-if ($canViewSales && !$canViewPurchases) {
-    $sql .= " AND i.type = 'sale'";
-} elseif ($canViewPurchases && !$canViewSales) {
-    $sql .= " AND i.type = 'purchase'";
-} elseif ($filterType !== '') {
-    $sql .= " AND i.type = ?";
-    $params[] = $filterType;
+if ($canViewPurchases && $filterType !== 'sale') {
+    $q = "SELECT i.id AS id, i.invoice_number AS number, 'purchase' AS kind, i.date AS date,
+                 i.total_amount AS total, i.paid_amount AS paid, i.remaining_amount AS remaining,
+                 i.payment_status AS pay_status, i.status AS status,
+                 COALESCE(s.name, i.customer_name, '-') AS name,
+                 w.name AS warehouse_name, i.created_at AS created
+          FROM invoices i
+          LEFT JOIN suppliers s ON s.id = i.supplier_id
+          LEFT JOIN warehouses w ON w.id = i.warehouse_id
+          WHERE i.type = 'purchase'";
+    if ($filterType === 'purchase') {
+        // no extra condition
+    }
+    if ($filterPayment !== '') { $q .= " AND i.payment_status = ?"; $params[] = $filterPayment; }
+    if ($filterStatus !== '') { $q .= " AND i.status = ?"; $params[] = $filterStatus; }
+    if ($filterSupplier > 0) { $q .= " AND i.supplier_id = ?"; $params[] = $filterSupplier; }
+    if ($search !== '') {
+        $q .= " AND (i.invoice_number LIKE ? OR i.customer_name LIKE ? OR i.customer_phone LIKE ? OR s.name LIKE ? OR s.phone LIKE ?)";
+        array_push($params, $like, $like, $like, $like, $like);
+    }
+    if ($filterWarehouse > 0) { $q .= " AND i.warehouse_id = ?"; $params[] = $filterWarehouse; }
+    if ($dateFrom !== '') { $q .= " AND i.date >= ?"; $params[] = $dateFrom; }
+    if ($dateTo !== '') { $q .= " AND i.date <= ?"; $params[] = $dateTo; }
+    $parts[] = $q;
 }
 
-if ($filterPayment !== '') {
-    $sql .= " AND i.payment_status = ?";
-    $params[] = $filterPayment;
-}
+if ($canViewSales && $filterType !== 'purchase' && $filterSupplier <= 0) {
+    // Legacy manual sale invoices (if any exist)
+    $q = "SELECT i.id AS id, i.invoice_number AS number, 'sale' AS kind, i.date AS date,
+                 i.total_amount AS total, i.paid_amount AS paid, i.remaining_amount AS remaining,
+                 i.payment_status AS pay_status, i.status AS status,
+                 COALESCE(c.name, i.customer_name, '-') AS name,
+                 w.name AS warehouse_name, i.created_at AS created
+          FROM invoices i
+          LEFT JOIN customers c ON c.id = i.customer_id
+          LEFT JOIN warehouses w ON w.id = i.warehouse_id
+          WHERE i.type = 'sale'";
+    if ($filterPayment !== '') { $q .= " AND i.payment_status = ?"; $params[] = $filterPayment; }
+    if ($search !== '') {
+        $q .= " AND (i.invoice_number LIKE ? OR i.customer_name LIKE ? OR i.customer_phone LIKE ? OR c.name LIKE ?)";
+        array_push($params, $like, $like, $like, $like);
+    }
+    if ($filterWarehouse > 0) { $q .= " AND i.warehouse_id = ?"; $params[] = $filterWarehouse; }
+    if ($dateFrom !== '') { $q .= " AND i.date >= ?"; $params[] = $dateFrom; }
+    if ($dateTo !== '') { $q .= " AND i.date <= ?"; $params[] = $dateTo; }
+    $parts[] = $q;
 
-if ($filterStatus !== '') {
-    $sql .= " AND i.status = ?";
-    $params[] = $filterStatus;
-}
-
-if ($search !== '') {
-    $sql .= " AND (i.invoice_number LIKE ? OR i.customer_name LIKE ? OR i.customer_phone LIKE ? OR c.name LIKE ? OR s.name LIKE ? OR s.phone LIKE ?)";
-    $like = "%$search%";
-    array_push($params, $like, $like, $like, $like, $like, $like);
-}
-
-if ($filterWarehouse > 0) {
-    $sql .= " AND i.warehouse_id = ?";
-    $params[] = $filterWarehouse;
-}
-
-if ($dateFrom !== '') {
-    $sql .= " AND i.date >= ?";
-    $params[] = $dateFrom;
-}
-
-if ($dateTo !== '') {
-    $sql .= " AND i.date <= ?";
-    $params[] = $dateTo;
+    // POS orders (the actual café sales). No warehouse split — excluded when
+    // a warehouse filter is active to keep the filter truthful.
+    if ($filterWarehouse <= 0) {
+        $q = "SELECT o.id AS id, o.order_number AS number, 'pos' AS kind, DATE(o.created_at) AS date,
+                     o.total_amount AS total, o.paid_amount AS paid, (o.total_amount - o.paid_amount) AS remaining,
+                     o.payment_status AS pay_status, o.status AS status,
+                     COALESCE(NULLIF(o.customer_name, ''), '-') AS name,
+                     NULL AS warehouse_name, o.created_at AS created
+              FROM orders o WHERE 1=1";
+        if ($filterPayment !== '') { $q .= " AND o.payment_status = ?"; $params[] = $filterPayment; }
+        if ($search !== '') {
+            $q .= " AND (o.order_number LIKE ? OR o.customer_name LIKE ? OR o.customer_phone LIKE ?)";
+            array_push($params, $like, $like, $like);
+        }
+        if ($dateFrom !== '') { $q .= " AND DATE(o.created_at) >= ?"; $params[] = $dateFrom; }
+        if ($dateTo !== '') { $q .= " AND DATE(o.created_at) <= ?"; $params[] = $dateTo; }
+        $parts[] = $q;
+    }
 }
 
 // Pagination
@@ -92,13 +114,16 @@ $page = max(1, intval($_GET['page'] ?? 1));
 $offset = ($page - 1) * $perPage;
 
 // Get total count
-$countSql = preg_replace('/SELECT i\.\*.*?FROM invoices i/s', 'SELECT COUNT(*) as count FROM invoices i', $sql);
-$totalItems = getRow($countSql, $params)['count'] ?? 0;
+if (empty($parts)) {
+    $totalItems = 0;
+    $invoices = [];
+} else {
+    $union = implode(' UNION ALL ', $parts);
+    $totalItems = getRow("SELECT COUNT(*) as count FROM ($union) t", $params)['count'] ?? 0;
+    // Get paginated results
+    $invoices = getRows("$union ORDER BY created DESC, id DESC LIMIT $perPage OFFSET $offset", $params);
+}
 $totalPages = ceil($totalItems / $perPage);
-
-// Get paginated results
-$sql .= " ORDER BY i.created_at DESC LIMIT $perPage OFFSET $offset";
-$invoices = getRows($sql, $params);
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -168,7 +193,7 @@ include '../../includes/navbar.php';
 <div class="container">
     <div class="card">
         <div class="card-header d-flex justify-between align-center">
-            <span>📋 قائمة الفواتير</span>
+            <span>🧾 الفواتير (مشتريات ومبيعات)</span>
             <div>
                 <?php if (hasPermission('invoices.purchase.create')): ?>
                 <a href="purchase.php" class="btn btn-success">+ فاتورة شراء</a>
@@ -193,7 +218,7 @@ include '../../includes/navbar.php';
                         <select name="type" id="filterType" class="form-control">
                             <?php if ($canViewSales && $canViewPurchases): ?>
                             <option value="">الكل</option>
-                            <option value="sale" <?php echo $filterType === 'sale' ? 'selected' : ''; ?>>مبيعات</option>
+                            <option value="sale" <?php echo $filterType === 'sale' ? 'selected' : ''; ?>>مبيعات (كاشير + يدوي)</option>
                             <option value="purchase" <?php echo $filterType === 'purchase' ? 'selected' : ''; ?>>مشتريات</option>
                             <?php elseif ($canViewSales): ?>
                             <option value="sale" selected>مبيعات</option>
@@ -266,6 +291,7 @@ include '../../includes/navbar.php';
                         'payment' => $filterPayment,
                         'status' => $filterStatus,
                         'warehouse_id' => $filterWarehouse,
+                        'supplier_id' => $filterSupplier,
                         'date_from' => $dateFrom,
                         'date_to' => $dateTo
                     ]);
@@ -305,31 +331,32 @@ include '../../includes/navbar.php';
                         </tr>
                         <?php else: ?>
                         <?php foreach ($invoices as $invoice): ?>
+                        <?php $kind = $invoice['kind'] ?? 'purchase'; ?>
                         <tr>
-                            <td><strong><?php echo $invoice['invoice_number']; ?></strong></td>
+                            <td><strong><?php echo htmlspecialchars($invoice['number']); ?></strong></td>
                             <td>
-                                <span class="badge <?php echo $invoice['type'] === 'sale' ? 'badge-info' : 'badge-success'; ?>">
-                                    <?php echo $invoice['type'] === 'sale' ? 'مبيعات' : 'مشتريات'; ?>
-                                </span>
+                                <?php if ($kind === 'purchase'): ?>
+                                    <span class="badge badge-success">مشتريات</span>
+                                <?php elseif ($kind === 'pos'): ?>
+                                    <span class="badge badge-info">مبيعات كاشير</span>
+                                <?php else: ?>
+                                    <span class="badge badge-info">مبيعات</span>
+                                <?php endif; ?>
                             </td>
                             <td>
+                                <?php if (!empty($invoice['warehouse_name'])): ?>
                                 <span class="badge" style="background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 10px; font-weight: 600; font-size: 0.85em;">
-                                    🏢 <?php echo htmlspecialchars($invoice['warehouse_name'] ?? 'المخزن الرئيسي'); ?>
+                                    🏢 <?php echo htmlspecialchars($invoice['warehouse_name']); ?>
                                 </span>
+                                <?php else: ?>
+                                <span style="color: #94a3b8;">—</span>
+                                <?php endif; ?>
                             </td>
-                            <td>
-                                <?php 
-                                if ($invoice['type'] === 'sale') {
-                                    echo $invoice['display_name'];
-                                } else {
-                                    echo $invoice['supplier_name_db'] ?: $invoice['customer_name'];
-                                }
-                                ?>
-                            </td>
+                            <td><?php echo htmlspecialchars($invoice['name'] ?? '-'); ?></td>
                             <td><?php echo date('Y/m/d', strtotime($invoice['date'])); ?></td>
-                            <td><?php echo formatCurrency($invoice['total_amount']); ?></td>
-                            <td><?php echo formatCurrency($invoice['paid_amount']); ?></td>
-                            <td><?php echo formatCurrency($invoice['remaining_amount']); ?></td>
+                            <td><?php echo formatCurrency($invoice['total']); ?></td>
+                            <td><?php echo formatCurrency($invoice['paid']); ?></td>
+                            <td><?php echo formatCurrency($invoice['remaining']); ?></td>
                             <td>
                                 <?php
                                 $statusClass = [
@@ -342,12 +369,14 @@ include '../../includes/navbar.php';
                                     'partial' => 'جزئي',
                                     'unpaid' => 'غير مدفوع'
                                 ];
+                                $paySt = $invoice['pay_status'] ?? 'unpaid';
                                 ?>
-                                <span class="badge <?php echo $statusClass[$invoice['payment_status']]; ?>">
-                                    <?php echo $statusText[$invoice['payment_status']]; ?>
+                                <span class="badge <?php echo $statusClass[$paySt] ?? 'badge-secondary'; ?>">
+                                    <?php echo $statusText[$paySt] ?? $paySt; ?>
                                 </span>
                             </td>
                             <td>
+                                <?php if ($kind === 'purchase'): ?>
                                 <?php
                                 $invStatus = $invoice['status'] ?? 'approved';
                                 $invStatusClass = ['draft' => 'badge-warning', 'approved' => 'badge-success', 'cancelled' => 'badge-danger'];
@@ -356,35 +385,58 @@ include '../../includes/navbar.php';
                                 <span class="badge <?php echo $invStatusClass[$invStatus] ?? 'badge-success'; ?>">
                                     <?php echo $invStatusText[$invStatus] ?? $invStatus; ?>
                                 </span>
+                                <?php elseif ($kind === 'pos'): ?>
+                                <?php
+                                $oSt = $invoice['status'] ?? 'completed';
+                                $oMap = ['completed' => ['مكتمل', 'badge-success'], 'cancelled' => ['ملغي', 'badge-danger']];
+                                $oLbl = $oMap[$oSt][0] ?? 'معلق';
+                                $oCls = $oMap[$oSt][1] ?? 'badge-warning';
+                                ?>
+                                <span class="badge <?php echo $oCls; ?>"><?php echo $oLbl; ?></span>
+                                <?php else: ?>
+                                <span class="badge badge-success">✅ معتمدة</span>
+                                <?php endif; ?>
                             </td>
                             <td>
-                                <?php 
-                                $printPage = $invoice['type'] === 'purchase' ? 'print_purchase.php' : 'print.php';
-                                $returnPage = $invoice['type'] === 'purchase' ? '../returns/create_supplier.php' : '../returns/create.php';
-                                $editPage = $invoice['type'] === 'purchase' ? 'edit_purchase.php' : 'edit_sale.php';
-
-                                $canPrintThis = $invoice['type'] === 'purchase' ? hasPermission('invoices.purchase.view') : hasPermission('invoices.sale.view');
-                                $canReturnThis = ($invoice['type'] === 'purchase' ? hasPermission('returns.create_supplier') : hasPermission('returns.create_customer')) && tableExists('returns');
-                                $canEditThis = ($invoice['type'] === 'purchase' ? hasPermission('invoices.purchase.edit') : hasPermission('invoices.sale.edit')) && (($settings['allow_edit_invoices'] ?? '0') === '1');
-                                $canDeleteThis = ($invoice['type'] === 'purchase' ? hasPermission('invoices.purchase.delete') : hasPermission('invoices.sale.delete')) && (($settings['allow_delete_invoices'] ?? '0') === '1');
+                                <?php if ($kind === 'purchase'): ?>
+                                <?php
+                                $canPrintThis = hasPermission('invoices.purchase.view');
+                                $canEditThis = hasPermission('invoices.purchase.edit') && (($settings['allow_edit_invoices'] ?? '0') === '1');
+                                $canDeleteThis = hasPermission('invoices.purchase.delete') && (($settings['allow_delete_invoices'] ?? '0') === '1');
                                 ?>
-                                <?php if ($canPrintThis): ?>
-                                <a href="#" onclick="openReceiptModal('<?php echo $printPage; ?>?id=<?php echo $invoice['id']; ?>'); return false;" class="btn btn-primary" title="طباعة">🖨️</a>
-                                <?php endif; ?>
-                                <?php if (($invoice['status'] ?? 'approved') === 'draft' && $invoice['type'] === 'purchase' && hasAnyPermission(['invoices.purchase.create', 'invoices.purchase.edit'])): ?>
+                                <a href="#" onclick="openReceiptModal('print_purchase.php?id=<?php echo $invoice['id']; ?>'); return false;" class="btn btn-primary" title="طباعة">🖨️</a>
+                                <?php if (($invoice['status'] ?? 'approved') === 'draft' && hasAnyPermission(['invoices.purchase.create', 'invoices.purchase.edit'])): ?>
                                 <form method="POST" action="approve_purchase.php" style="display: inline;" onsubmit="return confirm('اعتماد هذه الفاتورة؟ سيتم إضافة الأصناف للمخزون وتحديث حساب المورد.');">
                                     <input type="hidden" name="id" value="<?php echo $invoice['id']; ?>">
                                     <button type="submit" class="btn btn-success" title="اعتماد الفاتورة">✅</button>
                                 </form>
                                 <?php endif; ?>
-                                <?php if ($canReturnThis): ?>
-                                <a href="<?php echo $returnPage; ?>?invoice_id=<?php echo $invoice['id']; ?>" class="btn btn-warning" title="مرتجع">↩️</a>
-                                <?php endif; ?>
                                 <?php if ($canEditThis): ?>
-                                <a href="<?php echo $editPage; ?>?id=<?php echo $invoice['id']; ?>" class="btn btn-info" title="تعديل">✏️</a>
+                                <a href="edit_purchase.php?id=<?php echo $invoice['id']; ?>" class="btn btn-info" title="تعديل">✏️</a>
                                 <?php endif; ?>
                                 <?php if ($canDeleteThis): ?>
                                 <a href="delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger" title="مسح" onclick="return confirm('هل أنت متأكد من مسح هذه الفاتورة تماماً واسترجاع الأرصدة؟ لا يمكن التراجع عن هذه الخطوة!');">🗑️</a>
+                                <?php endif; ?>
+                                <?php elseif ($kind === 'pos'): ?>
+                                <a href="#" onclick="openReceiptModal('../pos/receipt.php?id=<?php echo $invoice['id']; ?>&type=customer'); return false;" class="btn btn-primary" title="طباعة البون">🖨️</a>
+                                <?php if (($invoice['status'] ?? '') !== 'cancelled' && hasPermission('pos.create_order')): ?>
+                                <a href="../pos/index.php?edit_order=<?php echo $invoice['id']; ?>" class="btn btn-info" title="تعديل في الكاشير">✏️</a>
+                                <?php endif; ?>
+                                <?php else: ?>
+                                <?php
+                                $canPrintThis = hasPermission('invoices.sale.view');
+                                $canEditThis = hasPermission('invoices.sale.edit') && (($settings['allow_edit_invoices'] ?? '0') === '1');
+                                $canDeleteThis = hasPermission('invoices.sale.delete') && (($settings['allow_delete_invoices'] ?? '0') === '1');
+                                ?>
+                                <?php if ($canPrintThis): ?>
+                                <a href="#" onclick="openReceiptModal('print.php?id=<?php echo $invoice['id']; ?>'); return false;" class="btn btn-primary" title="طباعة">🖨️</a>
+                                <?php endif; ?>
+                                <?php if ($canEditThis): ?>
+                                <a href="edit_sale.php?id=<?php echo $invoice['id']; ?>" class="btn btn-info" title="تعديل">✏️</a>
+                                <?php endif; ?>
+                                <?php if ($canDeleteThis): ?>
+                                <a href="delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger" title="مسح" onclick="return confirm('هل أنت متأكد من مسح هذه الفاتورة تماماً واسترجاع الأرصدة؟ لا يمكن التراجع عن هذه الخطوة!');">🗑️</a>
+                                <?php endif; ?>
                                 <?php endif; ?>
                             </td>
                         </tr>

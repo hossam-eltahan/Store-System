@@ -287,12 +287,12 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
 
-            <!-- فواتير الشراء -->
-            <?php if (hasAnyPermission(['invoices.purchase.view', 'invoices.purchase.create'])): ?>
+            <!-- الفواتير (مشتريات ومبيعات) -->
+            <?php if (hasAnyPermission(['invoices.purchase.view', 'invoices.purchase.create', 'invoices.sale.view', 'pos.view'])): ?>
             <li>
-                <a href="<?php echo BASE_URL; ?>modules/invoices/list.php?type=purchase" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'invoices') !== false ? 'active' : ''; ?>">
-                    <span class="sidebar-icon">📥</span>
-                    <span class="sidebar-text">فواتير الشراء</span>
+                <a href="<?php echo BASE_URL; ?>modules/invoices/list.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], 'invoices') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🧾</span>
+                    <span class="sidebar-text">الفواتير</span>
                 </a>
             </li>
             <?php endif; ?>

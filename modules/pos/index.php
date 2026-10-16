@@ -759,6 +759,12 @@ body {
             </button>
         </div>
 
+        <!-- Edit mode banner (loaded from invoices list) -->
+        <div id="editModeBanner" style="display: none; align-items: center; justify-content: space-between; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 7px 10px; margin-bottom: 8px; font-size: 12px; font-weight: 800; color: #1d4ed8;">
+            <span>✏️ تعديل طلب <span id="editModeOrderNo"></span> — الوجهة والجلسة ثابتة</span>
+            <button type="button" onclick="cancelEditMode()" style="background: #fff; border: 1px solid #bfdbfe; border-radius: 6px; color: #1d4ed8; font-size: 11px; font-weight: 800; cursor: pointer; padding: 3px 10px;">إلغاء التعديل</button>
+        </div>
+
         <!-- Order Type Selection -->
         <div class="order-type-tabs">
             <div class="order-type-btn active" data-type="takeaway">🛍️ تيك أواي</div>
@@ -975,12 +981,111 @@ let activeProductModal = null;
 let selectedVariant = null;
 let selectedModifiers = [];
 
+// Edit mode: modify an existing order in place (from the invoices list)
+let editingOrderId = null;
+let editingDiscount = 0;
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     loadProducts();
     loadDestinations();
     setupEventListeners();
+    const params = new URLSearchParams(window.location.search);
+    const editId = parseInt(params.get('edit_order') || '0');
+    if (editId > 0) {
+        enterEditMode(editId);
+    }
 });
+
+function setOrderTypeTabs(type) {
+    currentOrderType = type;
+    document.querySelectorAll('.order-type-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.type === type);
+    });
+    if (typeof updateDestinationUI === 'function') {
+        updateDestinationUI();
+    }
+}
+
+async function enterEditMode(orderId) {
+    if (cart.length > 0) {
+        if (!confirm('السلة بها أصناف غير محفوظة — استبدالها بأصناف الفاتورة المطلوب تعديلها؟')) {
+            const u = new URL(window.location.href);
+            u.searchParams.delete('edit_order');
+            window.history.replaceState({}, '', u.toString());
+            return;
+        }
+    }
+    try {
+        const res = await fetch(`ajax.php?action=get_order&order_id=${orderId}`);
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.error || 'تعذر تحميل الطلب');
+            return;
+        }
+        editingOrderId = data.order.id;
+        editingDiscount = parseFloat(data.order.discount_amount) || 0;
+        cart = (data.items || []).map(it => {
+            const mods = (it.modifiers || []).map(m => ({
+                id: parseInt(m.modifier_id),
+                name: m.modifier_name,
+                price: parseFloat(m.modifier_price),
+                quantity: parseInt(m.quantity) || 1
+            }));
+            const modIds = mods.map(m => m.id).sort().join('_');
+            const note = it.item_notes || '';
+            return {
+                itemKey: `${it.product_id}_${it.variant_id || 0}_${modIds}_${note}`,
+                product_id: parseInt(it.product_id),
+                product_name: it.product_name,
+                variant_id: it.variant_id ? parseInt(it.variant_id) : null,
+                variant_name: it.variant_name || null,
+                unit_price: parseFloat(it.unit_price),
+                quantity: parseInt(it.quantity) || 1,
+                modifiers: mods,
+                notes: note
+            };
+        });
+        document.getElementById('customerNameInput').value = data.order.customer_name || '';
+        document.getElementById('orderNotesInput').value = data.order.notes || '';
+        // Keep the order's original type (tax rule + destination stay consistent)
+        setOrderTypeTabs(data.order.order_type || 'takeaway');
+        renderCart();
+        renderProductsGrid();
+        updateEditUI();
+    } catch (err) {
+        console.error('Edit load error', err);
+        alert('حدث خطأ أثناء تحميل الطلب');
+    }
+}
+
+function updateEditUI() {
+    const banner = document.getElementById('editModeBanner');
+    const deferBtn = document.getElementById('deferBtn');
+    if (editingOrderId) {
+        if (banner) {
+            banner.style.display = 'flex';
+            document.getElementById('editModeOrderNo').textContent = '#' + editingOrderId;
+        }
+        if (deferBtn) deferBtn.style.display = 'none';
+    } else {
+        if (banner) banner.style.display = 'none';
+        if (deferBtn) deferBtn.style.display = '';
+    }
+}
+
+function cancelEditMode() {
+    editingOrderId = null;
+    editingDiscount = 0;
+    cart = [];
+    const u = new URL(window.location.href);
+    u.searchParams.delete('edit_order');
+    window.history.replaceState({}, '', u.toString());
+    renderCart();
+    renderProductsGrid();
+    loadDestinations();
+    updateEditUI();
+}
 
 function setupEventListeners() {
     // Categories filter
@@ -1559,10 +1664,10 @@ function openCheckoutModal() {
 
         <div style="margin-bottom:12px;">
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">قيمة الخصم:</label>
-            <input type="number" id="coDiscountInput" value="0" min="0" max="${subtotal}" step="1" oninput="updateCoNetTotal(${subtotal})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:14px; font-weight:bold;">
+            <input type="number" id="coDiscountInput" value="${editingOrderId ? editingDiscount : 0}" min="0" max="${subtotal}" step="1" oninput="updateCoNetTotal(${subtotal})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:14px; font-weight:bold;">
         </div>
 
-        <div style="margin-bottom:14px;">
+        <div id="coMethodRow" style="margin-bottom:14px; ${editingOrderId ? 'display:none;' : ''}">
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:6px;">طريقة الدفع:</label>
             <select id="coPaymentMethod" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:13px; font-family:inherit;">
                 <option value="cash">💵 نقداً (كاش)</option>
@@ -1658,7 +1763,8 @@ async function processCheckout(isDeferred, disc = 0, method = 'cash') {
         customer_name: document.getElementById('customerNameInput').value.trim(),
         notes: document.getElementById('orderNotesInput').value.trim(),
         pay_now: !isDeferred,
-        client_key: getCheckoutKey()
+        client_key: getCheckoutKey(),
+        edit_order_id: editingOrderId
     };
 
     try {
@@ -1670,6 +1776,15 @@ async function processCheckout(isDeferred, disc = 0, method = 'cash') {
         const data = await res.json();
 
         if (data.success) {
+            // Edit mode: receipt reprint, then leave edit mode (destinations untouched)
+            if (data.edited) {
+                if (data.order_id) {
+                    openReceiptModal(`receipt.php?id=${data.order_id}&type=customer`);
+                }
+                cancelEditMode();
+                loadProducts();
+                return;
+            }
             // Deferred orders remain attached to the session and are printed when it is closed.
             if (!isDeferred && data.is_deferred !== true && data.order_id) {
                 openReceiptModal(`receipt.php?id=${data.order_id}&type=customer`);

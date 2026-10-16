@@ -19,6 +19,45 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 try {
     switch ($action) {
+        // 0. جلب طلب سابق لتعديله في الكاشير (وضع التعديل)
+        case 'get_order':
+            if (!hasPermission('pos.create_order')) {
+                echo json_encode(['success' => false, 'error' => 'ليس لديك صلاحية تعديل الطلبات']);
+                exit;
+            }
+            $editOrderId = (int)($_GET['order_id'] ?? 0);
+            $editOrder = getRow("SELECT * FROM orders WHERE id = ?", [$editOrderId]);
+            if (!$editOrder) {
+                echo json_encode(['success' => false, 'error' => 'الطلب غير موجود']);
+                exit;
+            }
+            if (($editOrder['status'] ?? '') === 'cancelled') {
+                echo json_encode(['success' => false, 'error' => 'لا يمكن تعديل طلب ملغي']);
+                exit;
+            }
+            $editItems = getRows("SELECT * FROM order_items WHERE order_id = ? ORDER BY id ASC", [$editOrderId]);
+            foreach ($editItems as &$eit) {
+                $eit['modifiers'] = getRows("SELECT * FROM order_item_modifiers WHERE order_item_id = ?", [(int)$eit['id']]);
+            }
+            echo json_encode([
+                'success' => true,
+                'order' => [
+                    'id' => (int)$editOrder['id'],
+                    'order_number' => $editOrder['order_number'],
+                    'order_type' => $editOrder['order_type'],
+                    'status' => $editOrder['status'],
+                    'discount_amount' => (float)$editOrder['discount_amount'],
+                    'payment_method' => $editOrder['payment_method'],
+                    'customer_name' => $editOrder['customer_name'],
+                    'notes' => $editOrder['notes'],
+                    'table_session_id' => $editOrder['table_session_id'],
+                    'gaming_session_id' => $editOrder['gaming_session_id'],
+                    'billiard_session_id' => $editOrder['billiard_session_id'],
+                ],
+                'items' => $editItems
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+
         // 1. جلب المنتجات حسب القسم أو البحث
         case 'get_products':
             $categoryId = isset($_GET['category_id']) && $_GET['category_id'] !== '' ? (int)$_GET['category_id'] : null;
@@ -170,12 +209,31 @@ try {
             $customerName = trim($data['customer_name'] ?? '');
             $customerPhone = trim($data['customer_phone'] ?? '');
             $orderNotes = trim($data['notes'] ?? '');
+            // Edit mode: update an existing order in place instead of creating one
+            $editOrderId = !empty($data['edit_order_id']) ? (int)$data['edit_order_id'] : null;
 
             beginTransaction();
 
+            $oldOrder = null;
+            if ($editOrderId) {
+                $oldOrder = getRow("SELECT * FROM orders WHERE id = ? FOR UPDATE", [$editOrderId]);
+                if (!$oldOrder) {
+                    throw new RuntimeException('الطلب المراد تعديله غير موجود');
+                }
+                if (($oldOrder['status'] ?? '') === 'cancelled') {
+                    throw new RuntimeException('لا يمكن تعديل طلب ملغي');
+                }
+                // Destination, type and sessions stay exactly as originally stored
+                $orderType = $oldOrder['order_type'];
+                $gamingSessionId = !empty($oldOrder['gaming_session_id']) ? (int)$oldOrder['gaming_session_id'] : null;
+                $billiardSessionId = !empty($oldOrder['billiard_session_id']) ? (int)$oldOrder['billiard_session_id'] : null;
+                $tableSessionId = !empty($oldOrder['table_session_id']) ? (int)$oldOrder['table_session_id'] : null;
+            }
+
             // Idempotency: a retried submit with the same client key returns the original order
             // without creating a second order, session, payment or stock movement.
-            if ($clientKey !== null) {
+            // Skipped in edit mode (we update by explicit id, never insert).
+            if (!$editOrderId && $clientKey !== null) {
                 $dup = getRow("SELECT id, order_number, total_amount, paid_amount FROM orders WHERE client_key = ?", [$clientKey]);
                 if ($dup) {
                     commit();
@@ -193,7 +251,8 @@ try {
             }
 
             // إذا اختار طاولة شاغرة مباشرة لطلب Dine-In نفتح جلسة طاولة تلقائياً
-            if ($orderType === 'dine_in' && !$tableSessionId && $tableId) {
+            // (طلبات جديدة فقط — التعديل يحتفظ بجلساته الأصلية)
+            if (!$editOrderId && $orderType === 'dine_in' && !$tableSessionId && $tableId) {
                 $tableSessionId = insert(
                     "INSERT INTO table_sessions (table_id, opened_at, status, opened_by, customer_name) VALUES (?, NOW(), 'active', ?, ?)",
                     [$tableId, getCurrentUserId(), $data['customer_name'] ?? 'عميل صالة']
@@ -239,6 +298,39 @@ try {
             $paymentStatus = $isDeferred ? 'unpaid' : 'paid';
             $orderStatus = $isDeferred ? 'preparing' : 'completed';
 
+            if ($oldOrder) {
+                // ---- Edit mode: update the order in place ----
+                $orderId = (int)$oldOrder['id'];
+                $orderNumber = $oldOrder['order_number'];
+                $oldTotal = (float)$oldOrder['total_amount'];
+                // Money already collected stays untouched; only the status follows the new total
+                $paidAmount = (float)$oldOrder['paid_amount'];
+                $paymentStatus = $paidAmount >= $totalAmount ? 'paid' : ($paidAmount > 0 ? 'partial' : 'unpaid');
+                $isDeferred = false;
+
+                execute(
+                    "UPDATE orders SET subtotal = ?, discount_amount = ?, tax_amount = ?, total_amount = ?,
+                                     payment_status = ?, customer_name = ?, customer_phone = ?, notes = ?
+                     WHERE id = ?",
+                    [$subtotal, $discountAmount, $taxAmount, $totalAmount, $paymentStatus, $customerName, $customerPhone, $orderNotes, $orderId]
+                );
+
+                // Reverse the old stock deduction (tracked items only), then clear old lines
+                $oldItems = getRows("SELECT * FROM order_items WHERE order_id = ?", [$orderId]);
+                foreach ($oldItems as $oi) {
+                    $oldPid = (int)($oi['product_id'] ?? 0);
+                    if ($oldPid > 0) {
+                        $oldProd = getRow("SELECT id, unit, track_stock FROM products WHERE id = ? FOR UPDATE", [$oldPid]);
+                        if ($oldProd && (int)$oldProd['track_stock'] === 1) {
+                            updateWarehouseStock(getCurrentWarehouseId(), $oldPid, (int)$oi['quantity'], 'add');
+                            recordProductMovement($oldPid, getCurrentWarehouseId(), 'reversal', (int)$oi['quantity'], 0,
+                                $oldProd['unit'], 'pos_order', $orderId, 'عكس بيع قبل تعديل الطلب ' . $orderNumber);
+                        }
+                    }
+                    execute("DELETE FROM order_item_modifiers WHERE order_item_id = ?", [(int)$oi['id']]);
+                }
+                execute("DELETE FROM order_items WHERE order_id = ?", [$orderId]);
+            } else {
             // إنشاء الطلب
             $orderId = insert(
                 "INSERT INTO orders (order_number, order_type, table_session_id, gaming_session_id, billiard_session_id,
@@ -254,6 +346,7 @@ try {
 
             if (!$orderId) {
                 throw new RuntimeException('تعذر إنشاء الطلب في قاعدة البيانات');
+            }
             }
 
             // إدخال بنود الطلب
@@ -304,8 +397,8 @@ try {
                 }
             }
 
-            // إذا تم الدفع فوراً
-            if ($paidAmount > 0) {
+            // إذا تم الدفع فوراً (الطلبات الجديدة فقط — التعديل لا يمس المدفوعات والشيفت)
+            if (!$oldOrder && $paidAmount > 0) {
                 $payNumber = 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
                 insert(
                     "INSERT INTO payment_records (payment_number, source_type, source_id, amount, payment_method, payment_type, shift_id, created_by)
@@ -332,19 +425,21 @@ try {
                 }
             }
 
+            // تحديث إجماليات الجلسات: طلب جديد يضيف الإجمالي، والتعديل يضيف الفرق فقط
+            $sessionDelta = $oldOrder ? ($totalAmount - $oldTotal) : $totalAmount;
             // إذا كان الطلب مضافاً لجلسة بلايستيشن، نحدث إجمالي الطلبات في الجلسة
             if ($gamingSessionId) {
-                execute("UPDATE gaming_sessions SET cafe_orders_total = cafe_orders_total + ? WHERE id = ?", [$totalAmount, $gamingSessionId]);
+                execute("UPDATE gaming_sessions SET cafe_orders_total = cafe_orders_total + ? WHERE id = ?", [$sessionDelta, $gamingSessionId]);
             }
 
             // إذا كان الطلب مضافاً لجلسة بلياردو
             if ($billiardSessionId) {
-                execute("UPDATE billiard_sessions SET cafe_orders_total = cafe_orders_total + ? WHERE id = ?", [$totalAmount, $billiardSessionId]);
+                execute("UPDATE billiard_sessions SET cafe_orders_total = cafe_orders_total + ? WHERE id = ?", [$sessionDelta, $billiardSessionId]);
             }
 
             // إذا كان الطلب مضافاً لطاولة
             if ($tableSessionId) {
-                execute("UPDATE table_sessions SET total_amount = total_amount + ? WHERE id = ?", [$totalAmount, $tableSessionId]);
+                execute("UPDATE table_sessions SET total_amount = total_amount + ? WHERE id = ?", [$sessionDelta, $tableSessionId]);
             }
 
             commit();
@@ -356,7 +451,8 @@ try {
                 'total_amount' => $totalAmount,
                 'paid_amount' => $paidAmount,
                 'is_deferred' => $isDeferred,
-                'message' => 'تم حفظ الطلب بنجاح'
+                'edited' => (bool)$oldOrder,
+                'message' => $oldOrder ? 'تم تحديث الطلب بنجاح' : 'تم حفظ الطلب بنجاح'
             ], JSON_UNESCAPED_UNICODE);
             break;
 
