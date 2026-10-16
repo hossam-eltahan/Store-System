@@ -75,7 +75,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Optional link to an already-applied quick supply (no double stock on approval)
             $srcMoveId = (int)($item['source_movement_id'] ?? 0);
             if ($srcMoveId > 0) {
-                validateSupplyLink($srcMoveId, $productId);
+                $srcMov = validateSupplyLink($srcMoveId, $productId);
+                // A documenting line must mirror the supply exactly — locked on the form
+                if ($stockQty !== (int)$srcMov['qty_in']) {
+                    throw new Exception('سطر التوريد لا يطابق الكمية المورّدة أصلاً للصنف: ' . $product['name']);
+                }
             }
             $preparedItems[] = [
                 'product_id' => $productId,
@@ -240,12 +244,10 @@ if ($fromSupplyId > 0) {
                 $preQty = $sqty / $pf;
                 $prePUnit = $supProd['purchase_unit'] ?: $supProd['unit'];
                 $preFactor = $pf;
-                $prePrice = $supMov['unit_cost'] !== null ? round((float)$supMov['unit_cost'] * $pf, 2) : 0;
             } else {
                 $preQty = $sqty;
                 $prePUnit = $supProd['unit'];
                 $preFactor = 1;
-                $prePrice = $supMov['unit_cost'] !== null ? (float)$supMov['unit_cost'] : 0;
             }
             $supSup = null;
             if (!empty($supMov['supplier_id'])) {
@@ -257,7 +259,7 @@ if ($fromSupplyId > 0) {
                 'quantity' => $preQty,
                 'purchase_unit' => $prePUnit,
                 'factor' => $preFactor,
-                'price' => $prePrice,
+                'price' => 0,
                 'supplier' => $supSup,
                 'reason' => $supMov['reason'],
             ];
@@ -901,22 +903,25 @@ function renderItems() {
 
     tbody.innerHTML = items.map((item, index) => {
         const stockOut = Math.round((parseFloat(item.quantity) || 0) * (parseFloat(item.factor) || 0));
+        const locked = item.source_movement_id ? 'readonly style="width: 70px; background: #f3f4f6;"' : 'style="width: 70px;"';
+        const lockedNum = item.source_movement_id ? 'readonly style="width: 60px; background: #f3f4f6;"' : 'style="width: 60px;"';
+        const lockedQty = item.source_movement_id ? 'readonly style="background: #f3f4f6;"' : '';
         return `
         <tr>
             <td>${index + 1}</td>
             <td style="font-size: 0.9em;">${item.code}</td>
-            <td style="text-align: right;"><strong>${item.name}</strong><br><small style="color:#6b7280;">وحدة المخزون: ${item.unit}</small></td>
+            <td style="text-align: right;"><strong>${item.name}</strong><br><small style="color:#6b7280;">وحدة المخزون: ${item.unit}</small>${item.source_movement_id ? '<br><small style="color:#2563eb; font-weight:700;">🚚 توثيق توريد — الكمية ثابتة</small>' : ''}</td>
             <td>
                 <input type="text" list="purchaseUnitsList" value="${item.purchase_unit}"
-                       onchange="updatePurchaseUnit(${item.id}, this.value)" style="width: 70px;">
+                       onchange="updatePurchaseUnit(${item.id}, this.value)" ${locked}>
             </td>
             <td>
                 <input type="number" min="1" value="${item.quantity}"
-                       onchange="updateQuantity(${item.id}, this.value)">
+                       onchange="updateQuantity(${item.id}, this.value)" ${lockedQty}>
             </td>
             <td>
                 <input type="number" step="any" min="0" value="${item.factor}"
-                       onchange="updateFactor(${item.id}, this.value)" style="width: 60px;" title="وحدة الشراء = كم وحدة مخزون">
+                       onchange="updateFactor(${item.id}, this.value)" ${lockedNum} title="وحدة الشراء = كم وحدة مخزون">
             </td>
             <td style="font-weight: bold; color: #059669;">${stockOut} ${item.unit}</td>
             <td>
@@ -935,7 +940,7 @@ function renderItems() {
 
 function updatePurchaseUnit(id, val) {
     const item = items.find(i => i.id === id);
-    if (item && val.trim() !== '') {
+    if (item && !item.source_movement_id && val.trim() !== '') {
         item.purchase_unit = val.trim();
         renderItems();
     }
@@ -943,7 +948,7 @@ function updatePurchaseUnit(id, val) {
 
 function updateFactor(id, val) {
     const item = items.find(i => i.id === id);
-    if (item) {
+    if (item && !item.source_movement_id) {
         const f = parseFloat(val);
         item.factor = (f > 0) ? f : 1;
         renderItems();
@@ -952,7 +957,7 @@ function updateFactor(id, val) {
 
 function updateQuantity(id, qty) {
     const item = items.find(i => i.id === id);
-    if (item) {
+    if (item && !item.source_movement_id) {
         item.quantity = parseInt(qty) || 1;
         renderItems();
     }

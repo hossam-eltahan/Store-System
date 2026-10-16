@@ -498,7 +498,10 @@ function approvePurchaseInvoice($invoiceId) {
             // Lines documenting an already-applied quick supply: link only, never add stock twice
             $srcMoveId = isset($item['source_movement_id']) ? (int)$item['source_movement_id'] : 0;
             if ($srcMoveId > 0) {
-                validateSupplyLink($srcMoveId, (int)$item['product_id'], $invoiceId);
+                $srcMov = validateSupplyLink($srcMoveId, (int)$item['product_id'], $invoiceId);
+                if ($stockQty !== (int)$srcMov['qty_in']) {
+                    throw new RuntimeException('سطر التوريد لا يطابق الكمية المورّدة أصلاً');
+                }
                 execute("UPDATE product_stock_movements SET linked_invoice_id = ? WHERE id = ?", [$invoiceId, $srcMoveId]);
                 continue;
             }
