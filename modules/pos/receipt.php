@@ -87,6 +87,13 @@ $isKitchen = ($type === 'kitchen');
     <div class="no-print">
         <button class="btn-print" onclick="window.print()">طباعة</button>
         <button class="btn-print" style="background:#475569;" onclick="if(window.self===window.top){window.close();}else if(window.parent&&typeof window.parent.closeReceiptModal==='function'){window.parent.closeReceiptModal();}">إغلاق</button>
+        <?php if (!empty($order['gaming_session_id'])): ?>
+        <a class="btn-print" style="background:#7c3aed; text-decoration:none; display:inline-block;" href="../gaming/receipt.php?id=<?php echo (int)$order['gaming_session_id']; ?>">🧾 بون تسوية الجلسة</a>
+        <?php elseif (!empty($order['billiard_session_id'])): ?>
+        <a class="btn-print" style="background:#7c3aed; text-decoration:none; display:inline-block;" href="../billiards/receipt.php?id=<?php echo (int)$order['billiard_session_id']; ?>">🧾 بون تسوية الجلسة</a>
+        <?php elseif (!empty($order['table_session_id'])): ?>
+        <a class="btn-print" style="background:#7c3aed; text-decoration:none; display:inline-block;" href="../tables/receipt.php?id=<?php echo (int)$order['table_session_id']; ?>">🧾 بون تسوية الطاولة</a>
+        <?php endif; ?>
     </div>
 
     <div class="header text-center">
