@@ -39,6 +39,12 @@ include '../../includes/navbar.php';
     </div>
 </div>
 
+<!-- Search bar -->
+<div style="margin-bottom: 16px;">
+    <input type="text" id="tablesSearch" placeholder="🔍 بحث باسم الطاولة أو باسم العميل اللي قاعد..." oninput="renderTables()" autocomplete="off"
+           style="width:100%; max-width:420px; display:inline-block; padding:10px 14px; border-radius:10px; border:1.5px solid #cbd5e1; font-family:inherit; font-size:13px; font-weight:600; background:#fff;">
+</div>
+
 <!-- Tables Grid -->
 <div id="tablesGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px;">
     <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #64748b;">
@@ -137,7 +143,18 @@ async function loadTables() {
 
 function renderTables() {
     const grid = document.getElementById('tablesGrid');
-    grid.innerHTML = tables.map(tbl => {
+    const searchEl = document.getElementById('tablesSearch');
+    const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    const shown = tables.filter(tbl => {
+        if (!q) return true;
+        const cust = (tbl.current_session && tbl.current_session.customer_name) ? String(tbl.current_session.customer_name).toLowerCase() : '';
+        return String(tbl.display_name).toLowerCase().includes(q) || cust.includes(q);
+    });
+    if (shown.length === 0) {
+        grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #94a3b8; font-weight: 700;">لا توجد نتائج مطابقة للبحث</div>`;
+        return;
+    }
+    grid.innerHTML = shown.map(tbl => {
         const sess = tbl.current_session;
         const isOccupied = !!sess;
 

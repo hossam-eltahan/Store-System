@@ -300,6 +300,12 @@ include '../../includes/navbar.php';
     </div>
 </div>
 
+<!-- Search bar -->
+<div style="margin-bottom: 16px;">
+    <input type="text" id="gamingSearch" placeholder="🔍 بحث باسم الجهاز أو باسم العميل اللي قاعد..." oninput="renderDevices()" autocomplete="off"
+           style="width:100%; max-width:420px; padding:10px 14px; border-radius:10px; border:1.5px solid #cbd5e1; font-family:inherit; font-size:13px; font-weight:600; background:#fff;">
+</div>
+
 <!-- Devices Grid -->
 <div class="gaming-devices-grid" id="devicesGrid">
     <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #64748b;">
@@ -488,7 +494,18 @@ async function loadDevices() {
 
 function renderDevices() {
     const grid = document.getElementById('devicesGrid');
-    grid.innerHTML = devices.map(dev => {
+    const searchEl = document.getElementById('gamingSearch');
+    const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    const shown = devices.filter(dev => {
+        if (!q) return true;
+        const cust = (dev.current_session && dev.current_session.customer_name) ? String(dev.current_session.customer_name).toLowerCase() : '';
+        return String(dev.display_name).toLowerCase().includes(q) || cust.includes(q);
+    });
+    if (shown.length === 0) {
+        grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #94a3b8; font-weight: 700;">لا توجد نتائج مطابقة للبحث</div>`;
+        return;
+    }
+    grid.innerHTML = shown.map(dev => {
         const sess = dev.current_session;
         const isBusy = !!sess;
         const isPaused = isBusy && sess.status === 'paused';
