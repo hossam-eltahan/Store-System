@@ -37,33 +37,9 @@ $totalTables = getRow("SELECT COUNT(*) as count FROM cafe_tables WHERE is_active
 $activeTables = getRow("SELECT COUNT(*) as count FROM table_sessions WHERE status = 'active'")['count'] ?? 0;
 $availableTables = max(0, $totalTables - $activeTables);
 
-// إحصائيات مبيعات اليوم المالية
-$todaySalesRow = getRow(
-    "SELECT COALESCE(SUM(total_amount), 0) as total, COUNT(*) as orders_count 
-     FROM orders 
-     WHERE DATE(created_at) = CURDATE() AND status != 'cancelled'"
-);
-$todayOrdersTotal = floatval($todaySalesRow['total'] ?? 0);
-$todayOrdersCount = intval($todaySalesRow['orders_count'] ?? 0);
-
-$todayPsRevenue = floatval(getRow(
-    "SELECT COALESCE(SUM(gaming_charge), 0) as total 
-     FROM gaming_sessions 
-     WHERE DATE(started_at) = CURDATE() AND status = 'completed'"
-)['total'] ?? 0);
-
-$todayBilliardRevenue = floatval(getRow(
-    "SELECT COALESCE(SUM(gaming_charge), 0) as total 
-     FROM billiard_sessions 
-     WHERE DATE(started_at) = CURDATE() AND status = 'completed'"
-)['total'] ?? 0);
-
-$todayExpenses = floatval(getRow(
-    "SELECT COALESCE(SUM(amount), 0) as total 
-     FROM expenses 
-     WHERE date = CURDATE()"
-)['total'] ?? 0);
-
+// Financial stats of today are NOT computed here anymore: the numbers are
+// masked cards revealed per-card via modules/dashboard/ajax.php after the
+// user verifies their own password (see dashboard JS near the footer).
 // توريدات مباشرة بلا فواتير (كلها — ليست مقيدة بيوم)
 $openSuppliesCount = 0;
 if (function_exists('columnExists') && columnExists('product_stock_movements', 'movement_type')) {
@@ -72,9 +48,6 @@ if (function_exists('columnExists') && columnExists('product_stock_movements', '
          WHERE movement_type = 'supply' AND linked_invoice_id IS NULL"
     )['c'] ?? 0);
 }
-
-$todayTotalRevenue = $todayOrdersTotal + $todayPsRevenue + $todayBilliardRevenue;
-$todayEstimatedNet = max(0, $todayTotalRevenue - $todayExpenses);
 
 // أحدث 8 طلبات لليوم
 $recentOrders = getRows(
@@ -276,53 +249,63 @@ html, body {
 
 </div>
 
-<!-- Financial Stats for Today -->
+<!-- Financial Stats for Today (masked — reveal per card with own password via the eye button) -->
 <div class="stats-grid">
     
-    <div class="stat-card" style="border-top: 4px solid #ea580c;">
+    <div class="stat-card" style="border-top: 4px solid #ea580c; position: relative;">
+        <button type="button" class="dash-eye" data-key="cafe_orders" title="إظهار الرقم بكلمة المرور"
+                style="position:absolute; top:10px; left:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; width:30px; height:30px; font-size:14px; cursor:pointer; line-height:1;">🙈</button>
         <div>
             <div class="stat-label">مبيعات الكافيه لليوم</div>
-            <div class="stat-value" style="color: #ea580c;"><?php echo number_format($todayOrdersTotal, 2); ?> ج.م</div>
+            <div class="stat-value" style="color: #ea580c;" data-val-slot="cafe_orders">🔒 ••••</div>
         </div>
-        <div style="font-size: 11.5px; color: #64748b; margin-top: 8px;">
-            <span>📦 <?php echo $todayOrdersCount; ?> طلبات مسجلة</span>
+        <div style="font-size: 11.5px; color: #64748b; margin-top: 8px;" data-sub-slot="cafe_orders_sub">
+            <span>📦 •• طلبات مسجلة</span>
         </div>
     </div>
 
-    <div class="stat-card" style="border-top: 4px solid #2563eb;">
+    <div class="stat-card" style="border-top: 4px solid #2563eb; position: relative;">
+        <button type="button" class="dash-eye" data-key="ps_revenue" title="إظهار الرقم بكلمة المرور"
+                style="position:absolute; top:10px; left:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; width:30px; height:30px; font-size:14px; cursor:pointer; line-height:1;">🙈</button>
         <div>
             <div class="stat-label">إيراد ألعاب البلايستيشن</div>
-            <div class="stat-value" style="color: #2563eb;"><?php echo number_format($todayPsRevenue, 2); ?> ج.م</div>
+            <div class="stat-value" style="color: #2563eb;" data-val-slot="ps_revenue">🔒 ••••</div>
         </div>
         <div style="font-size: 11.5px; color: #64748b; margin-top: 8px;">
             <span>🎮 جلسات مكتملة ومحصلة</span>
         </div>
     </div>
 
-    <div class="stat-card" style="border-top: 4px solid #059669;">
+    <div class="stat-card" style="border-top: 4px solid #059669; position: relative;">
+        <button type="button" class="dash-eye" data-key="billiard_revenue" title="إظهار الرقم بكلمة المرور"
+                style="position:absolute; top:10px; left:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; width:30px; height:30px; font-size:14px; cursor:pointer; line-height:1;">🙈</button>
         <div>
             <div class="stat-label">إيراد صالة البلياردو</div>
-            <div class="stat-value" style="color: #059669;"><?php echo number_format($todayBilliardRevenue, 2); ?> ج.م</div>
+            <div class="stat-value" style="color: #059669;" data-val-slot="billiard_revenue">🔒 ••••</div>
         </div>
         <div style="font-size: 11.5px; color: #64748b; margin-top: 8px;">
             <span>🎱 حساب وقت وأجوام</span>
         </div>
     </div>
 
-    <div class="stat-card" style="border-top: 4px solid #dc2626;">
+    <div class="stat-card" style="border-top: 4px solid #dc2626; position: relative;">
+        <button type="button" class="dash-eye" data-key="expenses" title="إظهار الرقم بكلمة المرور"
+                style="position:absolute; top:10px; left:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; width:30px; height:30px; font-size:14px; cursor:pointer; line-height:1;">🙈</button>
         <div>
             <div class="stat-label">مصروفات اليوم</div>
-            <div class="stat-value" style="color: #dc2626;"><?php echo number_format($todayExpenses, 2); ?> ج.م</div>
+            <div class="stat-value" style="color: #dc2626;" data-val-slot="expenses">🔒 ••••</div>
         </div>
         <div style="font-size: 11.5px; color: #64748b; margin-top: 8px;">
             <span>💸 خامات ومشتريات ونثريات</span>
         </div>
     </div>
 
-    <div class="stat-card" style="border-top: 4px solid #10b981; background: #f0fdf4;">
+    <div class="stat-card" style="border-top: 4px solid #10b981; background: #f0fdf4; position: relative;">
+        <button type="button" class="dash-eye" data-key="estimated_net" title="إظهار الرقم بكلمة المرور"
+                style="position:absolute; top:10px; left:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; width:30px; height:30px; font-size:14px; cursor:pointer; line-height:1;">🙈</button>
         <div>
             <div class="stat-label" style="color: #065f46;">صافي الإيراد التقديري اليوم</div>
-            <div class="stat-value" style="color: #15803d;"><?php echo number_format($todayEstimatedNet, 2); ?> ج.م</div>
+            <div class="stat-value" style="color: #15803d;" data-val-slot="estimated_net">🔒 ••••</div>
         </div>
         <div style="font-size: 11.5px; color: #047857; margin-top: 8px; font-weight:bold;">
             <span>إجمالي الإيرادات - المصروفات</span>
@@ -422,5 +405,93 @@ html, body {
     </div>
 
 </div><!-- End container -->
+
+<!-- Dashboard secret-figures reveal (password-gated eye) -->
+<script>
+let dashRevealBusy = false;
+
+document.querySelectorAll('.dash-eye').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const key = btn.dataset.key;
+        const slot = document.querySelector(`[data-val-slot="${key}"]`);
+        if (!slot) return;
+        if (slot.dataset.revealed === '1') {
+            // Hide again (no password to re-hide)
+            slot.dataset.revealed = '0';
+            slot.textContent = '🔒 ••••';
+            btn.textContent = '🙈';
+            const sub = document.querySelector(`[data-sub-slot="${key}_sub"]`);
+            if (sub) sub.innerHTML = '<span>📦 •• طلبات مسجلة</span>';
+            return;
+        }
+        dashRevealCard(key, btn);
+    });
+});
+
+function dashPasswordDialog() {
+    return new Promise(resolve => {
+        const d = appDialogBase();
+        appDialogIcon(d.box, '🔒', '#fee2e2');
+        const t = document.createElement('div');
+        t.style.cssText = 'font-weight:800;font-size:15px;color:#0f172a;margin-bottom:6px;';
+        t.textContent = 'كلمة المرور مطلوبة';
+        d.box.appendChild(t);
+        appDialogText(d.box, 'أدخل كلمة المرور الخاصة بك لعرض رقم هذا البوكس');
+        const input = document.createElement('input');
+        input.type = 'password';
+        input.autocomplete = 'new-password';
+        input.style.cssText = 'width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid #cbd5e1;font-family:inherit;font-size:15px;font-weight:700;text-align:center;letter-spacing:3px;margin-bottom:6px;';
+        d.box.appendChild(input);
+        d.overlay.addEventListener('click', e => { if (e.target === d.overlay) { d.overlay.remove(); resolve(null); } });
+        appDialogButtons(d.box, [
+            { label: 'إلغاء', bg: '#f1f5f9', color: '#334155', onClick: () => { d.overlay.remove(); resolve(null); } },
+            { label: 'تأكيد الإظهار', bg: '#3b82f6', color: '#fff', onClick: () => { const v = input.value; d.overlay.remove(); resolve(v); } }
+        ]);
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); const v = input.value; d.overlay.remove(); resolve(v); }
+        });
+        setTimeout(() => input.focus(), 50);
+    });
+}
+
+async function dashRevealCard(key, btn) {
+    if (dashRevealBusy) return;
+    dashRevealBusy = true;
+    try {
+        const pwd = await dashPasswordDialog();
+        if (!pwd) return;
+        const fd = new FormData();
+        fd.append('password', pwd);
+        const res = await fetch('modules/dashboard/ajax.php?action=verify_and_get', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!data.success) {
+            appAlert(data.error || 'غير مسموح', 'error');
+            return;
+        }
+        const slot = document.querySelector(`[data-val-slot="${key}"]`);
+        if (!slot) return;
+        const sub = document.querySelector(`[data-sub-slot="${key}_sub"]`);
+        if (key === 'cafe_orders') {
+            slot.textContent = `${parseFloat(data.orders_total).toFixed(2)} ج.م`;
+            if (sub) sub.innerHTML = `<span>📦 ${data.orders_count} طلبات مسجلة</span>`;
+        } else {
+            const mm = {
+                ps_revenue: data.ps_revenue,
+                billiard_revenue: data.billiard_revenue,
+                expenses: data.expenses,
+                estimated_net: data.estimated_net
+            };
+            slot.textContent = `${parseFloat(mm[key] || 0).toFixed(2)} ج.م`;
+        }
+        slot.dataset.revealed = '1';
+        btn.textContent = '👁';
+    } catch (err) {
+        console.error(err);
+        appAlert('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        dashRevealBusy = false;
+    }
+}
+</script>
 
 <?php include 'includes/footer.php'; ?>
