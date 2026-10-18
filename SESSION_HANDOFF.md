@@ -17,7 +17,15 @@
 - **Navbar:** compact grouped (categories merged as products tab, supplies merged as inventory tab).
 - **Ship vehicle:** portable self-contained installer + `StoreSystem_Update_*` ZIP; VC++ runtime installs on normal (non-silent) installs only. `config/.dev_license` is dev-only: untracked, git-ignored, excluded from installer.
 
-## 3. Current Task — DONE (verified 2026-10-16)
+## 3. Current Task — DONE (verified 2026-10-19)
+
+**Release 1.0.10 shipped: hall live search + password-gated dashboard figures.**
+- Commit `6bfc246`: live filter (client-side, no new queries) on the 3 hall pages (tables/billiards/gaming) — matches table/device `display_name` OR seated `customer_name`; empty-state message; survives the 15s auto-refresh; timers guard missing elements.
+- Commit `45be54b`: dashboard financial figures masked server-side (`index.php` no longer computes/echoes today's queries) + per-card eye 🙈 → own-password dialog (reuses `appDialog*` helpers) → reveal via new `modules/dashboard/ajax.php?action=verify_and_get` (password_verify against session user, 5 fails → 60s lock per session, `logActivity` audit on reveal).
+- Update ZIP `StoreSystem_Update_v1.0.10_20261019_013311.zip` (49.8KB, 8 files, 0 migrations, HMAC VALID, min_version 1.0.8, byte-verified + Arabic/mojibake-checked inside) in output/ + Desktop; version.php → 1.0.10.
+- Included `modules/{tables,billiards,gaming}/ajax.php` even though unchanged since 1.0.9 — so customers still on 1.0.8 get `customer_name` in hall payloads and customer-search works on first install.
+
+- Update v1.0.9 shipped (reset-submit fix): ZIP `..._175405` HMAC VALID (107 files + 16 migs, fixes byte-verified inside), version.php → 1.0.9, old 1.0.8 ZIP retired from output/; pushed as `99a1a33`. Build driver bug (missing files/migrations POST lines) caught by alert check and fixed.
 
 **Release 1.0.8 shipped: GitHub pushed, update ZIP + setup EXE built, customer-data safety proven.**
 - `StoreSystem_Update_v1.0.8_*.zip` (457KB, 107 files, 16 migrations, HMAC signature VALID, min_version 1.0.0) + `StoreSystem_Setup_v1.0.8.exe` (93.7MB, Inno Setup 7).
