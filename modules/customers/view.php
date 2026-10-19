@@ -110,7 +110,7 @@ include '../../includes/navbar.php';
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <a href="../pos/index.php?customer_id=<?php echo $id; ?>" class="btn-mini primary" style="padding:8px 14px;">🧾 فاتورة بيع جديدة</a>
         <?php if ($stats['open_total'] > 0.009 || $balance < 0): ?>
-        <a href="../payments/pay_customer.php?customer_id=<?php echo $id; ?>" class="btn-mini" style="background:#fef3c7; border-color:#fcd34d; color:#92400e;">💵 تحصيل عام من الرصيد</a>
+        <button type="button" onclick="cstCollectOpen()" class="btn-mini" style="background:#fef3c7; border-color:#fcd34d; color:#92400e;">💵 تحصيل عام من الرصيد</button>
         <?php endif; ?>
         <?php if (hasPermission('reports.statement')): ?>
         <a href="../reports/statement.php?type=customer&id=<?php echo $id; ?>" class="btn-mini">🖨️ كشف حساب</a>
@@ -140,16 +140,27 @@ include '../../includes/navbar.php';
     </div>
     <div class="pr-card" style="border-top:4px solid #a855f7;">
         <div style="font-size:11.5px; color:#475569; font-weight:700;">الرصيد في الدفتر</div>
-        <div style="font-size:17px; font-weight:900; color:#7c3aed;">
+        <div style="font-size:17px; font-weight:900;">
             <?php if ($balance < -0.009): ?>
                 <span style="color:#dc2626;"><?php echo number_format(abs($balance), 2); ?> ج.م (مدين)</span>
             <?php elseif ($balance > 0.009): ?>
                 <span style="color:#059669;"><?php echo number_format($balance, 2); ?> ج.م (دائن)</span>
             <?php else: ?>
-                0.00
+                <span>0.00</span>
             <?php endif; ?>
         </div>
-        <div style="font-size:10.5px; color:#94a3b8;">السجل المصاحب للتحصيلات العامة</div>
+        <?php $ledgerModel = -1 * (float)$stats['open_total'];
+              $ledgerDiff = round($balance - $ledgerModel, 2); ?>
+        <div style="font-size:10.5px; color:#94a3b8; line-height:1.6;">
+            <?php if (abs($ledgerDiff) > 0.009): ?>
+                ⚠️ في رصيد قديم/يدوي في الدفتر (<strong style="color:#b45309;"><?php echo number_format(abs($ledgerDiff), 2); ?> ج.م <?php echo $ledgerDiff < 0 ? 'مدين' : 'دائن'; ?></strong>) مش مربوط بفواتير مفتوحة — الفواتير فوق محاسبتهم بالكامل.
+                <?php if (hasPermission('customers.edit')): ?>
+                <div><button type="button" onclick="cstSyncBalance()" class="btn-mini" style="margin-top:4px; padding:3px 8px; font-size:10.5px;">⚖️ مطابقة الدفتر مع الفواتير (<span id="cstLedgerModel"><?php echo number_format($ledgerModel, 2); ?></span>)</button></div>
+                <?php endif; ?>
+            <?php else: ?>
+                السجل المصاحب للتحصيلات العامة (يتبع المستحقات المفتوحة).
+            <?php endif; ?>
+        </div>
     </div>
 </div>
 
@@ -243,7 +254,7 @@ include '../../includes/navbar.php';
         </div>
 
         <div style="display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end;">
-            <a href="<?php echo profile_kind_read_receipt($it); ?>" class="btn-mini" title="بون">🖨️ بون</a>
+            <button type="button" class="btn-mini" title="بون" onclick='openReceiptModal(<?php echo json_encode(profile_kind_read_receipt($it)); ?>)'>🖨️ بون</button>
             <?php if ($it['kind'] === 'order' && !in_array($it['status'], ['cancelled'], true) && ($it['payment_status'] ?? '') !== 'refunded'): ?>
             <a href="../pos/index.php?edit_order=<?php echo $it['ref_id']; ?>&back=<?php echo urlencode('modules/customers/view.php?id=' . $id); ?>"
                class="btn-mini" title="تعديل أو ارجاع — صرف أو حذف أصناف من الطلب">↩️ تعديل / ارجاع</a>
@@ -274,6 +285,11 @@ $baseQ = http_build_query($qs);
 <!-- Settlement modal -->
 <div id="cstSettleOverlay" style="position:fixed; inset:0; background:rgba(15,23,42,.65); backdrop-filter:blur(3px); display:none; align-items:center; justify-content:center; z-index:100002; padding:16px;">
     <div style="background:#fff; border-radius:16px; width:100%; max-width:440px; padding:20px;" id="cstSettleBox"></div>
+</div>
+
+<!-- General collection from balance modal -->
+<div id="cstCollectOverlay" style="position:fixed; inset:0; background:rgba(15,23,42,.65); backdrop-filter:blur(3px); display:none; align-items:center; justify-content:center; z-index:100002; padding:16px;">
+    <div style="background:#fff; border-radius:16px; width:100%; max-width:440px; padding:20px;" id="cstCollectBox"></div>
 </div>
 
 <script>
@@ -350,14 +366,12 @@ function cstRenderModal() {
 }
 
 function cstUpdateRemain() {
+    // ملاحظة فقط: منع إعادة كتابة القيمة أثناء الكتابة حتى لا يقفز المؤشر
     const max = cstMode.openTotal;
     const input = document.getElementById('cstAmountInput');
-    let val = parseFloat(input.value) || 0;
-    if (val < 0) val = 0;
-    if (val > max) val = max;
-    input.value = val.toFixed(2);
+    const val = parseFloat(input.value) || 0;
     document.getElementById('cstHintRemain').textContent = val < (max - 0.009)
-        ? `(باقي ${moneyFmt(max - val)} يفضل مفتوح على حسابه)` : '';
+        ? `(باقي ${moneyFmt(Math.max(0, max - val))} يفضل مفتوح على حسابه)` : '';
 }
 
 function cstCloseSettle() { document.getElementById('cstSettleOverlay').style.display = 'none'; }
@@ -384,8 +398,10 @@ async function cstSubmitSettle() {
         const data = await res.json();
         if (!data.success) { appAlert(data.error || 'فشل تسجيل التسوية', 'error'); return; }
         const stl = data.summary;
+        // نافذة طباعة فيها كل عناصر المحاسبة (مثل فاتورة بون)
+        openReceiptModal('settlement_receipt.php?id=' + encodeURIComponent(stl.settlement_id));
         appAlert(`تم تحصيل ${moneyFmt(stl.collected)} ج.م وتسجيلها على العميل (${stl.settlement_number})`, 'success');
-        setTimeout(() => location.reload(), 1300);
+        setTimeout(() => location.reload(), 2600);
     } catch (err) {
         console.error(err);
         appAlert('خطأ في الاتصال بالسيرفر', 'error');
@@ -401,6 +417,108 @@ document.addEventListener('DOMContentLoaded', () => {
         if (row) cb.dataset.key = row.dataset.itemKey;
     });
 });
+
+/* ===== تحصيل عام من رصيد الدفتر (نافذة بدل صفحة جديدة) ===== */
+let cstCollectBusy = false;
+
+async function cstCollectOpen() {
+    const box = document.getElementById('cstCollectBox');
+    box.innerHTML = '<div style="text-align:center; padding:24px; color:#64748b; font-weight:700;">جاري تحميل الرصيد…</div>';
+    document.getElementById('cstCollectOverlay').style.display = 'flex';
+    try {
+        const res = await fetch('ajax.php?action=get_balance&customer_id=' + cstCustomerId);
+        const data = await res.json();
+        if (!data.success) { appAlert('تعذر جلب الرصيد', 'error'); document.getElementById('cstCollectOverlay').style.display = 'none'; return; }
+        const owed = Math.max(0, -(parseFloat(data.balance) || 0));
+        box.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h3 style="font-size:15px; font-weight:900; color:#0f172a; margin:0;">💵 تحصيل عام من رصيد العميل</h3>
+                <button onclick="cstCollectClose()" style="background:none;border:none;font-size:20px;cursor:pointer;">&times;</button>
+            </div>
+            <div style="background:#fef3c7; border-radius:10px; padding:10px 14px; font-size:12.5px; color:#92400e; margin-bottom:12px; line-height:1.9;">
+                ده تحصيل من <strong>رصيد الدفتر</strong> (${moneyFmt(owed)} ج.م مدين) — التحصيلات العامة القديمة.
+                لو قصدك محاسبة فواتير معينة استخدم "محاسبة الكل" فوق.
+            </div>
+            <div style="margin-bottom:12px;">
+                <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المبلغ المحصل:<span id="cstCollectHint" style="color:#dc2626; margin-right:8px;"></span></label>
+                <input type="number" id="cstCollectAmount" value="${owed.toFixed(2)}" min="0" max="${owed.toFixed(2)}" step="1"
+                       oninput="cstCollectNote()"
+                       style="width:100%; padding:11px 14px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:16px; font-weight:800; font-family:inherit; text-align:center;">
+            </div>
+            <div style="margin-bottom:14px;">
+                <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:5px;">طريقة الدفع:</label>
+                <select id="cstCollectMethod" style="width:100%; padding:9px 12px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:13px; font-family:inherit;">
+                    <option value="cash">💵 كاش</option>
+                    <option value="card">💳 فيزا / بطاقة</option>
+                    <option value="instapay">⚡ إنستاباي (InstaPay)</option>
+                    <option value="vodafone_cash">📱 فودافون كاش</option>
+                </select>
+            </div>
+            <button type="button" onclick="cstCollectSubmit()" id="cstCollectSubmitBtn" style="width:100%; background:linear-gradient(135deg,#d97706,#b45309); color:#fff; border:none; border-radius:10px; padding:12px; font-size:15px; font-weight:900; cursor:pointer;">
+                ✅ تأكيد التحصيل
+            </button>
+        `;
+        cstCollectNote();
+    } catch (err) {
+        console.error(err);
+        document.getElementById('cstCollectOverlay').style.display = 'none';
+        appAlert('خطأ في الاتصال بالسيرفر', 'error');
+    }
+}
+
+function cstCollectNote() {
+    // ملاحظة فقط — منع إعادة كتابة القيمة حتى لا يقفز المؤشر
+    const input = document.getElementById('cstCollectAmount');
+    const max = parseFloat(input.max) || 0;
+    const val = parseFloat(input.value) || 0;
+    const hint = document.getElementById('cstCollectHint');
+    if (hint) hint.textContent = (val > max + 0.009) ? `⚠️ أكبر من المديونية (${moneyFmt(max)})` : '';
+}
+
+function cstCollectClose() { document.getElementById('cstCollectOverlay').style.display = 'none'; }
+
+async function cstCollectSubmit() {
+    if (cstCollectBusy) return;
+    cstCollectBusy = true;
+    const btn = document.getElementById('cstCollectSubmitBtn');
+    btn.disabled = true;
+    try {
+        const input = document.getElementById('cstCollectAmount');
+        const amount = Math.round((parseFloat(input.value) || 0) * 100) / 100;
+        const max = Math.round((parseFloat(input.max) || 0) * 100) / 100;
+        if (amount <= 0) { appAlert('اكتب مبلغ أكبر من صفر', 'error'); return; }
+        if (amount > max + 0.009) { appAlert('المبلغ أكبر من مديونية العميل', 'error'); return; }
+        const method = document.getElementById('cstCollectMethod').value;
+        const res = await fetch('ajax.php?action=collect_general', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customer_id: cstCustomerId, amount: amount, method: method })
+        });
+        const data = await res.json();
+        if (!data.success) { appAlert(data.error || 'فشل تسجيل التحصيل', 'error'); return; }
+        cstCollectClose();
+        appAlert(`تم تحصيل ${moneyFmt(amount)} ج.م من رصيد العميل (${data.payment_number})`, 'success');
+        // إيصال التحصيل في نافذة طباعة
+        openReceiptModal('../payments/print_customer.php?id=' + encodeURIComponent(data.payment_id));
+        setTimeout(() => location.reload(), 2600);
+    } catch (err) {
+        console.error(err);
+        appAlert('خطأ في الاتصال بالسيرفر', 'error');
+    } finally {
+        cstCollectBusy = false; if (btn) btn.disabled = false;
+    }
+}
+
+/* ===== مطابقة الدفتر مع الفواتير ===== */
+async function cstSyncBalance() {
+    const data = await fetch('ajax.php?action=sync_balance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: cstCustomerId })
+    }).then(r => r.json()).catch(() => null);
+    if (!data || !data.success) { appAlert((data && data.error) || 'فشل التطابق', 'error'); return; }
+    appAlert(`تمت المطابقة: الرصيد في الدفتر بقى ${moneyFmt(Math.abs(data.new_balance))} ج.م ${data.new_balance < 0 ? 'مدين' : 'دائن'} (مطابق للمستحقات المفتوحة)`, 'success');
+    setTimeout(() => location.reload(), 900);
+}
 </script>
 
 <?php include '../../includes/footer.php'; ?>

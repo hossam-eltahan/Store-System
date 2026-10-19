@@ -788,7 +788,7 @@ async function openEndBilliardModal(sessionId) {
             </div>
             <div style="margin-bottom:14px;">
                 <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المحصل الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
-                <input type="number" id="billiardPaidInput" value="" min="0" max="${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)}" step="1" oninput="updateBilliardPaid()"
+                <input type="number" id="billiardPaidInput" value="" min="0" max="${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)}" step="1" oninput="userBilliardPaid()"
                        style="width:100%; padding:9px 12px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:15px; font-weight:800; text-align:center;">
                 <div id="billiardPaidNote" style="font-size:11.5px; font-weight:700; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
             </div>
@@ -816,16 +816,21 @@ async function openEndBilliardModal(sessionId) {
 }
 
 // المحصل أقل من الإجمالي → يترحل على حساب العميل (أو خطأ لو مفيش عميل)
+// الكتابة اليدوية → شغل فلاغ touchedOnce ثم حدّث الملاحظة فقط
+function userBilliardPaid() {
+    const inp = document.getElementById('billiardPaidInput');
+    if (inp) inp.dataset.touchedOnce = '1';
+    updateBilliardPaid();
+}
+
+// Note-only: NEVER rewrites inp.value here (rewriting every keystroke made typing jumpy).
 function updateBilliardPaid() {
     const inp = document.getElementById('billiardPaidInput');
     const note = document.getElementById('billiardPaidNote');
     if (!inp || !note) return;
     const final = parseFloat(inp.max) || 0;
-    let paid = parseFloat(inp.value) || 0;
-    if (paid < 0) paid = 0;
-    inp.dataset.touchedOnce = '1';
-    inp.value = paid.toFixed(2);
-    const remaining = Math.round((final - paid) * 100) / 100;
+    const paid = parseFloat(inp.value) || 0;
+    const remaining = Math.round((final - Math.max(0, paid)) * 100) / 100;
     if (remaining <= 0.009) { note.style.display = 'none'; return; }
     const custName = ((document.getElementById('endBilliardCustomerInput') || {}).value || '').trim();
     const hasCustomer = (document.getElementById('endBilliardCustomerId') || {}).value || custName;

@@ -433,16 +433,21 @@ function updateTableDiscount() {
 }
 
 // المحصل أقل من المتبقي → يترحل على حساب العميل (أو خطأ لو مفيش عميل)
+// الكتابة اليدوية → شغل فلاغ touchedOnce ثم حدّث الملاحظة فقط
+function userTablePaid() {
+    const inp = document.getElementById('payPaidInput');
+    if (inp) inp.dataset.touchedOnce = '1';
+    updateTablePaid();
+}
+
+// Note-only: NEVER rewrites inp.value here (rewriting every keystroke made typing jumpy).
 function updateTablePaid() {
     const inp = document.getElementById('payPaidInput');
     const note = document.getElementById('tablePaidNote');
     if (!inp || !note) return;
     const final = parseFloat(inp.max) || 0;
-    let paidV = parseFloat(inp.value) || 0;
-    if (paidV < 0) paidV = 0;
-    inp.dataset.touchedOnce = '1';
-    inp.value = paidV.toFixed(2);
-    const remaining = Math.round((final - paidV) * 100) / 100;
+    const paidV = parseFloat(inp.value) || 0;
+    const remaining = Math.round((final - Math.max(0, paidV)) * 100) / 100;
     if (remaining <= 0.009) { note.style.display = 'none'; return; }
     const custName = (document.getElementById('payCustomerIdName')?.value || '').trim();
     const hasCustomer = document.getElementById('payCustomerId').value || custName;
@@ -569,7 +574,7 @@ function escapeHtml(t) { return t ? t.toString().replace(/&/g,"&amp;").replace(/
 
                 <div style="margin-bottom: 16px;">
                     <label for="payPaidInput" style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 8px;">💵 المحصل الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
-                    <input type="number" id="payPaidInput" min="0" step="0.5" value="0" oninput="updateTablePaid()"
+                    <input type="number" id="payPaidInput" min="0" step="0.5" value="0" oninput="userTablePaid()"
                            style="width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; font-weight:700; text-align:center;">
                     <div id="tablePaidNote" style="font-size:11.5px; font-weight:700; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
                 </div>

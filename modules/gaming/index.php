@@ -971,7 +971,7 @@ function renderEndModalDetails(data) {
 
         <div style="margin-bottom:14px;">
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المحصل الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
-            <input type="number" id="endPaidInput" value="" min="0" max="${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)}" step="1" oninput="updateEndPaid()"
+            <input type="number" id="endPaidInput" value="" min="0" max="${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)}" step="1" oninput="userEndPaid()"
                    style="width:100%; padding:9px 12px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:15px; font-weight:800; text-align:center;">
             <div id="endPaidNote" style="font-size:11.5px; font-weight:700; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
         </div>
@@ -997,15 +997,21 @@ function renderEndModalDetails(data) {
 }
 
 // المحصل أقل من الإجمالي → يترسل على حساب العميل (أو خطأ لو مفيش عميل)
+// الكتابة اليدوية → شغل فلاغ touchedOnce ثم حدّث الملاحظة فقط
+function userEndPaid() {
+    const inp = document.getElementById('endPaidInput');
+    if (inp) inp.dataset.touchedOnce = '1';
+    updateEndPaid();
+}
+
+// Note-only: NEVER rewrites inp.value here (rewriting every keystroke made typing jumpy).
 function updateEndPaid() {
     const inp = document.getElementById('endPaidInput');
     const note = document.getElementById('endPaidNote');
     if (!inp || !note) return;
     const final = parseFloat(inp.max) || 0;
-    let paid = parseFloat(inp.value) || 0;
-    if (paid < 0) paid = 0;
-    inp.value = paid.toFixed(2);
-    const remaining = Math.round((final - paid) * 100) / 100;
+    const paid = parseFloat(inp.value) || 0;
+    const remaining = Math.round((final - Math.max(0, paid)) * 100) / 100;
     if (remaining <= 0.009) { note.style.display = 'none'; return; }
     const custName = (document.getElementById('endCustomerNameInput') || {}).value;
     const hasCustomer = (document.getElementById('endCustomerId') && document.getElementById('endCustomerId').value) || (custName && custName.trim());

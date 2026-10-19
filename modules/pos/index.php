@@ -1727,7 +1727,7 @@ function openCheckoutModal() {
         ${editingOrderId ? '' : `
         <div id="coPaidRow" style="margin-bottom:14px;">
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المدفوع الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
-            <input type="number" id="coPaidInput" value="" min="0" step="1" oninput="updateCoPaid()"
+            <input type="number" id="coPaidInput" value="" min="0" step="1" oninput="userCoPaid()"
                    style="width:100%; padding:9px 12px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:15px; font-weight:800; text-align:center;">
             <div id="coPaidNote" style="font-size:11.5px; font-weight:700; color:#92400e; background:#fefce8; border:1px solid #fde047; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
         </div>`}
@@ -1747,18 +1747,23 @@ function openCheckoutModal() {
     document.getElementById('checkoutModal').style.display = 'flex';
 }
 
-// Partial pay aware update: shows what happens when the cashier collects less than the total
+// User typed in the paid field: mark touched, then update the note only
+function userCoPaid() {
+    const input = document.getElementById('coPaidInput');
+    if (input) input.dataset.touched = '1';
+    updateCoPaid();
+}
+
+// Partial pay aware update: shows what happens when the cashier collects less than the total.
+// Note-only: NEVER rewrites input.value here (rewriting every keystroke made typing jumpy).
 function updateCoPaid() {
     const finalTxt = (document.getElementById('coFinalTotalDisplay')?.textContent || '0').replace(/[^\d.]/g, '');
     const final = parseFloat(finalTxt) || 0;
     const input = document.getElementById('coPaidInput');
     const note = document.getElementById('coPaidNote');
     if (!input || !note) return;
-    input.dataset.touched = '1';
-    let paid = parseFloat(input.value) || 0;
-    if (paid < 0) paid = 0;
-    input.value = paid.toFixed(2);
-    const remaining = Math.round((final - paid) * 100) / 100;
+    const paid = parseFloat(input.value) || 0;
+    const remaining = Math.round((final - Math.max(0, paid)) * 100) / 100;
     if (remaining <= 0.009) {
         note.style.display = 'none';
     } else {
