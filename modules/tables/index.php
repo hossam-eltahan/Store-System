@@ -157,11 +157,11 @@ async function loadTables() {
 function renderTables() {
     const grid = document.getElementById('tablesGrid');
     const searchEl = document.getElementById('tablesSearch');
-    const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    const q = searchEl ? normSearchText(searchEl.value.trim()) : '';
     const shown = tables.filter(tbl => {
         if (!q) return true;
-        const cust = (tbl.current_session && tbl.current_session.customer_name) ? String(tbl.current_session.customer_name).toLowerCase() : '';
-        return String(tbl.display_name).toLowerCase().includes(q) || cust.includes(q);
+        const cust = (tbl.current_session && tbl.current_session.customer_name) ? String(tbl.current_session.customer_name) : '';
+        return normSearchText(tbl.display_name).includes(q) || normSearchText(cust).includes(q);
     });
     if (shown.length === 0) {
         grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #94a3b8; font-weight: 700;">لا توجد نتائج مطابقة للبحث</div>`;
@@ -421,6 +421,7 @@ async function closeTable(sessionId, total, grossTotal, paidTotal, tableName, or
 
 function updateTableDiscount() {
     const total = parseFloat(document.getElementById('paySessionId').dataset.total || '0');
+    normDigitInput(document.getElementById('payDiscount')); // keyboard Arabic digits support
     const discount = Math.min(total, Math.max(0, parseFloat(document.getElementById('payDiscount').value) || 0));
     document.getElementById('payDiscount').value = discount;
     document.getElementById('tableNetDisplay').innerText = (total - discount).toFixed(2) + ' ج.م';
@@ -436,7 +437,7 @@ function updateTableDiscount() {
 // الكتابة اليدوية → شغل فلاغ touchedOnce ثم حدّث الملاحظة فقط
 function userTablePaid() {
     const inp = document.getElementById('payPaidInput');
-    if (inp) inp.dataset.touchedOnce = '1';
+    if (inp) { inp.dataset.touchedOnce = '1'; normDigitInput(inp); }
     updateTablePaid();
 }
 
@@ -550,7 +551,7 @@ function escapeHtml(t) { return t ? t.toString().replace(/&/g,"&amp;").replace(/
                 </div>
                 <div style="margin-bottom: 16px;">
                     <label for="payDiscount" style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 8px;">🏷️ قيمة الخصم من المتبقي:</label>
-                    <input type="number" id="payDiscount" min="0" step="0.5" value="0" oninput="updateTableDiscount()" style="width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; font-weight:700; text-align:center;">
+                    <input type="text" inputmode="decimal" id="payDiscount" step="0.5" value="0" autocomplete="off" oninput="updateTableDiscount()" style="width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; font-weight:700; text-align:center;">
                 </div>
 
                 <div style="margin-bottom: 16px;">
@@ -574,7 +575,7 @@ function escapeHtml(t) { return t ? t.toString().replace(/&/g,"&amp;").replace(/
 
                 <div style="margin-bottom: 16px;">
                     <label for="payPaidInput" style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 8px;">💵 المحصل الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
-                    <input type="number" id="payPaidInput" min="0" step="0.5" value="0" oninput="userTablePaid()"
+                    <input type="text" inputmode="decimal" id="payPaidInput" value="0" autocomplete="off" oninput="userTablePaid()"
                            style="width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; font-weight:700; text-align:center;">
                     <div id="tablePaidNote" style="font-size:11.5px; font-weight:700; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
                 </div>

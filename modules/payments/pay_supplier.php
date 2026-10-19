@@ -391,7 +391,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Supplier search
 document.getElementById('supplierSearch').addEventListener('input', function() {
-    const query = this.value.toLowerCase().trim();
+    const query = normSearchText(this.value.trim());
     const results = document.getElementById('supplierResults');
     
     if (query.length < 1) {
@@ -400,7 +400,7 @@ document.getElementById('supplierSearch').addEventListener('input', function() {
     }
     
     const matches = suppliers.filter(s => 
-        s.name.toLowerCase().includes(query) ||
+        normSearchText(s.name).includes(query) ||
         (s.phone || '').includes(query)
     ).slice(0, 10);
     

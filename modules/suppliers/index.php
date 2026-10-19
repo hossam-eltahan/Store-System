@@ -45,10 +45,10 @@ $arabicDays = ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء',
 $sql = "SELECT * FROM suppliers WHERE 1=1";
 $params = [];
 
-// Text search filter
+// Text search filter (Arabic-insensitive: "احمد"="أحمد", "مضمون"="مضمونة")
 if ($search !== '') {
-    $sql .= " AND (name LIKE ? OR phone LIKE ? OR expected_products LIKE ?)";
-    $searchParam = "%$search%";
+    $sql .= " AND (" . search_like_expr('name') . " LIKE ? OR " . search_like_expr('phone') . " LIKE ? OR " . search_like_expr('expected_products') . " LIKE ?)";
+    $searchParam = '%' . mb_search_normalize($search) . '%';
     $params[] = $searchParam;
     $params[] = $searchParam;
     $params[] = $searchParam;

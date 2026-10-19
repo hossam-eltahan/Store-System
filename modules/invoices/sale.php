@@ -572,14 +572,14 @@ const customerIdInput = document.getElementById('customerId');
 const customerPhoneInput = document.getElementById('customerPhone');
 
 customerNameInput.addEventListener('input', function() {
-    const query = this.value.toLowerCase().trim();
+    const query = normSearchText(this.value.trim());
     if (query.length < 1) {
         customerResults.style.display = 'none';
         return;
     }
     
     const matches = customers.filter(c => 
-        c.name.toLowerCase().includes(query) || c.phone.includes(query)
+        normSearchText(c.name).includes(query) || normSearchText(c.phone).includes(query)
     ).slice(0, 10);
     
     if (matches.length > 0) {
@@ -629,14 +629,14 @@ const productSearch = document.getElementById('productSearch');
 const productResults = document.getElementById('productResults');
 
 productSearch.addEventListener('input', function() {
-    const query = this.value.toLowerCase().trim();
+    const query = normSearchText(this.value.trim());
     if (query.length < 1) {
         productResults.style.display = 'none';
         return;
     }
     
     const matches = products.filter(p => 
-        p.name.toLowerCase().includes(query) || p.code.toLowerCase().includes(query)
+        normSearchText(p.name).includes(query) || normSearchText(p.code).includes(query)
     ).slice(0, 10);
     
     if (matches.length > 0) {

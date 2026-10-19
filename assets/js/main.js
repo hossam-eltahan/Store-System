@@ -437,7 +437,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (searchInput && tableBody) {
         searchInput.addEventListener('input', function () {
-            const searchTerm = this.value.toLowerCase().trim();
+            const searchTerm = normSearchText(this.value.trim());
             const rows = tableBody.querySelectorAll('tr');
 
             rows.forEach(row => {
@@ -447,8 +447,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     return;
                 }
 
-                const code = row.cells[0]?.textContent?.toLowerCase() || '';
-                const name = row.cells[2]?.textContent?.toLowerCase() || '';
+                const code = normSearchText(row.cells[0]?.textContent || '');
+                const name = normSearchText(row.cells[2]?.textContent || '');
 
                 if (code.includes(searchTerm) || name.includes(searchTerm)) {
                     row.style.display = '';
@@ -467,8 +467,22 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 });
 // Receipt Modal (avoids leftover browser popup windows)
-function openReceiptModal(url) {
+// Arabic-insensitive search normalization for client-side filters — mirrors
+// PHP mb_search_normalize(): أ إ آ → ا ، ة → ه ، ى → ي ، strips tatweel/diacritics
+// and folds Arabic-Indic digits to Latin.
+function normSearchText(s) {
+    s = String(s || '');
+    s = s.replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىیئ]/g, 'ي').replace(/ؤ/g, 'و');
+    s = s.replace(/[٠-٩]/g, function(d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); });
+    s = s.replace(/[۰-۹]/g, function(d) { return '۰۱۲۳۴۵۶۷۸۹'.indexOf(d); });
+    s = s.replace(/[\u064B-\u065F\u0670]/g, '');
+    return s;
+}
+window.normSearchText = normSearchText;
+
+function openReceiptModal(url, onClose) {
     closeReceiptModal();
+    window.__receiptModalOnClose = typeof onClose === 'function' ? onClose : null;
     var overlay = document.createElement('div');
     overlay.id = 'receiptModalOverlay';
     overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.65);backdrop-filter:blur(4px);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
@@ -523,6 +537,34 @@ function closeReceiptModal() {
         overlay.remove();
     }
     window.__receiptModalOverlay = null;
+    // optional per-open callback (e.g. reload the page only AFTER the user closes the receipt)
+    var cb = window.__receiptModalOnClose;
+    window.__receiptModalOnClose = null;
+    if (typeof cb === 'function') { try { cb(); } catch (e) {} }
 }
 window.openReceiptModal = openReceiptModal;
 window.closeReceiptModal = closeReceiptModal;
+
+// Arabic keyboards: number inputs ("type=number") swallow Arabic-Indic digits, so the
+// collector stays empty and the cashier thinks the field is broken. All money fields
+// use type=text + inputmode=decimal + this normalizer: converts ٠-٩ / ۰-۹ → 0-9,
+// accepts . , ٫ ، as decimal point and removes everything else.
+function normDigitInput(el) {
+    if (!el) return 0;
+    var v = String(el.value);
+    var out = '', hasDot = false;
+    for (var i = 0; i < v.length; i++) {
+        var ch = v[i];
+        var d = '٠١٢٣٤٥٦٧٨٩'.indexOf(ch);
+        if (d < 0) d = '۰۱۲۳۴۵۶۷۸۹'.indexOf(ch);
+        if (d >= 0) { out += d; }
+        else if (ch === '.' || ch === ',' || ch === '\u066b') {
+            if (!hasDot) { out += '.'; hasDot = true; }
+        }
+        else if (ch === '\u066c') { /* thousands separator — just skip */ }
+        else if (ch >= '0' && ch <= '9') { out += ch; }
+    }
+    if (out !== v) el.value = out;
+    return parseFloat(out) || 0;
+}
+window.normDigitInput = normDigitInput;

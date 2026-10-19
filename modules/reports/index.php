@@ -1449,7 +1449,7 @@ if (filterEntitySearch) {
     }
 
     filterEntitySearch.addEventListener('input', function() {
-        const query = this.value.toLowerCase().trim();
+        const query = normSearchText(this.value.trim());
         
         if (query.length < 1) {
             filterEntityResults.style.display = 'none';
@@ -1459,8 +1459,8 @@ if (filterEntitySearch) {
         }
         
         const matches = filterList.filter(item => 
-            (item.name && item.name.toLowerCase().includes(query)) || 
-            (item.phone && item.phone.includes(query))
+            (item.name && normSearchText(item.name).includes(query)) || 
+            (item.phone && normSearchText(item.phone).includes(query))
         ).slice(0, 8);
         
         if (matches.length > 0) {

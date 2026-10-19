@@ -44,8 +44,10 @@ $sql = "SELECT * FROM customers WHERE 1=1";
 $params = [];
 
 if ($search !== '') {
-    $sql .= " AND (name LIKE ? OR phone LIKE ? OR address LIKE ?)";
-    $searchParam = "%$search%";
+    // بحث عربي متسامح: "احمد"= "أحمد" و"حمزه"="حمزة" — نفس التطبيع على العمود والبحث
+    $norm = mb_search_normalize($search);
+    $sql .= " AND (" . search_like_expr('name') . " LIKE ? OR " . search_like_expr('phone') . " LIKE ? OR " . search_like_expr('address') . " LIKE ?)";
+    $searchParam = "%$norm%";
     $params[] = $searchParam;
     $params[] = $searchParam;
     $params[] = $searchParam;
@@ -67,15 +69,14 @@ $customers = getRows($sql, $params);
 
 // Attach open-dues (unsettled rest) from the live account engine
 foreach ($customers as &$cRow) {
-    $cRow['open_due'] = 0.0;
-    $cRow['open_count'] = 0;
-    if ((float)$cRow['balance'] < 0) {
-        $stats = customer_account_stats((int)$cRow['id']);
-        // Authoritative dues from linked orders/sessions; fall back to legacy balance
-        if ($stats['open_count'] > 0 || abs($stats['total_billed']) > 0.001) {
-            $cRow['open_due'] = $stats['open_total'];
-            $cRow['open_count'] = $stats['open_count'];
-        }
+    // دايماً: ممكن يبقى عند العميل فواتير مفتوحة مع رصيد دفتر صفر (أو دائن)
+    $stats = customer_account_stats((int)$cRow['id']);
+    if ($stats['open_count'] > 0 || abs($stats['total_billed']) > 0.001) {
+        $cRow['open_due'] = $stats['open_total'];
+        $cRow['open_count'] = $stats['open_count'];
+    } else {
+        $cRow['open_due'] = 0.0;
+        $cRow['open_count'] = 0;
     }
 }
 unset($cRow);
@@ -168,7 +169,13 @@ include '../../includes/navbar.php';
                                 <a href="edit.php?id=<?php echo $customer['id']; ?>" class="btn btn-primary btn-sm" title="تعديل">✏️</a>
                                 <?php endif; ?>
                                 <?php if ($customer['open_due'] > 0.009 || $customer['balance'] < 0): ?>
-                                <a href="../payments/pay_customer.php?customer_id=<?php echo $customer['id']; ?>" class="btn btn-warning btn-sm" title="تحصيل مستحقات">💵</a>
+                                <button type="button" class="btn btn-warning btn-sm btn-collect"
+                                        data-id="<?php echo $customer['id']; ?>"
+                                        data-name="<?php echo htmlspecialchars($customer['name']); ?>"
+                                        data-owed="<?php echo number_format((float)$customer['open_due'], 2, '.', ''); ?>"
+                                        data-open-count="<?php echo (int)$customer['open_count']; ?>"
+                                        data-balance="<?php echo number_format((float)($customer['balance'] ?? 0), 2, '.', ''); ?>"
+                                        title="تحصيل مستحقات">💵</button>
                                 <?php endif; ?>
                                 <?php if (hasPermission('customers.delete')): ?>
                                 <button type="button" class="btn btn-danger btn-sm btn-delete"
@@ -202,6 +209,37 @@ include '../../includes/navbar.php';
             <a id="confirmDeleteBtn" href="#" class="btn btn-danger">🗑️ نعم، احذف</a>
             <button type="button" class="btn btn-secondary" id="cancelDeleteBtn">❌ إلغاء</button>
         </div>
+    </div>
+</div>
+
+<!-- Collect modal (تليفون عميل → نافذة بدل صفحة جديدة) -->
+<div id="collectModal" class="modal-overlay" style="display: none;">
+    <div class="modal-box" style="max-width: 430px; text-align: right; padding: 24px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <h3 style="margin:0; font-size:15.5px; font-weight:900;" id="collectTitle">💰 تحصيل مستحقات</h3>
+            <button type="button" id="collectCloseBtn" style="background:none;border:none;font-size:22px;cursor:pointer;line-height:1;">&times;</button>
+        </div>
+        <div id="collectInfoBox" style="border-radius:10px; padding:10px 14px; font-size:12.5px; line-height:1.9; margin-bottom:12px;"></div>
+        <input type="hidden" id="collectCustomerId" value="">
+        <input type="hidden" id="collectMode" value="settle">
+        <div style="margin-bottom:12px;">
+            <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المبلغ المحصل:<span id="collectHint" style="color:#dc2626; margin-right:8px;"></span></label>
+            <input type="text" inputmode="decimal" id="collectAmount" min="0" autocomplete="off"
+                   style="width:100%; padding:11px 14px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:16px; font-weight:800; font-family:inherit; text-align:center;">
+        </div>
+        <div style="margin-bottom:16px;">
+            <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:5px;">طريقة الدفع:</label>
+            <select id="collectMethod" style="width:100%; padding:9px 12px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:13px; font-family:inherit;">
+                <option value="cash">💵 كاش</option>
+                <option value="card">💳 فيزا / بطاقة</option>
+                <option value="instapay">⚡ إنستاباي (InstaPay)</option>
+                <option value="vodafone_cash">📱 فودافون كاش</option>
+            </select>
+        </div>
+        <button type="button" id="collectSubmitBtn" style="width:100%; background:linear-gradient(135deg,#059669,#047857); color:#fff; border:none; border-radius:10px; padding:12px; font-size:15px; font-weight:900; cursor:pointer;">
+            ✅ تأكيد التحصيل
+        </button>
+        <p style="font-size:10.5px; color:#94a3b8; text-align:center; margin-top:10px;">بعد الحفظ هتفتح نافذة الطباعة تلقائياً 🖨️</p>
     </div>
 </div>
 
@@ -328,10 +366,129 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     document.onkeydown = function(e) {
-        if (e.key === 'Escape' && modal && modal.style.display === 'flex') {
-            modal.style.display = 'none';
+        if (e.key === 'Escape') {
+            if (modal && modal.style.display === 'flex') modal.style.display = 'none';
+            if (collectModal && collectModal.style.display === 'flex') collectModal.style.display = 'none';
         }
     };
+});
+
+/* ===== نافذة تحصيل المستحقات من ليستة العملاء ===== */
+var collectModal = document.getElementById('collectModal');
+var collectBusy = false;
+
+function collectOpen(btn) {
+    var id = btn.getAttribute('data-id');
+    var name = btn.getAttribute('data-name');
+    var owed = parseFloat(btn.getAttribute('data-owed')) || 0;
+    var openCount = parseInt(btn.getAttribute('data-open-count')) || 0;
+    var balance = parseFloat(btn.getAttribute('data-balance')) || 0;
+
+    // من عليه فواتير مفتوحة → محاسبة الفواتير (طباعة إيصال المحاسبة المدمج).
+    // الرصيد العتيق في الدفتر (بدون فواتير) → تحصيل عام (طباعة إيصال دفع).
+    var mode = owed > 0.009 ? 'settle' : 'balance';
+    document.getElementById('collectMode').value = mode;
+    document.getElementById('collectCustomerId').value = id;
+
+    var info = document.getElementById('collectInfoBox');
+    var max = 0;
+    if (mode === 'settle') {
+        document.getElementById('collectTitle').textContent = '💰 محاسبة فواتير العميل';
+        info.style.background = '#fff7ed';
+        info.style.border = '1px solid #fdba74';
+        info.style.color = '#7c2d12';
+        max = owed;
+        info.innerHTML = 'العميل: <strong>' + name + '</strong><br>محاسبة <strong>' + openCount + '</strong> عنصر مفتوح بقيمة <strong>' +
+            owed.toFixed(2) + '</strong> ج.م — المتبقي (لو حصّلت أقل) يفضل مفتوح على حسابه.';
+    } else {
+        document.getElementById('collectTitle').textContent = '💵 تحصيل عام من رصيد الدفتر';
+        info.style.background = '#fef3c7';
+        info.style.border = '1px solid #fcd34d';
+        info.style.color = '#92400e';
+        max = Math.abs(balance);
+        info.innerHTML = 'العميل: <strong>' + name + '</strong><br>مديونية قديمة/يدوية في الدفتر بقيمة <strong>' +
+            max.toFixed(2) + '</strong> ج.م (مش مربوطة بفواتير — محاسبتها من نافذة بروفايل العميل).';
+    }
+
+    var input = document.getElementById('collectAmount');
+    input.max = max.toFixed(2);
+    input.value = max.toFixed(2);
+    document.getElementById('collectHint').textContent = '';
+    document.getElementById('collectMethod').value = 'cash';
+    collectModal.style.display = 'flex';
+    input.focus();
+}
+
+function collectNote() {
+    var input = document.getElementById('collectAmount');
+    normDigitInput(input); // keyboard Arabic digits support
+    var max = parseFloat(input.max) || 0;
+    var val = parseFloat(input.value) || 0;
+    // ملاحظة فقط — من إعادة كتابة القيمة حتى لا يقفز المؤشر أثناء الكتابة
+    document.getElementById('collectHint').textContent = (val > max + 0.009)
+        ? '⚠️ أكبر من المستحق (' + max.toFixed(2) + ')' : '';
+}
+
+function collectClose() { collectModal.style.display = 'none'; }
+
+async function collectSubmit() {
+    if (collectBusy) return;
+    collectBusy = true;
+    var btn = document.getElementById('collectSubmitBtn');
+    btn.disabled = true;
+    try {
+        var input = document.getElementById('collectAmount');
+        var amount = Math.round((parseFloat(input.value) || 0) * 100) / 100;
+        var max = Math.round((parseFloat(input.max) || 0) * 100) / 100;
+        var method = document.getElementById('collectMethod').value;
+        var mode = document.getElementById('collectMode').value;
+        var cid = document.getElementById('collectCustomerId').value;
+
+        if (amount <= 0) { appAlert('اكتب مبلغ أكبر من صفر', 'error'); return; }
+        if (amount > max + 0.009) { appAlert('المبلغ أكبر من المستحق (' + max.toFixed(2) + ' ج.م)', 'error'); return; }
+
+        var url, body;
+        if (mode === 'settle') {
+            url = 'ajax.php?action=settle';
+            body = { customer_id: parseInt(cid), items: [], amount: amount, method: method };
+        } else {
+            url = 'ajax.php?action=collect_general';
+            body = { customer_id: parseInt(cid), amount: amount, method: method };
+        }
+        var res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        var data = await res.json();
+        if (!data.success) { appAlert(data.error || 'فشل تسجيل التحصيل', 'error'); return; }
+
+        collectClose();
+        // نافذة الطباعة بعد الدفع — الريلود بعد ما المستخدم يقفلها بنفسه
+        var printUrl = (mode === 'settle')
+            ? 'settlement_receipt.php?id=' + encodeURIComponent(data.summary.settlement_id)
+            : '../payments/print_customer.php?id=' + encodeURIComponent(data.payment_id);
+        openReceiptModal(printUrl, function() { location.reload(); });
+    } catch (err) {
+        console.error(err);
+        appAlert('خطأ في الاتصال بالسيرفر', 'error');
+    } finally {
+        collectBusy = false;
+        if (btn) btn.disabled = false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    collectModal = document.getElementById('collectModal');
+    var buttons = document.querySelectorAll('.btn-collect');
+    for (var k = 0; k < buttons.length; k++) {
+        buttons[k].onclick = function() { collectOpen(this); };
+    }
+    var closeBtn = document.getElementById('collectCloseBtn');
+    if (closeBtn) closeBtn.onclick = collectClose;
+    document.getElementById('collectAmount').oninput = collectNote;
+    document.getElementById('collectSubmitBtn').onclick = collectSubmit;
+    collectModal.onclick = function(e) { if (e.target === collectModal) collectClose(); };
 });
 </script>
 

@@ -1,7 +1,7 @@
 <?php
 /**
- * Settlement Receipt — إيصال محاسبة فواتير عميل (مدمج)
- * يعرض كل عناصر التسوية من customer_settlements.per_item في قالب طباعة مضغوط.
+ * Settlement Receipt — إيصال محاسبة فواتير عميل (مدمج) — Thermal 80mm (same shape as POS receipts)
+ * يعرض كل عناصر التسوية من customer_settlements.per_item في بون حراري موحد.
  */
 
 require_once '../../config/database.php';
@@ -28,187 +28,144 @@ if (!is_array($perItem)) {
     $perItem = [];
 }
 
-$appliedTotal = 0.0;
-$grandTotal = 0.0;
+$leftTotal = 0.0;
 foreach ($perItem as $it) {
-    $appliedTotal += (float)($it['applied'] ?? 0);
-    $grandTotal += (float)($it['total_amount'] ?? 0);
+    $leftTotal = max($leftTotal, 0.0) + max(0, (float)($it['total_amount'] ?? 0) - (float)($it['applied'] ?? 0));
 }
-$leftTotal = max(0, round($grandTotal - $appliedTotal, 2));
+$leftTotal = round($leftTotal, 2);
 
-// Get settings
-$settings = getAllSettings();
-$storeName = $settings['store_name'] ?? 'المحل';
-$storeAddress = $settings['store_address'] ?? '';
-$storePhone = $settings['store_phone'] ?? '';
-$storePhone2 = $settings['store_phone2'] ?? '';
-$storeLogo = $settings['store_logo'] ?? '';
-$currency = $settings['currency'] ?? 'جنيه';
-
-$pageTitle = 'إيصال محاسبة ' . $settlement['settlement_number'];
+$storeName = getSetting('store_name', 'المحل');
+$storeAddress = getSetting('store_address', '');
+$storePhone = getSetting('store_phone', '');
+$receiptHeader = getSetting('receipt_header', '');
+$receiptFooter = getSetting('receipt_footer', 'شكراً لتعاملكم معنا');
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title><?php echo $pageTitle; ?></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إيصال محاسبة #<?php echo htmlspecialchars($settlement['settlement_number']); ?></title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f5f5; direction: rtl; font-size: 11px; }
-
-        .no-print { text-align: center; padding: 8px; background: #f59e0b; }
-        .no-print .btn { display: inline-block; padding: 6px 15px; margin: 0 3px; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; text-decoration: none; color: white; }
-        .btn-print { background: white; color: #f59e0b; }
-        .btn-close { background: #dc2626; }
-
-        .print-area { max-width: 190mm; margin: 10px auto; background: white; padding: 5mm; }
-
-        .header { display: flex; align-items: center; justify-content: center; gap: 12px; padding-bottom: 5px; border-bottom: 2px solid #f59e0b; margin-bottom: 5px; }
-        .header-logo { width: 50px; height: 50px; object-fit: contain; }
-        .header-text { text-align: center; }
-        .store-name { font-size: 18px; font-weight: bold; color: #f59e0b; }
-        .header-info { font-size: 10px; color: #666; }
-
-        .receipt-type { text-align: center; border: 2px solid #f59e0b; background: #fef3c7; padding: 5px; margin: 5px 0; font-size: 14px; font-weight: bold; color: #92400e; }
-
-        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-        .info-table td { padding: 4px 6px; border: 1px solid #f59e0b; font-size: 11px; }
-        .info-table .label { font-weight: bold; background: #fef3c7; width: 100px; }
-
-        .amount-box { background: #10b981; color: white; padding: 10px; border-radius: 6px; text-align: center; margin: 8px 0; }
-        .amount-box .title { font-size: 11px; margin-bottom: 3px; }
-        .amount-box .amount { font-size: 24px; font-weight: bold; }
-
-        .items-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-        .items-table th { background: #0f172a; color: #fff; padding: 5px 6px; font-size: 10.5px; border: 1px solid #0f172a; }
-        .items-table td { padding: 5px 6px; border: 1px solid #f59e0b; font-size: 10.5px; text-align: center; }
-        .items-table td.item-name { text-align: right; font-weight: bold; }
-        .items-table tr:nth-child(even) td { background: #fffbeb; }
-
-        .totals-row { display: flex; gap: 8px; margin: 8px 0; }
-        .totals-box { flex: 1; padding: 8px; border-radius: 6px; text-align: center; font-size: 11px; }
-        .totals-box .amount { font-size: 15px; font-weight: bold; margin-top: 3px; }
-        .tb-billed { background: #eff6ff; border: 1px solid #2563eb; }
-        .tb-applied { background: #d1fae5; border: 1px solid #10b981; }
-        .tb-left { background: <?php echo $leftTotal > 0.009 ? '#fee2e2; border: 1px solid #dc2626;' : '#f1f5f9; border: 1px solid #94a3b8;'; ?> }
-
-        .notes-box { background: #f3f4f6; padding: 6px; border-radius: 4px; margin-bottom: 8px; font-size: 10px; }
-
-        .footer-sig { text-align: center; padding-top: 8px; border-top: 2px dashed #f59e0b; margin-top: 8px; font-size: 10px; }
-
-        @media print {
-            .no-print { display: none !important; }
-            body { background: white; }
-            .print-area { max-width: 100%; margin: 0; padding: 4mm; box-shadow: none; }
-            @page { margin: 8mm; }
-        }
+        @page { size: 80mm auto; margin: 0; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Cairo', 'Courier New', monospace, sans-serif; -webkit-print-color-adjust: exact; }
+        body { width: 80mm; max-width: 80mm; margin: 0 auto; padding: 8px 10px; background: #fff; color: #000; font-size: 12px; line-height: 1.4; direction: rtl; }
+        .text-center { text-align: center; }
+        .text-left { text-align: left; }
+        .fw-bold { font-weight: 700; }
+        .divider { border-top: 1px dashed #000; margin: 6px 0; }
+        .header { margin-bottom: 8px; text-align: center; }
+        .header h1 { font-size: 17px; font-weight: 900; margin-bottom: 3px; }
+        .header p { font-size: 11px; color: #222; }
+        .meta-table { width: 100%; font-size: 11px; margin-bottom: 6px; }
+        .meta-table td { padding: 2px 0; }
+        .items-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+        .items-table th { border-bottom: 1px solid #000; padding: 4px 2px; font-size: 10.5px; }
+        .items-table td { padding: 4px 2px; vertical-align: top; text-align: center; }
+        .items-table .item-name { text-align: right; }
+        .items-table .item-row { border-bottom: 1px dotted #ccc; }
+        .totals-table { width: 100%; margin-top: 6px; font-size: 12px; }
+        .totals-table td { padding: 2px 0; }
+        .grand-total { font-size: 15px; font-weight: 900; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 0 !important; }
+        .footer { margin-top: 10px; font-size: 10.5px; text-align: center; }
+        .no-print { background: #f1f5f9; padding: 10px; text-align: center; border-bottom: 2px solid #cbd5e1; margin-bottom: 10px; }
+        .btn-print { background: #2563eb; color: #fff; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px; }
+        @media print { .no-print { display: none !important; } body { padding: 0; } }
     </style>
 </head>
 <body>
     <div class="no-print">
-        <button class="btn btn-print" onclick="window.print()">🖨️ طباعة</button>
-        <button class="btn btn-close" onclick="window.close()">❌ إغلاق</button>
+        <button class="btn-print" onclick="window.print()">طباعة</button>
+        <button class="btn-print" style="background:#475569;" onclick="if(window.self===window.top){window.close();}else if(window.parent&&typeof window.parent.closeReceiptModal==='function'){window.parent.closeReceiptModal();}">إغلاق</button>
     </div>
 
-    <div class="print-area">
-        <div class="header">
-            <?php if ($storeLogo): ?>
-            <img src="../../assets/uploads/<?php echo $storeLogo; ?>" alt="Logo" class="header-logo">
-            <?php endif; ?>
-            <div class="header-text">
-                <div class="store-name"><?php echo $storeName; ?></div>
-                <div class="header-info">
-                    <?php if ($storeAddress): ?>العنوان: <?php echo $storeAddress; ?><?php endif; ?>
-                    <?php if ($storePhone): ?> | ت: <?php echo $storePhone; ?><?php endif; ?>
-                    <?php if ($storePhone2): ?> - <?php echo $storePhone2; ?><?php endif; ?>
-                </div>
-            </div>
-            <?php if ($storeLogo): ?>
-            <img src="../../assets/uploads/<?php echo $storeLogo; ?>" alt="" class="header-logo" style="visibility:hidden;">
-            <?php endif; ?>
-        </div>
+    <div class="header text-center">
+        <h1><?php echo htmlspecialchars($storeName); ?></h1>
+        <?php if ($storeAddress): ?><p><?php echo htmlspecialchars($storeAddress); ?></p><?php endif; ?>
+        <?php if ($storePhone): ?><p>هاتف: <?php echo htmlspecialchars($storePhone); ?></p><?php endif; ?>
+        <?php if ($receiptHeader): ?><p style="margin-top:3px;"><?php echo htmlspecialchars($receiptHeader); ?></p><?php endif; ?>
+    </div>
 
-        <div class="receipt-type">🧾 إيصال محاسبة فواتير عميل</div>
+    <div class="divider"></div>
 
-        <table class="info-table">
-            <tr>
-                <td class="label">رقم التسوية:</td>
-                <td><strong><?php echo $settlement['settlement_number']; ?></strong></td>
-                <td class="label">التاريخ:</td>
-                <td><?php echo date('Y/m/d h:i A', strtotime($settlement['created_at'])); ?></td>
-            </tr>
-            <tr>
-                <td class="label">العميل:</td>
-                <td><strong><?php echo $settlement['customer_name'] ?: '-'; ?></strong></td>
-                <td class="label">التليفون:</td>
-                <td><?php echo $settlement['customer_phone'] ?: '-'; ?></td>
-            </tr>
-            <tr>
-                <td class="label">عدد الفواتير:</td>
-                <td><?php echo count($perItem); ?></td>
-                <td class="label">رقم الشيفت:</td>
-                <td><?php echo $settlement['shift_id'] ? ('#' . $settlement['shift_id']) : '-'; ?></td>
-            </tr>
-        </table>
-
-        <table class="items-table">
-            <thead>
-                <tr>
-                    <th style="width:24px;">#</th>
-                    <th>الفاتورة / الطلب</th>
-                    <th>التاريخ</th>
-                    <th>الإجمالي</th>
-                    <th>المحاصل عليه</th>
-                    <th>المتبقي</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php $i = 1; foreach ($perItem as $it): ?>
-                <tr>
-                    <td><?php echo $i++; ?></td>
-                    <td class="item-name"><?php echo htmlspecialchars(($it['label'] ?? '') . ' — ' . ($it['ref_number'] ?? '')); ?></td>
-                    <td><?php echo date('d/m/Y • h:i A', strtotime($it['item_date'] ?? $settlement['created_at'])); ?></td>
-                    <td><?php echo number_format((float)($it['total_amount'] ?? 0), 2); ?></td>
-                    <td style="color:#059669; font-weight:bold;"><?php echo number_format((float)($it['applied'] ?? 0), 2); ?></td>
-                    <td style="color:<?php echo (float)($it['left_after'] ?? 0) > 0.009 ? '#dc2626' : '#94a3b8'; ?>;"><?php echo number_format((float)($it['left_after'] ?? 0), 2); ?></td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
-
-        <div class="amount-box">
-            <div class="title">إجمالي المحصل في هذه التسوية</div>
-            <div class="amount"><?php echo number_format((float)$settlement['paid_amount'], 2); ?> <?php echo $currency; ?></div>
-        </div>
-
-        <div class="totals-row">
-            <div class="totals-box tb-billed">
-                <div>إجمالي الفواتير المحسوبة</div>
-                <div class="amount"><?php echo number_format((float)$settlement['total_amount'], 2); ?> <?php echo $currency; ?></div>
-            </div>
-            <div class="totals-box tb-applied">
-                <div>المحصول منها</div>
-                <div class="amount"><?php echo number_format((float)$settlement['paid_amount'], 2); ?> <?php echo $currency; ?></div>
-            </div>
-            <div class="totals-box tb-left">
-                <div>المتبقي غير محاسب</div>
-                <div class="amount"><?php echo number_format($leftTotal, 2); ?> <?php echo $currency; ?></div>
-            </div>
-        </div>
-
-        <?php if ($settlement['notes']): ?>
-        <div class="notes-box">
-            <strong>ملاحظات:</strong> <?php echo $settlement['notes']; ?>
-        </div>
+    <table class="meta-table">
+        <tr>
+            <td class="fw-bold">إيصال محاسبة فواتير:</td>
+            <td class="text-left fw-bold"><?php echo htmlspecialchars($settlement['settlement_number']); ?></td>
+        </tr>
+        <tr>
+            <td>التاريخ والوقت:</td>
+            <td class="text-left"><?php echo date('Y-m-d h:i A', strtotime($settlement['created_at'])); ?></td>
+        </tr>
+        <tr>
+            <td>العميل:</td>
+            <td class="text-left"><?php echo htmlspecialchars($settlement['customer_name'] ?: '-'); ?></td>
+        </tr>
+        <?php if (!empty($settlement['customer_phone'])): ?>
+        <tr>
+            <td>التليفون:</td>
+            <td class="text-left"><?php echo htmlspecialchars($settlement['customer_phone']); ?></td>
+        </tr>
         <?php endif; ?>
+        <tr>
+            <td>عدد الفواتير:</td>
+            <td class="text-left"><?php echo count($perItem); ?></td>
+        </tr>
+    </table>
 
-        <div class="footer-sig">
-            <p>شكراً لتعاملكم معنا</p>
-            <p style="margin-top: 15px;">
-                توقيع العميل: _______________ &nbsp;&nbsp;&nbsp;&nbsp;
-                توقيع المسؤول: _______________
-            </p>
-        </div>
+    <div class="divider"></div>
+
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width:24px;">#</th>
+                <th>الفاتورة / الطلب</th>
+                <th>الإجمالي</th>
+                <th>المحصل عليه</th>
+                <th>المتبقي</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php $i = 1; foreach ($perItem as $it): ?>
+            <tr class="item-row">
+                <td><?php echo $i++; ?></td>
+                <td class="item-name" style="font-size:10.5px;">
+                    <?php echo htmlspecialchars(($it['label'] ?? '') . ' — ' . ($it['ref_number'] ?? '')); ?>
+                    <span style="font-size:9.5px; color:#444; display:block;"><?php echo date('d/m/Y h:i A', strtotime($it['item_date'] ?? $settlement['created_at'])); ?></span>
+                </td>
+                <td><?php echo number_format((float)($it['total_amount'] ?? 0), 2); ?></td>
+                <td class="fw-bold"><?php echo number_format((float)($it['applied'] ?? 0), 2); ?></td>
+                <td><?php echo number_format((float)($it['left_after'] ?? 0), 2); ?></td>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+
+    <table class="totals-table">
+        <tr>
+            <td>إجمالي الفواتير المحسوبة:</td>
+            <td class="text-left"><?php echo number_format((float)$settlement['total_amount'], 2); ?> ج.م</td>
+        </tr>
+        <tr>
+            <td>المتبقي غير محاسب:</td>
+            <td class="text-left"><?php echo number_format($leftTotal, 2); ?> ج.م</td>
+        </tr>
+        <tr class="grand-total">
+            <td>إجمالي المحصل:</td>
+            <td class="text-left"><?php echo number_format((float)$settlement['paid_amount'], 2); ?> ج.م</td>
+        </tr>
+    </table>
+
+    <?php if (!empty($settlement['notes'])): ?>
+    <div class="divider"></div>
+    <p style="font-size:10.5px;"><?php echo htmlspecialchars((string)$settlement['notes']); ?></p>
+    <?php endif; ?>
+
+    <div class="divider"></div>
+
+    <div class="footer">
+        <p><?php echo htmlspecialchars($receiptFooter); ?></p>
+        <p style="margin-top:4px;">توقيع العميل: ______________</p>
     </div>
 </body>
 </html>

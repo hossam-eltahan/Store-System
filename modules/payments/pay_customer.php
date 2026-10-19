@@ -392,7 +392,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Customer search
 document.getElementById('customerSearch').addEventListener('input', function() {
-    const query = this.value.toLowerCase().trim();
+    const query = normSearchText(this.value.trim());
     const results = document.getElementById('customerResults');
     
     if (query.length < 1) {
@@ -401,7 +401,7 @@ document.getElementById('customerSearch').addEventListener('input', function() {
     }
     
     const matches = customers.filter(c => 
-        c.name.toLowerCase().includes(query) ||
+        normSearchText(c.name).includes(query) ||
         (c.phone || '').includes(query)
     ).slice(0, 10);
     

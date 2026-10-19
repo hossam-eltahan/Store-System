@@ -1727,7 +1727,7 @@ function openCheckoutModal() {
         ${editingOrderId ? '' : `
         <div id="coPaidRow" style="margin-bottom:14px;">
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المدفوع الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
-            <input type="number" id="coPaidInput" value="" min="0" step="1" oninput="userCoPaid()"
+            <input type="text" inputmode="decimal" id="coPaidInput" value="" autocomplete="off" oninput="userCoPaid()"
                    style="width:100%; padding:9px 12px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:15px; font-weight:800; text-align:center;">
             <div id="coPaidNote" style="font-size:11.5px; font-weight:700; color:#92400e; background:#fefce8; border:1px solid #fde047; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
         </div>`}
@@ -1750,7 +1750,7 @@ function openCheckoutModal() {
 // User typed in the paid field: mark touched, then update the note only
 function userCoPaid() {
     const input = document.getElementById('coPaidInput');
-    if (input) input.dataset.touched = '1';
+    if (input) { input.dataset.touched = '1'; normDigitInput(input); }
     updateCoPaid();
 }
 
@@ -1796,6 +1796,7 @@ function coTaxPct() {
 
 function updateCoNetTotal(baseTotal) {
     const input = document.getElementById('coDiscountInput');
+    normDigitInput(input); // keyboard Arabic digits support
     const disc = Math.min(baseTotal, Math.max(0, parseFloat(input.value) || 0));
     input.value = disc;
     const net = Math.max(0, baseTotal - disc);

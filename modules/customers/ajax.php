@@ -348,10 +348,10 @@ function searchCustomers() {
         return;
     }
 
-    $searchTerm = "%$query%";
+    $norm = mb_search_normalize($query);
     $customers = getRows(
-        "SELECT id, name, phone, balance FROM customers WHERE (name LIKE ? OR phone LIKE ?) AND is_active = 1 ORDER BY name LIMIT 20",
-        [$searchTerm, $searchTerm]
+        "SELECT id, name, phone, balance FROM customers WHERE (" . search_like_expr('name') . " LIKE ? OR " . search_like_expr('phone') . " LIKE ?) AND is_active = 1 ORDER BY name LIMIT 20",
+        [$norm, $norm]
     );
 
     echo json_encode([

@@ -42,7 +42,7 @@ $warehouses = getAllWarehouses(false);
 // remaining, pay_status, status, name, warehouse_name, created.
 $parts = [];
 $params = [];
-$like = $search !== '' ? "%$search%" : null;
+$like = $search !== '' ? '%' . mb_search_normalize($search) . '%' : null;
 
 if ($canViewPurchases && ($filterType === '' || $filterType === 'purchase')) {
     $q = "SELECT i.id AS id, i.invoice_number AS number, 'purchase' AS kind, i.date AS date,
@@ -61,7 +61,7 @@ if ($canViewPurchases && ($filterType === '' || $filterType === 'purchase')) {
     if ($filterStatus !== '') { $q .= " AND i.status = ?"; $params[] = $filterStatus; }
     if ($filterSupplier > 0) { $q .= " AND i.supplier_id = ?"; $params[] = $filterSupplier; }
     if ($search !== '') {
-        $q .= " AND (i.invoice_number LIKE ? OR i.customer_name LIKE ? OR i.customer_phone LIKE ? OR s.name LIKE ? OR s.phone LIKE ?)";
+        $q .= " AND (i.invoice_number LIKE ? OR " . search_like_expr('i.customer_name') . " LIKE ? OR i.customer_phone LIKE ? OR " . search_like_expr('s.name') . " LIKE ? OR s.phone LIKE ?)";
         array_push($params, $like, $like, $like, $like, $like);
     }
     if ($filterWarehouse > 0) { $q .= " AND i.warehouse_id = ?"; $params[] = $filterWarehouse; }
@@ -83,7 +83,7 @@ if ($canViewSales && ($filterType === '' || $filterType === 'sale') && $filterSu
           WHERE i.type = 'sale'";
     if ($filterPayment !== '') { $q .= " AND i.payment_status = ?"; $params[] = $filterPayment; }
     if ($search !== '') {
-        $q .= " AND (i.invoice_number LIKE ? OR i.customer_name LIKE ? OR i.customer_phone LIKE ? OR c.name LIKE ?)";
+        $q .= " AND (i.invoice_number LIKE ? OR " . search_like_expr('i.customer_name') . " LIKE ? OR i.customer_phone LIKE ? OR " . search_like_expr('c.name') . " LIKE ?)";
         array_push($params, $like, $like, $like, $like);
     }
     if ($filterWarehouse > 0) { $q .= " AND i.warehouse_id = ?"; $params[] = $filterWarehouse; }
@@ -102,7 +102,7 @@ if ($canViewSales && ($filterType === '' || $filterType === 'sale') && $filterSu
               FROM orders o WHERE 1=1";
         if ($filterPayment !== '') { $q .= " AND o.payment_status = ?"; $params[] = $filterPayment; }
         if ($search !== '') {
-            $q .= " AND (o.order_number LIKE ? OR o.customer_name LIKE ? OR o.customer_phone LIKE ?)";
+            $q .= " AND (o.order_number LIKE ? OR " . search_like_expr('o.customer_name') . " LIKE ? OR o.customer_phone LIKE ?)";
             array_push($params, $like, $like, $like);
         }
         if ($dateFrom !== '') { $q .= " AND DATE(o.created_at) >= ?"; $params[] = $dateFrom; }

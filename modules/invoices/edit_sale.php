@@ -629,7 +629,7 @@ customerNameInput.addEventListener('input', function() {
     }
     
     const matches = customers.filter(c => 
-        c.name.toLowerCase().includes(query) || c.phone.includes(query)
+        normSearchText(c.name).includes(query) || normSearchText(c.phone).includes(query)
     ).slice(0, 10);
     
     if (matches.length > 0) {
@@ -686,7 +686,7 @@ productSearch.addEventListener('input', function() {
     }
     
     const matches = products.filter(p => 
-        p.name.toLowerCase().includes(query) || p.code.toLowerCase().includes(query)
+        normSearchText(p.name).includes(query) || normSearchText(p.code).includes(query)
     ).slice(0, 10);
     
     if (matches.length > 0) {

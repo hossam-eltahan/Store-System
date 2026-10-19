@@ -26,15 +26,51 @@ if (!$customer) {
 $pageTitle = 'بروفايل العميل: ' . $customer['name'];
 $settings = getAllSettings();
 
-/** Filter the account items by free text + date window. */
+/** Payment events (settlements + general collections from balance) as timeline rows. */
+function profile_payment_events($customerId) {
+    $out = [];
+    foreach (getRows("SELECT * FROM customer_settlements WHERE customer_id = ? ORDER BY created_at DESC", [$customerId]) as $s) {
+        $out[] = [
+            'kind' => 'settlement',
+            'ref_id' => (int)$s['id'],
+            'ref_number' => (string)$s['settlement_number'],
+            'item_label' => '💰 محاسبة فواتير',
+            'item_date' => (string)$s['created_at'],
+            'total_amount' => (float)$s['total_amount'],
+            'paid_amount' => (float)$s['paid_amount'],
+            'remaining_amount' => max(0, round((float)$s['total_amount'] - (float)$s['paid_amount'], 2)),
+            'event_notes' => 'تسوية مجمعة على ' . (int)$s['items_count'] . ' عنصر',
+        ];
+    }
+    // General collections from balance (تسويات also write a payments row with reference STL-… — skip those to avoid double counting)
+    foreach (getRows("SELECT * FROM payments WHERE type = 'customer' AND entity_id = ? AND (reference IS NULL OR reference = '' OR reference NOT LIKE 'STL-%') ORDER BY created_at DESC", [$customerId]) as $p) {
+        $out[] = [
+            'kind' => 'general_payment',
+            'ref_id' => (int)$p['id'],
+            'ref_number' => (string)$p['payment_number'],
+            'item_label' => '💵 تحصيل عام من الرصيد',
+            'item_date' => (string)$p['created_at'],
+            'total_amount' => (float)$p['amount'],
+            'paid_amount' => (float)$p['amount'],
+            'remaining_amount' => 0.0,
+            'event_notes' => 'طريقة: ' . ($p['payment_method'] ?: 'كاش'),
+        ];
+    }
+    return $out;
+}
+
+/** Filter the account items (bills + payment events) by free text + date window. */
 function customer_filtered_items($customerId, $q, $dateFrom, $dateTo) {
-    $all = customer_all_items($customerId);
-    $qLower = mb_strtolower(trim($q));
+    $all = array_merge(customer_all_items($customerId), profile_payment_events($customerId));
+    usort($all, function ($a, $b) {
+        return strcmp((string)$b['item_date'], (string)$a['item_date']);
+    });
+    $qLower = mb_search_normalize(trim($q));
     $out = [];
     foreach ($all as $it) {
         if ($qLower !== '') {
-            $hay = mb_strtolower(($it['ref_number'] ?? '') . ' ' . ($it['item_label'] ?? ''));
-            if (mb_strpos($hay, $qLower) === false) continue;
+            $hay = mb_search_normalize(($it['ref_number'] ?? '') . ' ' . ($it['item_label'] ?? '') . ' ' . ($it['event_notes'] ?? ''));
+            if (mb_stripos($hay, $qLower) === false) continue;
         }
         $day = substr((string)$it['item_date'], 0, 10);
         if ($dateFrom !== null && $day < (string)$dateFrom) continue;
@@ -68,12 +104,17 @@ $windowOpenTotal = round($windowOpenTotal, 2);
 function profile_item_key(array $it) {
     if ($it['kind'] === 'order') return 'order:' . $it['ref_id'];
     if ($it['kind'] === 'gaming_session') return 'gs:' . $it['ref_id'];
+    if ($it['kind'] === 'settlement') return 'stl:' . $it['ref_id'];
+    if ($it['kind'] === 'general_payment') return 'pay:' . $it['ref_id'];
     return 'bs:' . $it['ref_id'];
 }
 function profile_kind_read_receipt(array $it) {
-    return $it['kind'] === 'order' ? '../pos/receipt.php?id=' . $it['ref_id'] . '&type=customer'
-        : ($it['kind'] === 'gaming_session' ? '../gaming/receipt.php?id=' . $it['ref_id']
-        : '../billiards/receipt.php?id=' . $it['ref_id']);
+    if ($it['kind'] === 'order') return '../pos/receipt.php?id=' . $it['ref_id'] . '&type=customer';
+    if ($it['kind'] === 'gaming_session') return '../gaming/receipt.php?id=' . $it['ref_id'];
+    if ($it['kind'] === 'billiard_session') return '../billiards/receipt.php?id=' . $it['ref_id'];
+    if ($it['kind'] === 'settlement') return 'settlement_receipt.php?id=' . $it['ref_id'];
+    if ($it['kind'] === 'general_payment') return '../payments/print_customer.php?id=' . $it['ref_id'];
+    return '../billiards/receipt.php?id=' . $it['ref_id'];
 }
 
 include '../../includes/header.php';
@@ -83,6 +124,7 @@ include '../../includes/navbar.php';
 <style>
 .pr-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:16px 20px; }
 .pr-row-open { border-color:#fdba74 !important; background:#fffbeb !important; }
+.pr-row-event { border-color:#a7f3d0 !important; background:#f0fdf4 !important; }
 .pr-chip { padding:4px 10px; border-radius:20px; font-size:11px; font-weight:800; display:inline-block; }
 .pr-chip-done { background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; }
 .pr-chip-part { background:#fef9c3; color:#a16207; border:1px solid #fde047; }
@@ -219,10 +261,11 @@ include '../../includes/navbar.php';
 <div style="display:flex; flex-direction:column; gap:8px;">
 <?php foreach ($itemsPage as $it):
     $rem    = (float)$it['remaining_amount'];
-    $isOpen = $rem > 0.009;
+    $isEvent = ($it['kind'] === 'settlement' || $it['kind'] === 'general_payment');
+    $isOpen = !$isEvent && $rem > 0.009;
     $isPart = $isOpen && (float)$it['paid_amount'] > 0.009;
     $key    = profile_item_key($it);
-    $lineClass = $isOpen ? 'pr-row-open' : '';
+    $lineClass = $isOpen ? 'pr-row-open' : ($isEvent ? 'pr-row-event' : '');
 ?>
     <div class="pr-card <?php echo $lineClass; ?>" data-item-key="<?php echo $key; ?>" style="padding:10px 14px; display:flex; gap:12px; align-items:center; border-radius:10px; flex-wrap:wrap;">
         <?php if ($isOpen): ?>
@@ -235,6 +278,9 @@ include '../../includes/navbar.php';
         <div style="flex:1; min-width:180px;">
             <div style="font-weight:800; font-size:13px; color:#0f172a;"><?php echo htmlspecialchars($it['item_label']); ?> — <?php echo htmlspecialchars($it['ref_number']); ?></div>
             <div style="font-size:11px; color:#64748b;"><?php echo date('d/m/Y • h:i A', strtotime($it['item_date'])); ?></div>
+            <?php if (!empty($it['event_notes'])): ?>
+            <div style="font-size:10px; color:#059669; font-weight:800;"><?php echo htmlspecialchars($it['event_notes']); ?></div>
+            <?php endif; ?>
         </div>
 
         <div style="display:flex; gap:14px; text-align:center; font-size:12px;">
@@ -244,7 +290,15 @@ include '../../includes/navbar.php';
         </div>
 
         <div style="min-width:110px; text-align:center;">
-            <?php if (!$isOpen): ?>
+            <?php if ($isEvent): ?>
+                <?php if ($rem > 0.009): ?>
+                <span class="pr-chip pr-chip-part">⚠️ جزئي</span>
+                <?php elseif ($it['kind'] === 'settlement'): ?>
+                <span class="pr-chip pr-chip-done">🧾 محاسبة مجمعة</span>
+                <?php else: ?>
+                <span class="pr-chip pr-chip-done">💵 من الرصيد</span>
+                <?php endif; ?>
+            <?php elseif (!$isOpen): ?>
                 <span class="pr-chip pr-chip-done">✔ محاسبت بالكامل</span>
             <?php elseif ($isPart): ?>
                 <span class="pr-chip pr-chip-part">⚠️ جزئي</span>
@@ -344,7 +398,7 @@ function cstRenderModal() {
         </div>
         <div style="margin-bottom:12px;">
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المبلغ المحصل الآن:<span id="cstHintRemain" style="color:#dc2626; margin-right:8px;"></span></label>
-            <input type="number" id="cstAmountInput" value="${cstMode.openTotal.toFixed(2)}" min="0" max="${cstMode.openTotal.toFixed(2)}" step="1"
+            <input type="text" inputmode="decimal" id="cstAmountInput" value="${cstMode.openTotal.toFixed(2)}" autocomplete="off"
                    oninput="cstUpdateRemain()"
                    style="width:100%; padding:11px 14px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:16px; font-weight:800; font-family:inherit; text-align:center;">
         </div>
@@ -369,6 +423,7 @@ function cstUpdateRemain() {
     // ملاحظة فقط: منع إعادة كتابة القيمة أثناء الكتابة حتى لا يقفز المؤشر
     const max = cstMode.openTotal;
     const input = document.getElementById('cstAmountInput');
+    normDigitInput(input); // keyboard Arabic digits support
     const val = parseFloat(input.value) || 0;
     document.getElementById('cstHintRemain').textContent = val < (max - 0.009)
         ? `(باقي ${moneyFmt(Math.max(0, max - val))} يفضل مفتوح على حسابه)` : '';
@@ -398,10 +453,10 @@ async function cstSubmitSettle() {
         const data = await res.json();
         if (!data.success) { appAlert(data.error || 'فشل تسجيل التسوية', 'error'); return; }
         const stl = data.summary;
-        // نافذة طباعة فيها كل عناصر المحاسبة (مثل فاتورة بون)
-        openReceiptModal('settlement_receipt.php?id=' + encodeURIComponent(stl.settlement_id));
+        // نافذة طباعة فيها كل عناصر المحاسبة (مثل فاتورة بون) — الريلود بعد الغلق مش بعدها مباشرة
+        openReceiptModal('settlement_receipt.php?id=' + encodeURIComponent(stl.settlement_id), function() { location.reload(); });
+        document.getElementById('cstSettleOverlay').style.display = 'none';
         appAlert(`تم تحصيل ${moneyFmt(stl.collected)} ج.م وتسجيلها على العميل (${stl.settlement_number})`, 'success');
-        setTimeout(() => location.reload(), 2600);
     } catch (err) {
         console.error(err);
         appAlert('خطأ في الاتصال بالسيرفر', 'error');
@@ -441,7 +496,7 @@ async function cstCollectOpen() {
             </div>
             <div style="margin-bottom:12px;">
                 <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المبلغ المحصل:<span id="cstCollectHint" style="color:#dc2626; margin-right:8px;"></span></label>
-                <input type="number" id="cstCollectAmount" value="${owed.toFixed(2)}" min="0" max="${owed.toFixed(2)}" step="1"
+                <input type="text" inputmode="decimal" id="cstCollectAmount" value="${owed.toFixed(2)}" data-max="${owed.toFixed(2)}" autocomplete="off"
                        oninput="cstCollectNote()"
                        style="width:100%; padding:11px 14px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:16px; font-weight:800; font-family:inherit; text-align:center;">
             </div>
@@ -469,7 +524,8 @@ async function cstCollectOpen() {
 function cstCollectNote() {
     // ملاحظة فقط — منع إعادة كتابة القيمة حتى لا يقفز المؤشر
     const input = document.getElementById('cstCollectAmount');
-    const max = parseFloat(input.max) || 0;
+    normDigitInput(input); // keyboard Arabic digits support
+    const max = parseFloat(input.dataset.max) || 0;
     const val = parseFloat(input.value) || 0;
     const hint = document.getElementById('cstCollectHint');
     if (hint) hint.textContent = (val > max + 0.009) ? `⚠️ أكبر من المديونية (${moneyFmt(max)})` : '';
@@ -485,7 +541,7 @@ async function cstCollectSubmit() {
     try {
         const input = document.getElementById('cstCollectAmount');
         const amount = Math.round((parseFloat(input.value) || 0) * 100) / 100;
-        const max = Math.round((parseFloat(input.max) || 0) * 100) / 100;
+        const max = Math.round((parseFloat(input.dataset.max) || 0) * 100) / 100;
         if (amount <= 0) { appAlert('اكتب مبلغ أكبر من صفر', 'error'); return; }
         if (amount > max + 0.009) { appAlert('المبلغ أكبر من مديونية العميل', 'error'); return; }
         const method = document.getElementById('cstCollectMethod').value;
@@ -498,9 +554,8 @@ async function cstCollectSubmit() {
         if (!data.success) { appAlert(data.error || 'فشل تسجيل التحصيل', 'error'); return; }
         cstCollectClose();
         appAlert(`تم تحصيل ${moneyFmt(amount)} ج.م من رصيد العميل (${data.payment_number})`, 'success');
-        // إيصال التحصيل في نافذة طباعة
-        openReceiptModal('../payments/print_customer.php?id=' + encodeURIComponent(data.payment_id));
-        setTimeout(() => location.reload(), 2600);
+        // إيصال التحصيل في نافذة طباعة — الريلود بعد ما المستخدم يقفلها بنفسه
+        openReceiptModal('../payments/print_customer.php?id=' + encodeURIComponent(data.payment_id), function() { location.reload(); });
     } catch (err) {
         console.error(err);
         appAlert('خطأ في الاتصال بالسيرفر', 'error');

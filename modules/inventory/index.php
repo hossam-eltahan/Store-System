@@ -50,8 +50,9 @@ $sql = "SELECT p.id, p.code, p.name, p.unit, p.purchase_unit, p.units_per_purcha
 $params = [$filterWarehouse];
 
 if ($search !== '') {
-    $sql .= " AND (p.name LIKE ? OR p.code LIKE ? OR p.barcode LIKE ?)";
-    $like = "%$search%";
+    $likeExpr = search_like_expr('p.name') . ' LIKE ? OR ' . search_like_expr('p.code') . ' LIKE ? OR ' . search_like_expr('p.barcode') . ' LIKE ?';
+    $like = '%' . mb_search_normalize($search) . '%';
+    $sql .= " AND ($likeExpr)";
     array_push($params, $like, $like, $like);
 }
 if ($filterStatus === 'tracked') {
@@ -68,7 +69,8 @@ $sql .= " ORDER BY p.track_stock DESC, p.stock_quantity ASC, p.name ASC";
 $countSql = "SELECT COUNT(*) AS c FROM products p WHERE 1=1";
 $countParams = [];
 if ($search !== '') {
-    $countSql .= " AND (p.name LIKE ? OR p.code LIKE ? OR p.barcode LIKE ?)";
+    $countExpr = search_like_expr('p.name') . ' LIKE ? OR ' . search_like_expr('p.code') . ' LIKE ? OR ' . search_like_expr('p.barcode') . ' LIKE ?';
+    $countSql .= " AND ($countExpr)";
     array_push($countParams, $like, $like, $like);
 }
 if ($filterStatus === 'tracked') {

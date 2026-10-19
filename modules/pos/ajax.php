@@ -84,8 +84,9 @@ try {
             }
 
             if ($search !== '') {
-                $sql .= " AND (p.name LIKE ? OR p.code LIKE ? OR p.barcode LIKE ?)";
-                $searchParam = "%$search%";
+                $norm = mb_search_normalize($search);
+                $sql .= " AND (" . search_like_expr('p.name') . " LIKE ? OR " . search_like_expr('p.code') . " LIKE ? OR " . search_like_expr('p.barcode') . " LIKE ?)";
+                $searchParam = "%$norm%";
                 $params[] = $searchParam;
                 $params[] = $searchParam;
                 $params[] = $searchParam;

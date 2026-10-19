@@ -23,10 +23,10 @@ if ($typeFilter === 'customer') {
     $whereConditions[] = "type = 'supplier'";
 }
 
-// Text search
+// Text search (Arabic-insensitive)
 if ($search !== '') {
-    $whereConditions[] = "(payment_number LIKE ? OR entity_name LIKE ?)";
-    $searchParam = "%$search%";
+    $whereConditions[] = "(" . search_like_expr('payment_number') . " LIKE ? OR " . search_like_expr('entity_name') . " LIKE ?)";
+    $searchParam = '%' . mb_search_normalize($search) . '%';
     $params[] = $searchParam;
     $params[] = $searchParam;
 }

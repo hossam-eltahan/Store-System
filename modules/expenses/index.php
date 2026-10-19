@@ -125,9 +125,9 @@ $where = ["e.date BETWEEN ? AND ?"];
 $params = [$filterDateFrom, $filterDateTo];
 
 if ($search !== '') {
-    $where[] = "(e.description LIKE ? OR e.paid_to LIKE ?)";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
+    $where[] = "(" . search_like_expr('e.description') . " LIKE ? OR " . search_like_expr('e.paid_to') . " LIKE ?)";
+    $params[] = '%' . mb_search_normalize($search) . '%';
+    $params[] = '%' . mb_search_normalize($search) . '%';
 }
 
 if ($filterCategory > 0) {

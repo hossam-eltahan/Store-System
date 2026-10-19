@@ -70,8 +70,8 @@ function searchInvoices() {
     }
 
     if ($search) {
-        $where[] = "(i.invoice_number LIKE ? OR i.customer_name LIKE ? OR c.name LIKE ? OR s.name LIKE ? OR c.phone LIKE ? OR s.phone LIKE ?)";
-        $searchTerm = "%$search%";
+        $where[] = "(i.invoice_number LIKE ? OR " . search_like_expr('i.customer_name') . " LIKE ? OR " . search_like_expr('c.name') . " LIKE ? OR " . search_like_expr('s.name') . " LIKE ? OR c.phone LIKE ? OR s.phone LIKE ?)";
+        $searchTerm = '%' . mb_search_normalize($search) . '%';
         $params = array_merge($params, [$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm]);
     }
 
@@ -213,7 +213,7 @@ function searchProducts() {
         return;
     }
 
-    $searchTerm = "%$query%";
+    $searchTerm = '%' . mb_search_normalize($query) . '%';
     if ($warehouseId > 0) {
         $products = getRows(
             "SELECT p.id, p.code, p.name, p.unit, p.price, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name,
@@ -223,7 +223,7 @@ function searchProducts() {
              FROM products p
              LEFT JOIN categories c ON c.id = p.category_id
              LEFT JOIN warehouse_stock ws ON ws.product_id = p.id AND ws.warehouse_id = ?
-             WHERE p.code LIKE ? OR p.name LIKE ? OR p.description LIKE ?
+             WHERE p.code LIKE ? OR " . search_like_expr('p.name') . " LIKE ? OR " . search_like_expr('p.description') . " LIKE ?
              ORDER BY p.name
              LIMIT 20",
             [$warehouseId, $searchTerm, $searchTerm, $searchTerm]
@@ -233,7 +233,7 @@ function searchProducts() {
             "SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, p.purchase_unit, p.units_per_purchase, p.track_stock, p.is_direct_sale, c.name AS category_name,
                     'product' AS kind, NULL AS ingredient_id
              FROM products p LEFT JOIN categories c ON c.id = p.category_id
-             WHERE code LIKE ? OR name LIKE ? OR description LIKE ?
+             WHERE " . search_like_expr('code') . " LIKE ? OR " . search_like_expr('name') . " LIKE ? OR " . search_like_expr('description') . " LIKE ?
              ORDER BY name
              LIMIT 20",
             [$searchTerm, $searchTerm, $searchTerm]
@@ -247,7 +247,7 @@ function searchProducts() {
                 i.purchase_unit, i.conversion_factor AS units_per_purchase,
                 i.category AS category_name, 'ingredient' AS kind
          FROM ingredients i
-         WHERE i.is_active = 1 AND (i.sku LIKE ? OR i.name LIKE ?)
+         WHERE i.is_active = 1 AND (i.sku LIKE ? OR " . search_like_expr('i.name') . " LIKE ?)
          ORDER BY i.name
          LIMIT 20",
         [$searchTerm, $searchTerm]

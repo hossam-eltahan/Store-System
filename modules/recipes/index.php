@@ -226,8 +226,8 @@ $renderPagination = function ($currentPage, $totalPages, $totalItems, $baseQuery
 $ingWhere = "WHERE 1=1";
 $ingParams = [];
 if ($search !== '') {
-    $ingWhere .= " AND name LIKE ?";
-    $ingParams[] = "%$search%";
+    $ingWhere .= " AND " . search_like_expr('name') . " LIKE ?";
+    $ingParams[] = '%' . mb_search_normalize($search) . '%';
 }
 if ($filterCategory !== '') {
     $ingWhere .= " AND category = ?";
@@ -249,8 +249,8 @@ $pagedIngredients = array_slice($ingredients, $ingOffset, $perPage);
 $recipesWhere = "";
 $recipesParams = [];
 if ($search !== '') {
-    $recipesWhere = "WHERE p.name LIKE ? OR pv.variant_name LIKE ?";
-    $recipesParams = ["%$search%", "%$search%"];
+    $recipesWhere = "WHERE " . search_like_expr('p.name') . " LIKE ? OR " . search_like_expr('pv.variant_name') . " LIKE ?";
+    $recipesParams = ["%" . mb_search_normalize($search) . "%", "%" . mb_search_normalize($search) . "%"];
 }
 
 $recipesFrom = "FROM recipes r JOIN products p ON p.id = r.product_id LEFT JOIN product_variants pv ON pv.id = r.variant_id $recipesWhere";
@@ -282,8 +282,8 @@ $allProducts = getRows("SELECT id, name, code, has_variants, price FROM products
 $movementsWhere = "";
 $movementsParams = [];
 if ($search !== '') {
-    $movementsWhere = "WHERE ing.name LIKE ? OR m.reason LIKE ?";
-    $movementsParams = ["%$search%", "%$search%"];
+    $movementsWhere = "WHERE " . search_like_expr('ing.name') . " LIKE ? OR " . search_like_expr('m.reason') . " LIKE ?";
+    $movementsParams = ["%" . mb_search_normalize($search) . "%", "%" . mb_search_normalize($search) . "%"];
 }
 
 $movFrom = "FROM ingredient_stock_movements m JOIN ingredients ing ON ing.id = m.ingredient_id $movementsWhere";

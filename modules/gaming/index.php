@@ -504,11 +504,11 @@ async function loadDevices() {
 function renderDevices() {
     const grid = document.getElementById('devicesGrid');
     const searchEl = document.getElementById('gamingSearch');
-    const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    const q = searchEl ? normSearchText(searchEl.value.trim()) : '';
     const shown = devices.filter(dev => {
         if (!q) return true;
-        const cust = (dev.current_session && dev.current_session.customer_name) ? String(dev.current_session.customer_name).toLowerCase() : '';
-        return String(dev.display_name).toLowerCase().includes(q) || cust.includes(q);
+        const cust = (dev.current_session && dev.current_session.customer_name) ? String(dev.current_session.customer_name) : '';
+        return normSearchText(dev.display_name).includes(q) || normSearchText(cust).includes(q);
     });
     if (shown.length === 0) {
         grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #94a3b8; font-weight: 700;">لا توجد نتائج مطابقة للبحث</div>`;
@@ -947,7 +947,7 @@ function renderEndModalDetails(data) {
 
         <div style="margin-bottom:12px;">
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">قيمة الخصم من المتبقي:</label>
-            <input type="number" id="endDiscountInput" value="0" min="0" max="${parseFloat(data.amount_due)}" step="1" oninput="updateEndNetTotal(${data.amount_due}, ${data.cafe_tax_on_due}, ${data.tax_pct})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:14px; font-weight:bold;">
+            <input type="text" inputmode="decimal" id="endDiscountInput" value="0" autocomplete="off" oninput="updateEndNetTotal(${data.amount_due}, ${data.cafe_tax_on_due}, ${data.tax_pct})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:14px; font-weight:bold;">
         </div>
 
         <div style="margin-bottom:14px;">
@@ -971,7 +971,7 @@ function renderEndModalDetails(data) {
 
         <div style="margin-bottom:14px;">
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المحصل الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
-            <input type="number" id="endPaidInput" value="" min="0" max="${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)}" step="1" oninput="userEndPaid()"
+            <input type="text" inputmode="decimal" id="endPaidInput" value="" autocomplete="off" max="${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)}" oninput="userEndPaid()"
                    style="width:100%; padding:9px 12px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:15px; font-weight:800; text-align:center;">
             <div id="endPaidNote" style="font-size:11.5px; font-weight:700; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
         </div>
@@ -1000,7 +1000,7 @@ function renderEndModalDetails(data) {
 // الكتابة اليدوية → شغل فلاغ touchedOnce ثم حدّث الملاحظة فقط
 function userEndPaid() {
     const inp = document.getElementById('endPaidInput');
-    if (inp) inp.dataset.touchedOnce = '1';
+    if (inp) { inp.dataset.touchedOnce = '1'; normDigitInput(inp); }
     updateEndPaid();
 }
 
@@ -1026,6 +1026,7 @@ function updateEndPaid() {
 
 function updateEndNetTotal(baseTotal, cafeTax, taxPct) {
     const input = document.getElementById('endDiscountInput');
+    normDigitInput(input); // keyboard Arabic digits support
     const disc = Math.min(baseTotal, Math.max(0, parseFloat(input.value) || 0));
     input.value = disc;
     const net = Math.max(0, baseTotal - disc);
@@ -1037,6 +1038,7 @@ function updateEndNetTotal(baseTotal, cafeTax, taxPct) {
 
 function updateEndNetTotal(baseTotal, cafeTax, taxPct) {
     const input = document.getElementById('endDiscountInput');
+    normDigitInput(input); // keyboard Arabic digits support
     const disc = Math.min(baseTotal, Math.max(0, parseFloat(input.value) || 0));
     input.value = disc;
     const net = Math.max(0, baseTotal - disc);

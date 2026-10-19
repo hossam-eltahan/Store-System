@@ -355,11 +355,11 @@ async function loadTables() {
 function renderTables() {
     const grid = document.getElementById('tablesGrid');
     const searchEl = document.getElementById('billiardsSearch');
-    const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    const q = searchEl ? normSearchText(searchEl.value.trim()) : '';
     const shown = tables.filter(tbl => {
         if (!q) return true;
-        const cust = (tbl.current_session && tbl.current_session.customer_name) ? String(tbl.current_session.customer_name).toLowerCase() : '';
-        return String(tbl.display_name).toLowerCase().includes(q) || cust.includes(q);
+        const cust = (tbl.current_session && tbl.current_session.customer_name) ? String(tbl.current_session.customer_name) : '';
+        return normSearchText(tbl.display_name).includes(q) || normSearchText(cust).includes(q);
     });
     if (shown.length === 0) {
         grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #94a3b8; font-weight: 700;">لا توجد نتائج مطابقة للبحث</div>`;
@@ -767,7 +767,7 @@ async function openEndBilliardModal(sessionId) {
             </div>
                 <div style="margin-bottom:12px;">
                 <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">الخصم من المتبقي:</label>
-                <input type="number" id="billiardDiscInput" value="0" min="0" max="${parseFloat(data.amount_due)}" oninput="updateBilliardNet(${data.amount_due}, ${data.cafe_tax_on_due}, ${data.tax_pct})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-weight:bold;">
+                <input type="text" inputmode="decimal" id="billiardDiscInput" value="0" autocomplete="off" oninput="updateBilliardNet(${data.amount_due}, ${data.cafe_tax_on_due}, ${data.tax_pct})" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-weight:bold;">
             </div>
             <div style="margin-bottom:14px;">
                 <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">طريقة الدفع:</label>
@@ -788,7 +788,7 @@ async function openEndBilliardModal(sessionId) {
             </div>
             <div style="margin-bottom:14px;">
                 <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المحصل الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
-                <input type="number" id="billiardPaidInput" value="" min="0" max="${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)}" step="1" oninput="userBilliardPaid()"
+                <input type="text" inputmode="decimal" id="billiardPaidInput" value="" autocomplete="off" max="${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)}" oninput="userBilliardPaid()"
                        style="width:100%; padding:9px 12px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:15px; font-weight:800; text-align:center;">
                 <div id="billiardPaidNote" style="font-size:11.5px; font-weight:700; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
             </div>
@@ -819,7 +819,7 @@ async function openEndBilliardModal(sessionId) {
 // الكتابة اليدوية → شغل فلاغ touchedOnce ثم حدّث الملاحظة فقط
 function userBilliardPaid() {
     const inp = document.getElementById('billiardPaidInput');
-    if (inp) inp.dataset.touchedOnce = '1';
+    if (inp) { inp.dataset.touchedOnce = '1'; normDigitInput(inp); }
     updateBilliardPaid();
 }
 
@@ -845,6 +845,7 @@ function updateBilliardPaid() {
 
 function updateBilliardNet(base, cafeTax, taxPct) {
     const input = document.getElementById('billiardDiscInput');
+    normDigitInput(input); // keyboard Arabic digits support
     const disc = Math.min(base, Math.max(0, parseFloat(input.value) || 0));
     input.value = disc;
     const net = Math.max(0, base - disc);

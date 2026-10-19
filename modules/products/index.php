@@ -162,8 +162,8 @@ $catSearch = trim($_GET['cat_search'] ?? '');
 $catWhere = "";
 $catParams = [];
 if ($catSearch !== '') {
-    $catWhere = "WHERE c.name LIKE ?";
-    $catParams[] = "%$catSearch%";
+    $catWhere = "WHERE " . search_like_expr('c.name') . " LIKE ?";
+    $catParams[] = '%' . mb_search_normalize($catSearch) . '%';
 }
 $catPerPage = 8;
 $catPage = max(1, (int)($_GET['cpage'] ?? 1));
@@ -191,7 +191,7 @@ if ($tab === 'mods') {
     $modCat = !empty($_GET['category_id']) ? (int)$_GET['category_id'] : 0;
     $modWhere = "WHERE 1=1";
     $modParams = [];
-    if ($modSearch !== '') { $modWhere .= " AND m.name LIKE ?"; $modParams[] = "%$modSearch%"; }
+    if ($modSearch !== '') { $modWhere .= " AND " . search_like_expr('m.name') . " LIKE ?"; $modParams[] = '%' . mb_search_normalize($modSearch) . '%'; }
     if ($modGroup !== '') { $modWhere .= " AND m.modifier_group = ?"; $modParams[] = $modGroup; }
     if ($modCat > 0) { $modWhere .= " AND (m.applies_to_category_id = ? OR m.applies_to_category_id IS NULL)"; $modParams[] = $modCat; }
     $modifiersList = getRows(
@@ -213,8 +213,8 @@ $where = [];
 $params = [];
 
 if ($search !== '') {
-    $where[] = "(p.code LIKE ? OR p.name LIKE ? OR p.description LIKE ?)";
-    $searchTerm = "%$search%";
+    $where[] = "(" . search_like_expr('p.code') . " LIKE ? OR " . search_like_expr('p.name') . " LIKE ? OR " . search_like_expr('p.description') . " LIKE ?)";
+    $searchTerm = '%' . mb_search_normalize($search) . '%';
     $params[] = $searchTerm;
     $params[] = $searchTerm;
     $params[] = $searchTerm;
