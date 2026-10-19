@@ -7,6 +7,7 @@
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
 require_once '../../config/auth.php';
+require_once '../../config/customer_accounts.php';
 requirePermission('customers.view');
 
 $pageTitle = 'إدارة العملاء';
@@ -16,20 +17,22 @@ if (isset($_GET['delete'])) {
     requirePermission('customers.delete');
     $id = $_GET['delete'];
     $customer = getRow("SELECT * FROM customers WHERE id = ?", [$id]);
-    
+
     if ($customer) {
-        // Check if customer has invoices
+        // Check if customer has invoices or confirmed cafe activity
         $hasInvoices = getRow("SELECT id FROM invoices WHERE customer_id = ?", [$id]);
-        
-        if ($hasInvoices) {
-            setError('لا يمكن حذف العميل لوجود فواتير مسجلة له');
+        $hasOrders   = getRow("SELECT id FROM orders WHERE customer_id = ? LIMIT 1", [$id]);
+        $hasSessions = getRow("SELECT id FROM gaming_sessions WHERE customer_id = ? UNION SELECT id FROM billiard_sessions WHERE customer_id = ? UNION SELECT id FROM table_sessions WHERE customer_id = ? LIMIT 1", [$id, $id, $id]);
+
+        if ($hasInvoices || $hasOrders || $hasSessions) {
+            setError('لا يمكن حذف العميل لوجود فواتير أو طلبات وإجازات مسجلة باسمه');
         } else {
             execute("DELETE FROM customers WHERE id = ?", [$id]);
             logActivity('حذف عميل', "تم حذف العميل: {$customer['name']}");
             setSuccess('تم حذف العميل بنجاح');
         }
     }
-    
+
     redirect('index.php');
 }
 
@@ -61,6 +64,21 @@ $totalPages = ceil($totalItems / $perPage);
 // Get paginated results
 $sql .= " ORDER BY name LIMIT $perPage OFFSET $offset";
 $customers = getRows($sql, $params);
+
+// Attach open-dues (unsettled rest) from the live account engine
+foreach ($customers as &$cRow) {
+    $cRow['open_due'] = 0.0;
+    $cRow['open_count'] = 0;
+    if ((float)$cRow['balance'] < 0) {
+        $stats = customer_account_stats((int)$cRow['id']);
+        // Authoritative dues from linked orders/sessions; fall back to legacy balance
+        if ($stats['open_count'] > 0 || abs($stats['total_billed']) > 0.001) {
+            $cRow['open_due'] = $stats['open_total'];
+            $cRow['open_count'] = $stats['open_count'];
+        }
+    }
+}
+unset($cRow);
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
@@ -118,42 +136,43 @@ include '../../includes/navbar.php';
                         <tr>
                             <th>الاسم</th>
                             <th>التليفون</th>
-                            <th>العنوان</th>
-                            <th>الرصيد</th>
+                            <th>الرصيد اللي عليه</th>
                             <th>إجراءات</th>
                         </tr>
                     </thead>
                     <tbody id="customersTableBody">
                         <?php if (empty($customers)): ?>
                         <tr>
-                            <td colspan="5" class="text-center">لا يوجد عملاء مطابقين للبحث</td>
+                            <td colspan="4" class="text-center">لا يوجد عملاء مطابقين للبحث</td>
                         </tr>
                         <?php else: ?>
                         <?php foreach ($customers as $customer): ?>
                         <tr>
                             <td><strong><?php echo $customer['name']; ?></strong></td>
                             <td><?php echo $customer['phone']; ?></td>
-                            <td><?php echo $customer['address'] ?? ''; ?></td>
                             <td>
-                                <?php if ($customer['balance'] < 0): ?>
-                                    <span class="text-danger" style="direction: ltr;"><?php echo formatCurrency(abs($customer['balance'])); ?> (مدين)</span>
+                                <?php if ($customer['open_due'] > 0.009): ?>
+                                    <span class="badge badge-danger" style="direction: ltr;"><?php echo formatCurrency($customer['open_due']); ?></span>
+                                    <small style="color:#6b7280;">على <?php echo $customer['open_count']; ?> عنصر غير محاسب</small>
+                                <?php elseif ($customer['balance'] < 0): ?>
+                                    <span class="text-danger" style="direction: ltr;"><?php echo formatCurrency(abs($customer['balance'])); ?></span>
                                 <?php elseif ($customer['balance'] > 0): ?>
-                                    <span class="text-success"><?php echo formatCurrency($customer['balance']); ?> (دائن)</span>
+                                    <span class="text-success"><?php echo formatCurrency($customer['balance']); ?> (رصيد دائن)</span>
                                 <?php else: ?>
-                                    0.00
+                                    <span class="badge badge-success">0.00 — سليم</span>
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <a href="view.php?id=<?php echo $customer['id']; ?>" class="btn btn-info btn-sm" title="تفاصيل">👁️</a>
-                                <?php if (hasAnyPermission(['invoices.sale.view', 'invoices.purchase.view'])): ?>
-                                <a href="../invoices/list.php?customer_id=<?php echo $customer['id']; ?>" class="btn btn-secondary btn-sm" title="الفواتير">📜</a>
-                                <?php endif; ?>
+                                <a href="view.php?id=<?php echo $customer['id']; ?>" class="btn btn-success btn-sm" title="البروفايل والحساب">👤 بروفايل</a>
                                 <?php if (hasPermission('customers.edit')): ?>
                                 <a href="edit.php?id=<?php echo $customer['id']; ?>" class="btn btn-primary btn-sm" title="تعديل">✏️</a>
                                 <?php endif; ?>
+                                <?php if ($customer['open_due'] > 0.009 || $customer['balance'] < 0): ?>
+                                <a href="../payments/pay_customer.php?customer_id=<?php echo $customer['id']; ?>" class="btn btn-warning btn-sm" title="تحصيل مستحقات">💵</a>
+                                <?php endif; ?>
                                 <?php if (hasPermission('customers.delete')): ?>
-                                <button type="button" class="btn btn-danger btn-sm btn-delete" 
-                                        data-name="<?php echo htmlspecialchars($customer['name']); ?>" 
+                                <button type="button" class="btn btn-danger btn-sm btn-delete"
+                                        data-name="<?php echo htmlspecialchars($customer['name']); ?>"
                                         data-url="index.php?delete=<?php echo $customer['id']; ?>" title="حذف">🗑️</button>
                                 <?php endif; ?>
                             </td>

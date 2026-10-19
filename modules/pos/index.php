@@ -779,9 +779,13 @@ body {
         </div>
 
         <!-- Customer Name Input -->
-        <div style="padding: 6px 12px; background: #fff; border-bottom: 1px solid var(--pos-border); display: flex; gap: 8px;">
-            <input type="text" id="customerNameInput" placeholder="اسم العميل (اختياري)..." style="flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; font-family: inherit;">
+        <div style="padding: 6px 12px; background: #fff; border-bottom: 1px solid var(--pos-border); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <div style="flex: 1.2; min-width: 170px; position: relative;">
+                <input type="text" id="customerNameInput" placeholder="👤 اسم العميل (اختياري)..." style="width: 100%; padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; font-family: inherit;">
+                <input type="hidden" id="customerIdInput" value="">
+            </div>
             <input type="text" id="orderNotesInput" placeholder="ملاحظات الطلب..." style="flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; font-family: inherit;">
+            <span id="customerBalanceBadge" style="font-size: 11px; font-weight: 800; display: none;"></span>
         </div>
 
         <!-- Cart Items List -->
@@ -932,6 +936,7 @@ body {
     </div>
 </div>
 
+<script src="../../assets/js/customer_picker.js?v=1"></script>
 <script>
 // State Management
 let products = [];
@@ -997,6 +1002,22 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProducts();
     loadDestinations();
     setupEventListeners();
+    // Customer picker (من الموجودين / عميل جديد / بدون ربط)
+    const customerPicker = initCustomerPicker(
+        document.getElementById('customerNameInput'),
+        document.getElementById('customerIdInput'),
+        { balanceEl: document.getElementById('customerBalanceBadge') }
+    );
+    // Deep-link: ?customer_id=N (من بروفايل العميل "فاتورة بيع جديدة")
+    const linkCustomerId = parseInt(new URLSearchParams(window.location.search).get('customer_id') || '0');
+    if (linkCustomerId > 0) {
+        fetch('../../modules/customers/ajax.php?action=get&customer_id=' + linkCustomerId)
+            .then(r => r.json())
+            .then(d => {
+                if (d.success) customerPicker.set(d.customer);
+            })
+            .catch(() => {});
+    }
     const params = new URLSearchParams(window.location.search);
     const editId = parseInt(params.get('edit_order') || '0');
     // Optional return target (e.g. a session receipt); restricted to in-app paths
@@ -1059,6 +1080,7 @@ async function enterEditMode(orderId) {
             };
         });
         document.getElementById('customerNameInput').value = data.order.customer_name || '';
+        document.getElementById('customerIdInput').value = data.order.customer_id || '';
         document.getElementById('orderNotesInput').value = data.order.notes || '';
         // Keep the order's original type (tax rule + destination stay consistent)
         setOrderTypeTabs(data.order.order_type || 'takeaway');
@@ -1702,12 +1724,54 @@ function openCheckoutModal() {
             </select>
         </div>
 
+        ${editingOrderId ? '' : `
+        <div id="coPaidRow" style="margin-bottom:14px;">
+            <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المدفوع الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
+            <input type="number" id="coPaidInput" value="" min="0" step="1" oninput="updateCoPaid()"
+                   style="width:100%; padding:9px 12px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:15px; font-weight:800; text-align:center;">
+            <div id="coPaidNote" style="font-size:11.5px; font-weight:700; color:#92400e; background:#fefce8; border:1px solid #fde047; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
+        </div>`}
+
         <button onclick="submitPosCheckout()" style="width:100%; background:linear-gradient(135deg, #ea580c, #c2410c); color:white; border:none; border-radius:10px; padding:12px; font-size:15px; font-weight:800; cursor:pointer;">
             ${isEditCancel ? '🗑️ إلغاء الطلب بالكامل' : '🏁 تحصيل الفاتورة وطباعة البون'}
         </button>
     `;
     updateCoNetTotal(subtotal);
+    if (!editingOrderId) {
+        const paidInput = document.getElementById('coPaidInput');
+        if (paidInput) {
+            paidInput.value = document.getElementById('coFinalTotalDisplay').textContent.replace(/[^\d.]/g, '');
+            paidInput.dataset.touched = '';
+        }
+    }
     document.getElementById('checkoutModal').style.display = 'flex';
+}
+
+// Partial pay aware update: shows what happens when the cashier collects less than the total
+function updateCoPaid() {
+    const finalTxt = (document.getElementById('coFinalTotalDisplay')?.textContent || '0').replace(/[^\d.]/g, '');
+    const final = parseFloat(finalTxt) || 0;
+    const input = document.getElementById('coPaidInput');
+    const note = document.getElementById('coPaidNote');
+    if (!input || !note) return;
+    input.dataset.touched = '1';
+    let paid = parseFloat(input.value) || 0;
+    if (paid < 0) paid = 0;
+    input.value = paid.toFixed(2);
+    const remaining = Math.round((final - paid) * 100) / 100;
+    if (remaining <= 0.009) {
+        note.style.display = 'none';
+    } else {
+        const customerName = document.getElementById('customerNameInput').value.trim();
+        const hasCustomer = customerName !== '';
+        note.style.display = 'block';
+        note.style.color = hasCustomer ? '#92400e' : '#dc2626';
+        note.style.background = hasCustomer ? '#fefce8' : '#fef2f2';
+        note.style.borderColor = hasCustomer ? '#fde047' : '#fca5a5';
+        note.innerHTML = hasCustomer
+            ? `💳 باقي <strong>${remaining.toFixed(2)}</strong> ج.م هيتسجل <strong>على حساب العميل</strong> (${escapeHtml(customerName)})`
+            : `❌ باقي <strong>${remaining.toFixed(2)}</strong> ج.م وبدون تسجيل العميل — لازم تكتب اسم صاحب الطلب في خانة العميل فوق أو تسجله في صفحة العملاء`;
+    }
 }
 
 function closeCheckoutModal() {
@@ -1735,6 +1799,12 @@ function updateCoNetTotal(baseTotal) {
     document.getElementById('coTaxPct').textContent = `${coTaxPct().toFixed(2)}`;
     document.getElementById('coTaxDisplay').textContent = `${tax.toFixed(2)} ج.م`;
     document.getElementById('coFinalTotalDisplay').textContent = `${(net + tax).toFixed(2)} ج.م`;
+    // The paid field follows the final total unless the cashier already adjusted it
+    const paidInput = document.getElementById('coPaidInput');
+    if (paidInput && !paidInput.dataset.touched) {
+        paidInput.value = (net + tax).toFixed(2);
+        updateCoPaid();
+    }
 }
 
 async function submitPosCheckout() {
@@ -1746,12 +1816,27 @@ async function submitPosCheckout() {
     }
     const disc = Math.max(0, parseFloat(document.getElementById('coDiscountInput').value) || 0);
     const method = document.getElementById('coPaymentMethod').value;
+    const paidInput = document.getElementById('coPaidInput');
+    let paidAmount = null;
+    if (paidInput && !editingOrderId) {
+        paidAmount = Math.max(0, parseFloat(paidInput.value) || 0);
+        const finalTxt = (document.getElementById('coFinalTotalDisplay')?.textContent || '0').replace(/[^\d.]/g, '');
+        const final = parseFloat(finalTxt) || 0;
+        if (final > 0 && paidAmount < final - 0.009) {
+            // Partial pay requires a customer account (typed name suffices: the server
+            // registers him automatically); a fully empty field blocks with a clear error.
+            if (document.getElementById('customerNameInput').value.trim() === '') {
+                appAlert('❌ لازم تسجل صاحب الطلب في العملاء (اكتب اسمه في خانة العميل فوق) عشان الباقي يتحسب على حسابه', 'error');
+                return;
+            }
+        }
+    }
     closeCheckoutModal();
-    await processCheckout(false, disc, method);
+    await processCheckout(false, disc, method, paidAmount);
 }
 
-// Process Checkout & Payment (discount & method come from the checkout modal)
-async function processCheckout(isDeferred, disc = 0, method = 'cash') {
+// Process Checkout & Payment (discount, method & collected amount come from the checkout modal)
+async function processCheckout(isDeferred, disc = 0, method = 'cash', paidAmount = null) {
     if (cart.length === 0 && !editingOrderId) return;
 
     const checkoutBtn = document.getElementById('checkoutBtn');
@@ -1792,6 +1877,8 @@ async function processCheckout(isDeferred, disc = 0, method = 'cash') {
         discount_amount: disc,
         payment_method: method,
         customer_name: document.getElementById('customerNameInput').value.trim(),
+        customer_id: document.getElementById('customerIdInput').value || 0,
+        paid_amount: paidAmount,
         notes: document.getElementById('orderNotesInput').value.trim(),
         pay_now: !isDeferred,
         client_key: getCheckoutKey(),

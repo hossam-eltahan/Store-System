@@ -275,6 +275,7 @@ include '../../includes/navbar.php';
 }
 </style>
 
+<script src="../../assets/js/customer_picker.js?v=1"></script>
 <div class="container">
 
 <div class="gaming-header-bar">
@@ -339,6 +340,8 @@ include '../../includes/navbar.php';
 
             <label style="font-size: 12.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 6px;">اسم العميل (اختياري):</label>
             <input type="text" id="startCustomerName" placeholder="مثال: أحمد محمد..." style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 13px; font-family: inherit; margin-bottom: 14px;">
+            <input type="hidden" id="startCustomerId" value="">
+            <div id="startCustomerBalance" style="font-size: 12px; display: none; margin-top: -10px; margin-bottom: 10px;"></div>
 
             <label style="font-size: 12.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 6px;">نظام الوقت:</label>
             <select id="startTimeMode" style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 13px; font-family: inherit;" onchange="toggleCountdownInput()">
@@ -474,6 +477,12 @@ let expiredSessions = new Set();
 
 document.addEventListener('DOMContentLoaded', () => {
     loadDevices();
+    // حقل العميل في مودال بدء الجلسة = اختيار من الموجودين / عميل جديد / بدون
+    initCustomerPicker(
+        document.getElementById('startCustomerName'),
+        document.getElementById('startCustomerId'),
+        { balanceEl: document.getElementById('startCustomerBalance') }
+    );
     // Auto refresh every second for local timer & every 15s from server
     setInterval(tickTimersLocally, 1000);
     setInterval(loadDevices, 15000);
@@ -681,6 +690,7 @@ function openStartModal(deviceId, name, singleRate, multiRate) {
     document.getElementById('startSingleRate').textContent = `${parseFloat(singleRate).toFixed(2)} ج.م / ساعة`;
     document.getElementById('startMultiRate').textContent = `${parseFloat(multiRate).toFixed(2)} ج.م / ساعة`;
     document.getElementById('startCustomerName').value = '';
+    document.getElementById('startCustomerId').value = '';
     document.querySelector('input[name="startSessionType"][value="single"]').checked = true;
     updateTypeRadio();
     document.getElementById('startGameModal').style.display = 'flex';
@@ -715,7 +725,8 @@ async function submitStartSession() {
                 session_type: sessionType,
                 time_mode: timeMode,
                 preset_minutes: presetMinutes,
-                customer_name: customerName
+                customer_name: customerName,
+                customer_id: document.getElementById('startCustomerId').value || 0
             })
         });
         const data = await res.json();
@@ -949,10 +960,62 @@ function renderEndModalDetails(data) {
             </select>
         </div>
 
+        <div style="margin-bottom:12px;">
+            <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">👤 العميل (اختياري — الواجهة للتحصيل الجزئي):</label>
+            <div style="position: relative;">
+                <input type="text" id="endCustomerNameInput" placeholder="ابحث أو اكتب اسم عميل جديد..." autocomplete="off"
+                       style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid #cbd5e1; font-size:13px; font-family:inherit;">
+                <input type="hidden" id="endCustomerId" value="">
+            </div>
+        </div>
+
+        <div style="margin-bottom:14px;">
+            <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المحصل الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
+            <input type="number" id="endPaidInput" value="" min="0" max="${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)}" step="1" oninput="updateEndPaid()"
+                   style="width:100%; padding:9px 12px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:15px; font-weight:800; text-align:center;">
+            <div id="endPaidNote" style="font-size:11.5px; font-weight:700; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
+        </div>
+
         <button onclick="submitEndSession()" style="width:100%; background:linear-gradient(135deg, #ea580c, #c2410c); color:white; border:none; border-radius:10px; padding:12px; font-size:15px; font-weight:800; cursor:pointer;">
             🏁 تحصيل الفاتورة وطباعة البون
         </button>
     `;
+    const endPaidInput = document.getElementById('endPaidInput');
+    if (endPaidInput) {
+        endPaidInput.value = (parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2);
+        updateEndPaid();
+    }
+    // عميل القفل: الّعناصر اللي مسجلة على العميل من البداية؟ نعم افتراضياً
+    if (data.session && data.session.customer_id) {
+        fetch('../../modules/customers/ajax.php?action=get&customer_id=' + data.session.customer_id)
+            .then(r => r.json())
+            .then(d => { if (d.success) initCustomerPicker(document.getElementById('endCustomerNameInput'), document.getElementById('endCustomerId')).set(d.customer); })
+            .catch(() => {});
+    } else {
+        initCustomerPicker(document.getElementById('endCustomerNameInput'), document.getElementById('endCustomerId'));
+    }
+}
+
+// المحصل أقل من الإجمالي → يترسل على حساب العميل (أو خطأ لو مفيش عميل)
+function updateEndPaid() {
+    const inp = document.getElementById('endPaidInput');
+    const note = document.getElementById('endPaidNote');
+    if (!inp || !note) return;
+    const final = parseFloat(inp.max) || 0;
+    let paid = parseFloat(inp.value) || 0;
+    if (paid < 0) paid = 0;
+    inp.value = paid.toFixed(2);
+    const remaining = Math.round((final - paid) * 100) / 100;
+    if (remaining <= 0.009) { note.style.display = 'none'; return; }
+    const custName = (document.getElementById('endCustomerNameInput') || {}).value;
+    const hasCustomer = (document.getElementById('endCustomerId') && document.getElementById('endCustomerId').value) || (custName && custName.trim());
+    note.style.display = 'block';
+    note.style.color = hasCustomer ? '#92400e' : '#dc2626';
+    note.style.background = hasCustomer ? '#fefce8' : '#fef2f2';
+    note.style.borderColor = hasCustomer ? '#fde047' : '#fca5a5';
+    note.innerHTML = hasCustomer
+        ? `💳 باقي <strong>${remaining.toFixed(2)}</strong> ج.م هيتسجل على حساب العميل (${(custName || '').trim() || 'مربوط'})`
+        : `❌ باقي <strong>${remaining.toFixed(2)}</strong> ج.م — لازم تسجل العميل: اكتب اسمه في خانة العميل هنا (هيتسجل في العملاء تلقائياً)`;
 }
 
 function updateEndNetTotal(baseTotal, cafeTax, taxPct) {
@@ -966,9 +1029,44 @@ function updateEndNetTotal(baseTotal, cafeTax, taxPct) {
     document.getElementById('endFinalDisplay').textContent = `${(Math.round((net + tax + 1e-9) * 100) / 100).toFixed(2)} ج.م`;
 }
 
+function updateEndNetTotal(baseTotal, cafeTax, taxPct) {
+    const input = document.getElementById('endDiscountInput');
+    const disc = Math.min(baseTotal, Math.max(0, parseFloat(input.value) || 0));
+    input.value = disc;
+    const net = Math.max(0, baseTotal - disc);
+    const tax = Math.round((Math.max(0, net - (parseFloat(cafeTax) || 0)) * (parseFloat(taxPct) || 0) / 100 + 1e-9) * 100) / 100;
+    document.getElementById('endNetTotalDisplay').textContent = `${net.toFixed(2)} ج.م`;
+    document.getElementById('endTaxDisplay').textContent = `${tax.toFixed(2)} ج.م`;
+    const newFinal = Math.round((net + tax + 1e-9) * 100) / 100;
+    document.getElementById('endFinalDisplay').textContent = `${newFinal.toFixed(2)} ج.م`;
+    // الدفع الافتراضي يمشي مع الإجمالي الجديد (إلا لو الكاشير عدل المحصل بنفسه)
+    const inp = document.getElementById('endPaidInput');
+    if (inp && !inp.dataset.touchedOnce) {
+        inp.max = newFinal.toFixed(2);
+        inp.value = newFinal.toFixed(2);
+        updateEndPaid();
+    }
+}
+
 async function submitEndSession() {
     const disc = Math.max(0, parseFloat(document.getElementById('endDiscountInput').value) || 0);
     const method = document.getElementById('endPaymentMethod').value;
+    let paidAmount = null;
+    const inp = document.getElementById('endPaidInput');
+    const finalStr = (document.getElementById('endFinalDisplay')?.textContent || '0').replace(/[^\d.]/g, '');
+    const final = parseFloat(finalStr) || 0;
+    if (inp) {
+        paidAmount = Math.max(0, parseFloat(inp.value) || 0);
+        inp.dataset.touchedOnce = '1';
+        if (final > 0 && paidAmount < final - 0.009) {
+            const cid = document.getElementById('endCustomerId').value;
+            const cname = (document.getElementById('endCustomerNameInput')?.value || '').trim();
+            if (!cid && cname === '') {
+                appAlert('❌ لازم تسجل العميل — اكتب اسمه في خانة "العميل"لتسجيل باقي الفاتورة على حسابه', 'error');
+                return;
+            }
+        }
+    }
 
     try {
         const res = await fetch('ajax.php?action=end_session', {
@@ -977,6 +1075,9 @@ async function submitEndSession() {
             body: JSON.stringify({
                 session_id: activeEndSessionId,
                 discount_amount: disc,
+                paid_amount: paidAmount,
+                customer_id: (document.getElementById('endCustomerId') || {}).value || 0,
+                customer_name: (document.getElementById('endCustomerNameInput') || {}).value || '',
                 payment_method: method
             })
         });

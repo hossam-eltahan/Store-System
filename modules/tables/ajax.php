@@ -106,6 +106,16 @@ try {
             $guestCount = max(1, (int)($_POST['guest_count'] ?? 1));
             $customerName = trim($_POST['customer_name'] ?? '');
 
+            // ربط/تسجيل العميل (من المحدد، أو تسجيل تلقائي لاسم جديد، أو بدون ربط)
+            require_once __DIR__ . '/../../config/customer_accounts.php';
+            $tableCustomer = resolveCustomerInput((int)($_POST['customer_id'] ?? 0), $customerName);
+            if ((int)($_POST['customer_id'] ?? 0) > 0 && !$tableCustomer) {
+                echo json_encode(['success' => false, 'error' => 'العميل المحدد غير موجود'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            $tableCustomerId = $tableCustomer ? (int)$tableCustomer['id'] : null;
+            if ($tableCustomer) $customerName = $tableCustomer['name'];
+
             $table = getRow("SELECT * FROM cafe_tables WHERE id = ? AND is_active = 1", [$tableId]);
             if (!$table) {
                 echo json_encode(['success' => false, 'error' => 'الطاولة غير موجودة']);
@@ -121,9 +131,9 @@ try {
             beginTransaction();
 
             $sessionId = insert(
-                "INSERT INTO table_sessions (table_id, opened_at, status, customer_name, guest_count, opened_by)
-                 VALUES (?, NOW(), 'active', ?, ?, ?)",
-                [$tableId, $customerName, $guestCount, getCurrentUserId()]
+                "INSERT INTO table_sessions (table_id, opened_at, status, customer_id, customer_name, guest_count, opened_by)
+                 VALUES (?, NOW(), 'active', ?, ?, ?, ?)",
+                [$tableId, $tableCustomerId, $customerName, $guestCount, getCurrentUserId()]
             );
 
             execute("UPDATE cafe_tables SET status = 'occupied' WHERE id = ?", [$tableId]);
@@ -207,6 +217,9 @@ try {
             $sessionId = (int)($_POST['session_id'] ?? 0);
             $paymentMethod = $_POST['payment_method'] ?? 'cash';
             $requestedDiscount = max(0, (float)($_POST['discount_amount'] ?? 0));
+            // المحصل الآن (null = تحصيل كامل كما من قبل)
+            $collectedInput = isset($_POST['paid_amount']) && $_POST['paid_amount'] !== ''
+                ? max(0.0, round((float)$_POST['paid_amount'], 2)) : null;
 
             $session = getRow("SELECT * FROM table_sessions WHERE id = ? AND status = 'active'", [$sessionId]);
             if (!$session) {
@@ -214,13 +227,25 @@ try {
                 exit;
             }
 
+            // ربط/تسجيل العميل وقت القفل (إجباري عند التحصيل الجزئي)
+            require_once __DIR__ . '/../../config/customer_accounts.php';
+            $customerAtClose = resolveCustomerInput((int)($_POST['customer_id'] ?? 0), trim($_POST['customer_name'] ?? ''));
+            if ((int)($_POST['customer_id'] ?? 0) > 0 && !$customerAtClose) {
+                echo json_encode(['success' => false, 'error' => 'العميل المحدد غير موجود'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            if (!$customerAtClose && !empty($session['customer_id'])) {
+                $customerAtClose = getRow("SELECT * FROM customers WHERE id = ?", [$session['customer_id']]);
+            }
+
             beginTransaction();
 
-            // فحص طلبات الطاولة
-            $orders = getRows("SELECT id, total_amount, paid_amount, payment_status FROM orders WHERE table_session_id = ?", [$sessionId]);
+            // فحص طلبات الطاولة (دون وسمها "مدفوعة" الآن — التوزيع يحدث لاحقاً)
+            $orders = getRows("SELECT id, total_amount, paid_amount, payment_status, created_at FROM orders WHERE table_session_id = ? ORDER BY created_at ASC, id ASC", [$sessionId]);
             $ordersTotal = 0;
             $paidPreviously = 0;
             $amountDue = 0;
+            $unpaidOrders = [];
             foreach ($orders as $o) {
                 $orderTotal = (float)$o['total_amount'];
                 $orderPaid = $o['payment_status'] === 'paid'
@@ -228,9 +253,10 @@ try {
                     : min($orderTotal, max(0, (float)$o['paid_amount']));
                 $ordersTotal += $orderTotal;
                 $paidPreviously += $orderPaid;
-                $amountDue += max(0, $orderTotal - $orderPaid);
-                if ($orderTotal > $orderPaid) {
-                    execute("UPDATE orders SET payment_status = 'paid', status = 'completed', paid_amount = total_amount WHERE id = ?", [$o['id']]);
+                $orderDue = max(0, $orderTotal - $orderPaid);
+                $amountDue += $orderDue;
+                if ($orderDue > 0.009) {
+                    $unpaidOrders[] = ['id' => (int)$o['id'], 'due' => $orderDue, 'paid' => $orderPaid, 'total' => $orderTotal];
                 }
             }
             // Balance carried in from another hall (cross-hall transfer) settles here
@@ -239,37 +265,74 @@ try {
             $discountAmount = min($requestedDiscount, $amountDue);
             $amountToCollect = max(0, $amountDue - $discountAmount);
 
+            // قرار التحصيل: كامل (افتراضي) أو جزئي مع عميل مربوط
+            if ($collectedInput !== null && $collectedInput < $amountToCollect - 0.009 && !$customerAtClose) {
+                rollback();
+                echo json_encode(['success' => false, 'error' => 'لازم تسجل العميل — اكتب اسمه في خانة العميل في نافذة الإغلاق، الباقي هيتحسب على حسابه'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            $collected = ($customerAtClose && $collectedInput !== null) ? min($collectedInput, $amountToCollect) : $amountToCollect;
+            $collected = min($collected, $amountToCollect);
+            $tableRemainingDue = round(max(0.0, $amountToCollect - $collected), 2);
+
+            // التحصيل الجزئي: الرصيد المرحَّل يُحسب أولاً ثم طلبات الطاولة من الأقدم
+            if ($collected < $amountToCollect - 0.009) {
+                $left = $collected;
+                $carriedCovered = min($carriedAmount, $left);
+                $left = round($left - $carriedCovered, 2);
+                foreach ($unpaidOrders as $uo) {
+                    if ($left <= 0.009) break;
+                    $take = round(min($uo['due'], $left), 2);
+                    if ($take <= 0) continue;
+                    $newPaid = round($uo['paid'] + $take, 2);
+                    $newStatus = ($newPaid >= round($uo['total'] - 0.009, 2)) ? 'paid' : 'partial';
+                    execute("UPDATE orders SET paid_amount = ?, payment_status = ?, status = 'completed' WHERE id = ?", [$newPaid, $newStatus, $uo['id']]);
+                    $left = round($left - $take, 2);
+                }
+            } else {
+                // تحصيل كامل: كل طلبات الطاولة الصافية توضع "مدفوعة" كما من قبل
+                foreach ($unpaidOrders as $uo) {
+                    execute("UPDATE orders SET payment_status = 'paid', status = 'completed', paid_amount = total_amount WHERE id = ?", [$uo['id']]);
+                }
+            }
+
             $currentShift = getRow("SELECT id FROM shifts WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1", [getCurrentUserId()]);
             $shiftId = $currentShift ? $currentShift['id'] : null;
 
-            if ($amountToCollect > 0) {
+            if ($collected > 0.009) {
                 $payNumber = 'PAY-TBL-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
                 insert(
                     "INSERT INTO payment_records (payment_number, source_type, source_id, amount, payment_method, payment_type, shift_id, created_by)
                      VALUES (?, 'table_session', ?, ?, ?, 'payment', ?, ?)",
-                    [$payNumber, $sessionId, $amountToCollect, $paymentMethod, $shiftId, getCurrentUserId()]
+                    [$payNumber, $sessionId, $collected, $paymentMethod, $shiftId, getCurrentUserId()]
                 );
 
                 if ($shiftId) {
                     insert(
                         "INSERT INTO cash_movements (shift_id, movement_type, amount, payment_method, description, reference_type, reference_id, created_by)
                          VALUES (?, 'sale', ?, ?, 'تحصيل طاولة صالة', 'table_session', ?, ?)",
-                        [$shiftId, $amountToCollect, $paymentMethod, $sessionId, getCurrentUserId()]
+                        [$shiftId, $collected, $paymentMethod, $sessionId, getCurrentUserId()]
                     );
 
                     if ($paymentMethod === 'cash') {
-                        execute("UPDATE shifts SET total_sales_cash = total_sales_cash + ? WHERE id = ?", [$amountToCollect, $shiftId]);
+                        execute("UPDATE shifts SET total_sales_cash = total_sales_cash + ? WHERE id = ?", [$collected, $shiftId]);
                     } elseif ($paymentMethod === 'card') {
-                        execute("UPDATE shifts SET total_sales_card = total_sales_card + ? WHERE id = ?", [$amountToCollect, $shiftId]);
+                        execute("UPDATE shifts SET total_sales_card = total_sales_card + ? WHERE id = ?", [$collected, $shiftId]);
                     } else {
-                        execute("UPDATE shifts SET total_sales_wallet = total_sales_wallet + ? WHERE id = ?", [$amountToCollect, $shiftId]);
+                        execute("UPDATE shifts SET total_sales_wallet = total_sales_wallet + ? WHERE id = ?", [$collected, $shiftId]);
                     }
                 }
             }
 
+            // الباقي غير المحصل → دين على حساب العميل المربوط
+            if ($tableRemainingDue > 0.009 && $customerAtClose) {
+                execute("UPDATE customers SET balance = balance - ? WHERE id = ?", [$tableRemainingDue, $customerAtClose['id']]);
+                logActivity('مديونية طاولة صالة', 'تبقى ' . number_format($tableRemainingDue, 2) . ' ج.م على ' . $customerAtClose['name'] . ' من إغلاق طاولة (جلسة #' . $sessionId . ')');
+            }
+
             execute(
-                "UPDATE table_sessions SET closed_at = NOW(), status = 'closed', closed_by = ?, total_amount = ?, discount_amount = ? WHERE id = ?",
-                [getCurrentUserId(), $ordersTotal, $discountAmount, $sessionId]
+                "UPDATE table_sessions SET closed_at = NOW(), status = 'closed', closed_by = ?, customer_id = ?, total_amount = ?, discount_amount = ? WHERE id = ?",
+                [getCurrentUserId(), $customerAtClose ? (int)$customerAtClose['id'] : ($session['customer_id'] ?? null), $ordersTotal, $discountAmount, $sessionId]
             );
 
             execute("UPDATE cafe_tables SET status = 'available' WHERE id = ?", [$session['table_id']]);

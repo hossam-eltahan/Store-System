@@ -62,7 +62,9 @@ include '../../includes/navbar.php';
         <div style="padding:18px;">
             <input type="hidden" id="openTableId">
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">اسم العميل (اختياري):</label>
-            <input type="text" id="openCustomerName" placeholder="اسم العميل..." style="width:100%; padding:9px; border-radius:8px; border:1px solid #cbd5e1; margin-bottom:12px;">
+            <input type="text" id="openCustomerName" placeholder="اسم العميل..." style="width:100%; padding:9px; border-radius:8px; border:1px solid #cbd5e1; margin-bottom:10px;">
+            <input type="hidden" id="openCustomerId" value="">
+            <div id="openCustomerBalance" style="font-size:12px; display:none; margin-bottom:10px; margin-top:-6px;"></div>
             <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">عدد الضيوف (الأفراد):</label>
             <input type="number" id="openGuestCount" value="2" min="1" max="20" style="width:100%; padding:9px; border-radius:8px; border:1px solid #cbd5e1; font-weight:bold;">
         </div>
@@ -121,11 +123,22 @@ include '../../includes/navbar.php';
 }
 </style>
 
+<script src="../../assets/js/customer_picker.js?v=1"></script>
 <script>
 let tables = [];
 
 document.addEventListener('DOMContentLoaded', () => {
     loadTables();
+    // حقل العميل في مودال فتح الطاولة + مودال الإغلاق = اختيار من الموجودين / عميل جديد / بدون
+    initCustomerPicker(
+        document.getElementById('openCustomerName'),
+        document.getElementById('openCustomerId'),
+        { balanceEl: document.getElementById('openCustomerBalance') }
+    );
+    initCustomerPicker(
+        document.getElementById('payCustomerIdName'),
+        document.getElementById('payCustomerId')
+    );
 });
 
 async function loadTables() {
@@ -238,6 +251,8 @@ function openTableModal(tableId, name) {
     document.getElementById('openTableModalTitle').textContent = `فتح: ${name}`;
     document.getElementById('openCustomerName').value = '';
     document.getElementById('openGuestCount').value = 2;
+    const openCustId = document.getElementById('openCustomerId');
+    if (openCustId) openCustId.value = '';
     document.getElementById('openTableModal').style.display = 'flex';
 }
 
@@ -346,6 +361,7 @@ async function submitOpenTable() {
     const fd = new FormData();
     fd.append('table_id', tableId);
     fd.append('customer_name', cust);
+    fd.append('customer_id', document.getElementById('openCustomerId').value || 0);
     fd.append('guest_count', guests);
 
     const res = await fetch('ajax.php?action=open_table', { method: 'POST', body: fd });
@@ -388,6 +404,18 @@ async function closeTable(sessionId, total, grossTotal, paidTotal, tableName, or
         </div>
     `;
     document.getElementById('payMethod').value = 'cash';
+    // خانة عميل الإغلاق + المحصل: افتراضياً تحصيل كامل (والعميل يُلاحق من نافذة الإغلاق)
+    const payPaidInput = document.getElementById('payPaidInput');
+    if (payPaidInput) {
+        payPaidInput.dataset.touchedOnce = '';
+        payPaidInput.max = total.toFixed(2);
+        payPaidInput.value = Math.max(0, total).toFixed(2);
+        updateTablePaid();
+    }
+    const payCustName = document.getElementById('payCustomerIdName');
+    if (payCustName) payCustName.value = '';
+    const payCustId = document.getElementById('payCustomerId');
+    if (payCustId) payCustId.value = '';
     document.getElementById('payTableModal').style.setProperty('display', 'flex', 'important');
 }
 
@@ -396,17 +424,64 @@ function updateTableDiscount() {
     const discount = Math.min(total, Math.max(0, parseFloat(document.getElementById('payDiscount').value) || 0));
     document.getElementById('payDiscount').value = discount;
     document.getElementById('tableNetDisplay').innerText = (total - discount).toFixed(2) + ' ج.م';
+    const paid = document.getElementById('payPaidInput');
+    if (paid && !paid.dataset.touchedOnce) {
+        paid.max = (total - discount).toFixed(2);
+        paid.value = Math.max(0, total - discount).toFixed(2);
+        updateTablePaid();
+    }
+}
+
+// المحصل أقل من المتبقي → يترحل على حساب العميل (أو خطأ لو مفيش عميل)
+function updateTablePaid() {
+    const inp = document.getElementById('payPaidInput');
+    const note = document.getElementById('tablePaidNote');
+    if (!inp || !note) return;
+    const final = parseFloat(inp.max) || 0;
+    let paidV = parseFloat(inp.value) || 0;
+    if (paidV < 0) paidV = 0;
+    inp.dataset.touchedOnce = '1';
+    inp.value = paidV.toFixed(2);
+    const remaining = Math.round((final - paidV) * 100) / 100;
+    if (remaining <= 0.009) { note.style.display = 'none'; return; }
+    const custName = (document.getElementById('payCustomerIdName')?.value || '').trim();
+    const hasCustomer = document.getElementById('payCustomerId').value || custName;
+    note.style.display = 'block';
+    note.style.color = hasCustomer ? '#92400e' : '#dc2626';
+    note.style.background = hasCustomer ? '#fefce8' : '#fef2f2';
+    note.style.borderColor = hasCustomer ? '#fde047' : '#fca5a5';
+    note.innerHTML = hasCustomer
+        ? `💳 باقي <strong>${remaining.toFixed(2)}</strong> ج.م هيتسجل على حساب العميل (${custName || 'مربوط'})`
+        : `❌ باقي <strong>${remaining.toFixed(2)}</strong> ج.م — لازم تسجل العميل: اكتب اسمه في خانة العميل (هيتسجل في العملاء تلقائياً)`;
 }
 
 async function submitCloseTable() {
     const sessionId = document.getElementById('paySessionId').value;
     const paymentMethod = document.getElementById('payMethod').value;
     const discountAmount = Math.max(0, parseFloat(document.getElementById('payDiscount').value) || 0);
+    const paidInput = document.getElementById('payPaidInput');
+    const total = parseFloat(document.getElementById('paySessionId').dataset.total || '0');
+    let paidAmount = null;
+    if (paidInput) {
+        paidAmount = Math.max(0, parseFloat(paidInput.value) || 0);
+        const afterDisc = total - discountAmount;
+        if (afterDisc > 0 && paidAmount < afterDisc - 0.009) {
+            const cid = document.getElementById('payCustomerId').value;
+            const cname = (document.getElementById('payCustomerIdName')?.value || '').trim();
+            if (!cid && cname === '') {
+                appAlert('❌ لازم تسجل العميل — اكتب اسمه في خانة "العميل" لتسجيل الباقي على حسابه', 'error');
+                return;
+            }
+        }
+    }
 
     const fd = new FormData();
     fd.append('session_id', sessionId);
     fd.append('payment_method', paymentMethod);
     fd.append('discount_amount', discountAmount);
+    if (paidAmount !== null) fd.append('paid_amount', paidAmount);
+    fd.append('customer_id', document.getElementById('payCustomerId').value || 0);
+    fd.append('customer_name', document.getElementById('payCustomerIdName').value || '');
 
     try {
         const res = await fetch('ajax.php?action=close_table', { method: 'POST', body: fd });
@@ -481,6 +556,22 @@ function escapeHtml(t) { return t ? t.toString().replace(/&/g,"&amp;").replace(/
                         <option value="instapay">⚡ إنستاباي</option>
                         <option value="vodafone_cash">📱 فودافون كاش</option>
                     </select>
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 8px;">👤 العميل (اختياري — لبقية التحصيل على الحساب):</label>
+                    <div style="position:relative;">
+                        <input type="text" id="payCustomerIdName" placeholder="ابحث أو اكتب اسم عميل جديد..." autocomplete="off"
+                               style="width:100%; padding:9px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:13px; font-family:inherit;">
+                        <input type="hidden" id="payCustomerId" value="">
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <label for="payPaidInput" style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 8px;">💵 المحصل الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
+                    <input type="number" id="payPaidInput" min="0" step="0.5" value="0" oninput="updateTablePaid()"
+                           style="width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; font-weight:700; text-align:center;">
+                    <div id="tablePaidNote" style="font-size:11.5px; font-weight:700; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
                 </div>
 
                 <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #92400e; line-height: 1.6;">

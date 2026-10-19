@@ -86,10 +86,20 @@ try {
             $appliedRate = ($billingMode === 'hourly') ? $defaultHourRate : $defaultGameRate;
             $initialGameCount = ($billingMode === 'per_game') ? 1 : 0;
 
+            // ربط/تسجيل العميل (من المحدد، أو تسجيل تلقائي لاسم جديد، أو بدون ربط)
+            require_once __DIR__ . '/../../config/customer_accounts.php';
+            $billiardCustomer = resolveCustomerInput((int)($data['customer_id'] ?? 0), $customerName);
+            if ((int)($data['customer_id'] ?? 0) > 0 && !$billiardCustomer) {
+                echo json_encode(['success' => false, 'error' => 'العميل المحدد غير موجود'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            $billiardCustomerId = $billiardCustomer ? (int)$billiardCustomer['id'] : null;
+            if ($billiardCustomer) $customerName = $billiardCustomer['name'];
+
             $sessionId = insert(
-                "INSERT INTO billiard_sessions (table_id, billing_mode, started_at, game_count, applied_rate, status, opened_by, customer_name, time_mode, preset_minutes)
-                 VALUES (?, ?, NOW(), ?, ?, 'active', ?, ?, ?, ?)",
-                [$tableId, $billingMode, $initialGameCount, $appliedRate, getCurrentUserId(), $customerName, $timeMode, $presetMinutes]
+                "INSERT INTO billiard_sessions (table_id, billing_mode, started_at, game_count, applied_rate, status, opened_by, customer_id, customer_name, time_mode, preset_minutes)
+                 VALUES (?, ?, NOW(), ?, ?, 'active', ?, ?, ?, ?, ?)",
+                [$tableId, $billingMode, $initialGameCount, $appliedRate, getCurrentUserId(), $billiardCustomerId, $customerName, $timeMode, $presetMinutes]
             );
 
             echo json_encode(['success' => true, 'session_id' => $sessionId, 'message' => 'تم بدء جلسة البلياردو بنجاح'], JSON_UNESCAPED_UNICODE);
@@ -300,6 +310,29 @@ try {
 
             $totalAmount = max(0, ($gamingCharge + $cafeDue + $carriedAmount) - $discountAmount + $taxAmount);
 
+            // المحصل الآن (null = التحصيل الكامل كما من قبل)
+            $collectedInput = isset($data['paid_amount']) && $data['paid_amount'] !== null
+                ? max(0.0, round(floatval($data['paid_amount']), 2)) : null;
+
+            // ربط/تسجيل العميل وقت القفل (اختياري إذا التسوية كاملة، وإجباري عند الباقي)
+            require_once __DIR__ . '/../../config/customer_accounts.php';
+            $customerAtEnd = resolveCustomerInput((int)($data['customer_id'] ?? 0), (string)($data['customer_name'] ?? ''));
+            if ((int)($data['customer_id'] ?? 0) > 0 && !$customerAtEnd) {
+                throw new RuntimeException('العميل المحدد غير موجود');
+            }
+            if (!$customerAtEnd && !empty($session['customer_id'])) {
+                $customerAtEnd = getRow("SELECT * FROM customers WHERE id = ?", [$session['customer_id']]);
+            }
+            // المحصل أقل من الإجمالي → لازم حساب عميل يتحسب عليه الباقي
+            if ($collectedInput !== null && $collectedInput < $totalAmount - 0.009 && !$customerAtEnd) {
+                throw new RuntimeException('لازم تسجل العميل — اكتب اسمه في خانة العميل في نافذة القفل، الباقي هيتحسب على حسابه');
+            }
+            $collected = ($customerAtEnd && $collectedInput !== null)
+                ? min($collectedInput, $totalAmount)
+                : $totalAmount;
+            $collected = min($collected, $totalAmount);
+            $sessionRemainingDue = round(max(0.0, $totalAmount - $collected), 2);
+
             $currentShift = getRow("SELECT id FROM shifts WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1", [getCurrentUserId()]);
             $shiftId = $currentShift ? $currentShift['id'] : null;
 
@@ -313,34 +346,48 @@ try {
                     tax_amount = ?,
                     total_amount = ?,
                     paid_amount = ?,
+                    customer_id = ?,
                     status = 'completed',
                     closed_by = ?
                  WHERE id = ?",
-                [$billableMinutes, $gamingCharge, $cafeTotal, $discountAmount, $taxAmount, $totalAmount, $totalAmount, getCurrentUserId(), $sessionId]
+                [$billableMinutes, $gamingCharge, $cafeTotal, $discountAmount, $taxAmount, $totalAmount, $collected,
+                 $customerAtEnd ? (int)$customerAtEnd['id'] : ($session['customer_id'] ?? null),
+                 getCurrentUserId(), $sessionId]
             );
 
             $payNumber = 'PAY-BIL-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
-            insert(
-                "INSERT INTO payment_records (payment_number, source_type, source_id, amount, payment_method, payment_type, shift_id, created_by)
-                 VALUES (?, 'billiard_session', ?, ?, ?, 'payment', ?, ?)",
-                [$payNumber, $sessionId, $totalAmount, $paymentMethod, $shiftId, getCurrentUserId()]
-            );
+            if ($collected > 0.009) {
+                insert(
+                    "INSERT INTO payment_records (payment_number, source_type, source_id, amount, payment_method, payment_type, shift_id, created_by)
+                     VALUES (?, 'billiard_session', ?, ?, ?, 'payment', ?, ?)",
+                    [$payNumber, $sessionId, $collected, $paymentMethod, $shiftId, getCurrentUserId()]
+                );
+            }
 
-            if ($shiftId) {
+            // المتبقي غير المحصل → دين على حساب العميل المربوط
+            if ($sessionRemainingDue > 0.009 && $customerAtEnd) {
+                execute(
+                    "UPDATE customers SET balance = balance - ? WHERE id = ?",
+                    [$sessionRemainingDue, $customerAtEnd['id']]
+                );
+                logActivity('مديونية بون بلياردو', 'تبقى ' . number_format($sessionRemainingDue, 2) . ' ج.م على ' . $customerAtEnd['name'] . ' من بون الطاولة (' . $session['display_name'] . ')');
+            }
+
+            if ($shiftId && $collected > 0.009) {
                 insert(
                     "INSERT INTO cash_movements (shift_id, movement_type, amount, payment_method, description, reference_type, reference_id, created_by)
                      VALUES (?, 'sale', ?, ?, ?, 'billiard_session', ?, ?)",
-                    [$shiftId, $totalAmount, $paymentMethod, "تحصيل جلسة بلياردو {$session['display_name']}", $sessionId, getCurrentUserId()]
+                    [$shiftId, $collected, $paymentMethod, "تحصيل جلسة بلياردو {$session['display_name']}", $sessionId, getCurrentUserId()]
                 );
 
                 execute("UPDATE shifts SET total_billiard_revenue = total_billiard_revenue + ? WHERE id = ?", [$gamingCharge, $shiftId]);
 
                 if ($paymentMethod === 'cash') {
-                    execute("UPDATE shifts SET total_sales_cash = total_sales_cash + ? WHERE id = ?", [$totalAmount, $shiftId]);
+                    execute("UPDATE shifts SET total_sales_cash = total_sales_cash + ? WHERE id = ?", [$collected, $shiftId]);
                 } elseif ($paymentMethod === 'card') {
-                    execute("UPDATE shifts SET total_sales_card = total_sales_card + ? WHERE id = ?", [$totalAmount, $shiftId]);
+                    execute("UPDATE shifts SET total_sales_card = total_sales_card + ? WHERE id = ?", [$collected, $shiftId]);
                 } else {
-                    execute("UPDATE shifts SET total_sales_wallet = total_sales_wallet + ? WHERE id = ?", [$totalAmount, $shiftId]);
+                    execute("UPDATE shifts SET total_sales_wallet = total_sales_wallet + ? WHERE id = ?", [$collected, $shiftId]);
                 }
             }
 

@@ -1,15 +1,21 @@
 <?php
 /**
- * Customer Details View
- * نظام إدارة محل أجهزة منزلية
+ * Customer Profile — بروفايل العميل وحسابات كاملة
+ * كل فواتيره وطلباته + محاسبة فردية/مجمعه + بحث وفلتر تاريخ (افتراضي اليوم)
+ * + ترقيم + إجراءات لكل عنصر (بون/تعديل/ارجاع/محاسبه) + تسوية الكل والمحدد.
  */
 
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
 require_once '../../config/auth.php';
+require_once '../../config/customer_accounts.php';
 requirePermission('customers.view');
 
-$id = $_GET['id'] ?? 0;
+if (!function_exists('redirect')) {
+    function redirect($path) { header('Location: ' . $path); exit; }
+}
+
+$id = (int)($_GET['id'] ?? 0);
 $customer = getRow("SELECT * FROM customers WHERE id = ?", [$id]);
 
 if (!$customer) {
@@ -17,361 +23,384 @@ if (!$customer) {
     redirect('index.php');
 }
 
-$pageTitle = 'تفاصيل العميل: ' . $customer['name'];
+$pageTitle = 'بروفايل العميل: ' . $customer['name'];
 $settings = getAllSettings();
 
-// Get customer invoices
-$invoices = getRows(
-    "SELECT * FROM invoices WHERE customer_id = ? ORDER BY created_at DESC",
-    [$id]
-);
-
-// Get customer installment plans (from new table)
-$installments = tableExists('installment_plans') ? getRows(
-    "SELECT ip.*, 
-            (SELECT COUNT(*) FROM installment_payments WHERE plan_id = ip.id AND status = 'paid') as paid_count,
-            (SELECT COUNT(*) FROM installment_payments WHERE plan_id = ip.id AND status = 'overdue') as overdue_count,
-            (SELECT MIN(due_date) FROM installment_payments WHERE plan_id = ip.id AND status IN ('pending', 'overdue')) as next_due
-     FROM installment_plans ip
-     WHERE ip.type = 'customer' AND ip.entity_id = ? 
-     ORDER BY ip.created_at DESC",
-    [$id]
-) : [];
-
-// Calculate totals
-$totalPurchases = 0;
-$totalPaid = 0;
-$totalRemaining = 0;
-
-foreach ($invoices as $inv) {
-    $totalPurchases += $inv['total_amount'];
-    $totalPaid += $inv['paid_amount'];
-    $totalRemaining += $inv['remaining_amount'];
-}
-
-// Calculate installments
-$activeInstallments = 0;
-$totalInstallmentAmount = 0;
-$totalInstallmentPaid = 0;
-$totalInstallmentRemaining = 0;
-
-foreach ($installments as $inst) {
-    if ($inst['status'] === 'active') {
-        $activeInstallments++;
+/** Filter the account items by free text + date window. */
+function customer_filtered_items($customerId, $q, $dateFrom, $dateTo) {
+    $all = customer_all_items($customerId);
+    $qLower = mb_strtolower(trim($q));
+    $out = [];
+    foreach ($all as $it) {
+        if ($qLower !== '') {
+            $hay = mb_strtolower(($it['ref_number'] ?? '') . ' ' . ($it['item_label'] ?? ''));
+            if (mb_strpos($hay, $qLower) === false) continue;
+        }
+        $day = substr((string)$it['item_date'], 0, 10);
+        if ($dateFrom !== null && $day < (string)$dateFrom) continue;
+        if ($dateTo !== null && $day > (string)$dateTo) continue;
+        $out[] = $it;
     }
-    $totalInstallmentAmount += $inst['total_amount'];
-    $totalInstallmentPaid += $inst['paid_amount'];
-    $totalInstallmentRemaining += $inst['remaining_amount'];
+    return $out;
 }
 
-// Get customer returns
-$returns = getRows(
-    "SELECT r.*, i.invoice_number 
-     FROM returns r 
-     LEFT JOIN invoices i ON r.original_invoice_id = i.id 
-     WHERE r.customer_id = ? 
-     ORDER BY r.created_at DESC",
-    [$id]
-);
+$stats = customer_account_stats($id);
+$balance = (float)$customer['balance'];
 
-$totalReturns = 0;
-foreach ($returns as $ret) {
-    $totalReturns += $ret['total_amount'];
+// ---- Filters: dates default to today; "all dates" via all_dates=1 ----
+$isAllDates = isset($_GET['all_dates']);
+$dateFrom = trim($_GET['date_from'] ?? date('Y-m-d'));
+$dateTo   = trim($_GET['date_to']   ?? date('Y-m-d'));
+$searchQ  = trim($_GET['q'] ?? '');
+$page     = max(1, (int)($_GET['page'] ?? 1));
+$perPage  = 20;
+
+$items     = customer_filtered_items($id, $searchQ, $isAllDates ? null : $dateFrom, $isAllDates ? null : $dateTo);
+$totalItems = count($items);
+$totalPages = max(1, (int)ceil($totalItems / $perPage));
+$page = min($page, $totalPages);
+$itemsPage = array_slice($items, ($page - 1) * $perPage, $perPage);
+// Open dues inside the current filter window (the checkbox pool)
+$windowOpenTotal = 0.0;
+foreach ($items as $it) { if ($it['remaining_amount'] > 0.009) $windowOpenTotal += $it['remaining_amount']; }
+$windowOpenTotal = round($windowOpenTotal, 2);
+
+function profile_item_key(array $it) {
+    if ($it['kind'] === 'order') return 'order:' . $it['ref_id'];
+    if ($it['kind'] === 'gaming_session') return 'gs:' . $it['ref_id'];
+    return 'bs:' . $it['ref_id'];
+}
+function profile_kind_read_receipt(array $it) {
+    return $it['kind'] === 'order' ? '../pos/receipt.php?id=' . $it['ref_id'] . '&type=customer'
+        : ($it['kind'] === 'gaming_session' ? '../gaming/receipt.php?id=' . $it['ref_id']
+        : '../billiards/receipt.php?id=' . $it['ref_id']);
 }
 
 include '../../includes/header.php';
 include '../../includes/navbar.php';
 ?>
 
+<style>
+.pr-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:16px 20px; }
+.pr-row-open { border-color:#fdba74 !important; background:#fffbeb !important; }
+.pr-chip { padding:4px 10px; border-radius:20px; font-size:11px; font-weight:800; display:inline-block; }
+.pr-chip-done { background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; }
+.pr-chip-part { background:#fef9c3; color:#a16207; border:1px solid #fde047; }
+.pr-chip-open { background:#ffedd5; color:#c2410c; border:1px solid #fdba74; }
+.btn-mini { padding:5px 10px; border-radius:8px; font-size:11.5px; font-weight:800; border:1px solid #cbd5e1; background:#fff; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-family:inherit; color:#334155; }
+.btn-mini:hover { background:#f1f5f9; }
+.btn-mini.primary { background:#ea580c; color:#fff; border-color:#ea580c; }
+.btn-mini.danger  { background:#dc2626; color:#fff; border-color:#dc2626; }
+.btn-mini.success { background:#059669; color:#fff; border-color:#059669; }
+.btn-mini.blue    { background:#2563eb; color:#fff; border-color:#2563eb; }
+.btn-mini:disabled { opacity:.45; cursor:not-allowed; }
+</style>
+
 <div class="container">
-    <!-- Customer Info Card -->
-    <div class="card">
-        <div class="card-header d-flex justify-between align-center">
-            <span>👤 تفاصيل العميل</span>
-            <div>
-                <?php if ($customer['balance'] < 0): ?>
-                <a href="../payments/pay_customer.php?customer_id=<?php echo $customer['id']; ?>" class="btn btn-warning">💵 تحصيل مستحقات</a>
-                <?php endif; ?>
-                <?php if (hasPermission('reports.statement')): ?>
-                <a href="../reports/statement.php?type=customer&id=<?php echo $customer['id']; ?>" class="btn btn-info">🖨️ كشف حساب</a>
-                <?php endif; ?>
-                <a href="edit.php?id=<?php echo $customer['id']; ?>" class="btn btn-primary">✏️ تعديل</a>
-                <a href="index.php" class="btn btn-secondary">↩️ رجوع</a>
-            </div>
-        </div>
-        <div class="card-body">
-            <div class="grid grid-2" style="gap: 30px;">
-                <!-- Basic Info -->
-                <div>
-                    <h3 style="margin-bottom: 20px; color: #333;">📋 معلومات أساسية</h3>
-                    <table class="table" style="background: #f8f9fa;">
-                        <tr>
-                            <td style="width: 40%; font-weight: bold;">اسم العميل</td>
-                            <td style="font-size: 1.2em;"><?php echo $customer['name']; ?></td>
-                        </tr>
-                        <tr>
-                            <td style="font-weight: bold;">التليفون</td>
-                            <td>
-                                <a href="tel:<?php echo $customer['phone']; ?>" style="color: #2563eb;">
-                                    📞 <?php echo $customer['phone']; ?>
-                                </a>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="font-weight: bold;">العنوان</td>
-                            <td><?php echo ($customer['address'] ?? '') ?: 'غير محدد'; ?></td>
-                        </tr>
-                        <tr>
-                            <td style="font-weight: bold;">ملاحظات</td>
-                            <td><?php echo ($customer['notes'] ?? '') ?: 'لا توجد ملاحظات'; ?></td>
-                        </tr>
-                        <tr>
-                            <td style="font-weight: bold;">تاريخ التسجيل</td>
-                            <td><?php echo date('Y/m/d', strtotime($customer['created_at'])); ?></td>
-                        </tr>
-                    </table>
-                </div>
-                
-                <!-- Financial Info -->
-                <div>
-                    <h3 style="margin-bottom: 20px; color: #333;">💰 معلومات مالية</h3>
-                    <div class="stats-grid" style="grid-template-columns: 1fr;">
-                        <div class="stat-card info">
-                            <div class="stat-label">إجمالي المشتريات</div>
-                            <div class="stat-value"><?php echo formatCurrency($totalPurchases); ?></div>
-                            <small><?php echo count($invoices); ?> فاتورة</small>
-                        </div>
-                        
-                        <div class="stat-card success">
-                            <div class="stat-label">إجمالي المدفوع</div>
-                            <div class="stat-value"><?php echo formatCurrency($totalPaid); ?></div>
-                        </div>
-                        
-                        <div class="stat-card <?php echo $customer['balance'] < 0 ? 'danger' : 'success'; ?>">
-                            <div class="stat-label">الرصيد الحالي</div>
-                            <div class="stat-value">
-                                <?php if ($customer['balance'] < 0): ?>
-                                    <?php echo formatCurrency(abs($customer['balance'])); ?> (مدين)
-                                <?php elseif ($customer['balance'] > 0): ?>
-                                    <?php echo formatCurrency($customer['balance']); ?> (دائن)
-                                <?php else: ?>
-                                    0.00
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                        
-                        <?php if ($activeInstallments > 0): ?>
-                        <div class="stat-card warning">
-                            <div class="stat-label">أقساط نشطة</div>
-                            <div class="stat-value"><?php echo $activeInstallments; ?></div>
-                            <small>متبقي: <?php echo formatCurrency($totalInstallmentRemaining); ?></small>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
+
+<!-- Header -->
+<div class="pr-card" style="margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+    <div>
+        <h2 style="font-size:19px; font-weight:900; color:#0f172a; margin:0 0 3px 0;">👤 <?php echo htmlspecialchars($customer['name']); ?></h2>
+        <div style="font-size:12.5px; color:#64748b;">
+            📞 <?php echo htmlspecialchars($customer['phone'] ?: 'لا يوجد تليفون'); ?>
+            • 🗓️ مسجل من <?php echo date('Y/m/d', strtotime($customer['created_at'])); ?>
         </div>
     </div>
-    
-    <!-- Installments Card -->
-    <div class="card">
-        <div class="card-header d-flex justify-between align-center">
-            <span>📅 الأقساط (<?php echo count($installments); ?>)</span>
-            <div>
-                <?php if ($customer['balance'] < 0): ?>
-                <a href="../installments/create.php?type=customer&entity_id=<?php echo $customer['id']; ?>" class="btn btn-info">➕ إنشاء قسط</a>
-                <?php endif; ?>
-                <?php if (!empty($installments)): ?>
-                <a href="../installments/index.php?filter=customer" class="btn btn-primary">📋 عرض الكل</a>
-                <?php endif; ?>
-            </div>
-        </div>
-        <div class="card-body">
-            <?php if (empty($installments)): ?>
-            <div class="alert alert-info">لا توجد خطط تقسيط لهذا العميل</div>
-            <?php else: ?>
-            <?php foreach ($installments as $installment): 
-                $hasOverdue = $installment['overdue_count'] > 0;
-                $progress = $installment['total_amount'] > 0 ? (($installment['paid_amount'] / $installment['total_amount']) * 100) : 0;
-            ?>
-            <div style="background: <?php echo $hasOverdue ? '#fef2f2' : ($installment['status'] === 'active' ? '#fff7ed' : '#f0fdf4'); ?>; border: 1px solid <?php echo $hasOverdue ? '#fecaca' : ($installment['status'] === 'active' ? '#fed7aa' : '#bbf7d0'); ?>; border-radius: 10px; padding: 20px; margin-bottom: 15px;">
-                <div class="d-flex justify-between align-center" style="margin-bottom: 15px;">
-                    <h4 style="margin: 0;">
-                        <span class="badge <?php echo $installment['status'] === 'active' ? ($hasOverdue ? 'badge-danger' : 'badge-warning') : 'badge-success'; ?>">
-                            <?php echo $hasOverdue ? 'متأخر' : ($installment['status'] === 'active' ? 'نشط' : 'مكتمل'); ?>
-                        </span>
-                        خطة تقسيط #<?php echo $installment['id']; ?>
-                        <?php if ($installment['invoice_id']): ?>
-                        <small style="color: #6b7280;">(فاتورة)</small>
-                        <?php endif; ?>
-                    </h4>
-                    <?php if ($installment['status'] === 'active'): ?>
-                    <a href="../installments/pay.php?plan_id=<?php echo $installment['id']; ?>" class="btn btn-success">💵 دفع</a>
-                    <?php endif; ?>
-                </div>
-                
-                <div class="grid grid-3" style="gap: 15px;">
-                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
-                        <div style="font-size: 0.85em; color: #666;">المبلغ الكلي</div>
-                        <div style="font-size: 1.3em; font-weight: bold;"><?php echo formatCurrency($installment['total_amount']); ?></div>
-                    </div>
-                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
-                        <div style="font-size: 0.85em; color: #666;">المدفوع</div>
-                        <div style="font-size: 1.3em; font-weight: bold; color: #10b981;"><?php echo formatCurrency($installment['paid_amount']); ?></div>
-                    </div>
-                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
-                        <div style="font-size: 0.85em; color: #666;">المتبقي</div>
-                        <div style="font-size: 1.3em; font-weight: bold; color: #dc2626;"><?php echo formatCurrency($installment['remaining_amount']); ?></div>
-                    </div>
-                </div>
-                
-                <!-- Progress Bar -->
-                <div style="margin-top: 15px;">
-                    <div style="height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden;">
-                        <div style="height: 100%; width: <?php echo $progress; ?>%; background: linear-gradient(90deg, #10b981, #059669);"></div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.85em; color: #6b7280;">
-                        <span><?php echo $installment['number_of_installments']; ?> قسط × <?php echo formatCurrency($installment['installment_amount']); ?></span>
-                        <span><?php echo round($progress); ?>% مكتمل</span>
-                    </div>
-                </div>
-                
-                <?php if ($installment['next_due']): ?>
-                <div style="margin-top: 15px; padding: 10px; background: <?php echo $hasOverdue ? '#fee2e2' : '#fffbeb'; ?>; border-radius: 5px; text-align: center;">
-                    <span style="color: <?php echo $hasOverdue ? '#dc2626' : '#92400e'; ?>;">
-                        <?php echo $hasOverdue ? '⏰ متأخر من' : '📅 القسط القادم:'; ?>
-                        <?php echo date('Y/m/d', strtotime($installment['next_due'])); ?>
-                    </span>
-                </div>
-                <?php endif; ?>
-                
-                <div style="margin-top: 15px; text-align: center;">
-                    <a href="../installments/view.php?id=<?php echo $installment['id']; ?>" class="btn btn-info btn-sm">📋 التفاصيل</a>
-                </div>
-            </div>
-            <?php endforeach; ?>
-            <?php endif; ?>
-        </div>
-    </div>
-    
-    <!-- Returns Card -->
-    <div class="card">
-        <div class="card-header d-flex justify-between align-center">
-            <span>🔄 المرتجعات (<?php echo count($returns); ?>)</span>
-            <?php if (tableExists('returns')): ?>
-            <a href="../returns/create.php" class="btn btn-warning">+ مرتجع جديد</a>
-            <?php endif; ?>
-        </div>
-        <div class="card-body">
-            <?php if (empty($returns)): ?>
-            <div class="alert alert-info">لا توجد مرتجعات مسجلة لهذا العميل</div>
-            <?php else: ?>
-            <div class="table-container">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>رقم المرتجع</th>
-                            <th>الفاتورة</th>
-                            <th>التاريخ</th>
-                            <th>المبلغ</th>
-                            <th>طريقة الاسترداد</th>
-                            <th>إجراءات</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($returns as $return): ?>
-                        <tr>
-                            <td><strong><?php echo $return['return_number']; ?></strong></td>
-                            <td><?php echo $return['invoice_number']; ?></td>
-                            <td><?php echo date('Y/m/d', strtotime($return['return_date'])); ?></td>
-                            <td><?php echo formatCurrency($return['total_amount']); ?></td>
-                            <td>
-                                <?php if ($return['refund_method'] === 'deducted'): ?>
-                                    <span class="badge badge-info">خصم من الحساب</span>
-                                <?php else: ?>
-                                    <span class="badge badge-success">كاش</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <a href="../returns/view.php?id=<?php echo $return['id']; ?>" class="btn btn-info btn-sm">👁️</a>
-                                <a href="../returns/print.php?id=<?php echo $return['id']; ?>" class="btn btn-primary btn-sm">🖨️</a>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-            <?php endif; ?>
-        </div>
-    </div>
-    
-    <!-- Invoices Card -->
-    <div class="card">
-        <div class="card-header d-flex justify-between align-center">
-            <span>📜 فواتير العميل (<?php echo count($invoices); ?>)</span>
-            <a href="../invoices/sale.php" class="btn btn-success">+ فاتورة بيع جديدة</a>
-        </div>
-        <div class="card-body">
-            <?php if (empty($invoices)): ?>
-            <div class="alert alert-info">لا توجد فواتير مسجلة لهذا العميل</div>
-            <?php else: ?>
-            <div class="table-container">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>رقم الفاتورة</th>
-                            <th>التاريخ</th>
-                            <th>الإجمالي</th>
-                            <th>المدفوع</th>
-                            <th>الباقي</th>
-                            <th>حالة الدفع</th>
-                            <th>إجراءات</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($invoices as $invoice): ?>
-                        <tr>
-                            <td><strong><?php echo $invoice['invoice_number']; ?></strong></td>
-                            <td><?php echo date('Y/m/d', strtotime($invoice['date'])); ?></td>
-                            <td><?php echo formatCurrency($invoice['total_amount']); ?></td>
-                            <td><?php echo formatCurrency($invoice['paid_amount']); ?></td>
-                            <td><?php echo formatCurrency($invoice['remaining_amount']); ?></td>
-                            <td>
-                                <?php
-                                $statusClass = [
-                                    'paid' => 'badge-success',
-                                    'partial' => 'badge-warning',
-                                    'unpaid' => 'badge-danger'
-                                ];
-                                $statusText = [
-                                    'paid' => 'مدفوع',
-                                    'partial' => 'جزئي',
-                                    'unpaid' => 'غير مدفوع'
-                                ];
-                                ?>
-                                <span class="badge <?php echo $statusClass[$invoice['payment_status']]; ?>">
-                                    <?php echo $statusText[$invoice['payment_status']]; ?>
-                                </span>
-                            </td>
-                            <td>
-                                <?php if (hasAnyPermission(['invoices.sale.view', 'invoices.sale.create'])): ?>
-                                <a href="../invoices/print.php?id=<?php echo $invoice['id']; ?>" class="btn btn-primary btn-sm">🖨️</a>
-                                <?php endif; ?>
-                                <?php if (hasPermission('invoices.sale.edit') && (($settings['allow_edit_invoices'] ?? '0') === '1')): ?>
-                                <a href="../invoices/edit_sale.php?id=<?php echo $invoice['id']; ?>" class="btn btn-info btn-sm" title="تعديل">✏️</a>
-                                <?php endif; ?>
-                                <?php if (hasPermission('invoices.sale.delete') && (($settings['allow_delete_invoices'] ?? '0') === '1')): ?>
-                                <a href="../invoices/delete.php?id=<?php echo $invoice['id']; ?>" class="btn btn-danger btn-sm" title="مسح" onclick="return confirmAction(this, 'هل أنت متأكد من مسح هذه الفاتورة؟');">🗑️</a>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-            <?php endif; ?>
-        </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <a href="../pos/index.php?customer_id=<?php echo $id; ?>" class="btn-mini primary" style="padding:8px 14px;">🧾 فاتورة بيع جديدة</a>
+        <?php if ($stats['open_total'] > 0.009 || $balance < 0): ?>
+        <a href="../payments/pay_customer.php?customer_id=<?php echo $id; ?>" class="btn-mini" style="background:#fef3c7; border-color:#fcd34d; color:#92400e;">💵 تحصيل عام من الرصيد</a>
+        <?php endif; ?>
+        <?php if (hasPermission('reports.statement')): ?>
+        <a href="../reports/statement.php?type=customer&id=<?php echo $id; ?>" class="btn-mini">🖨️ كشف حساب</a>
+        <?php endif; ?>
+        <?php if (hasPermission('customers.edit')): ?>
+        <a href="edit.php?id=<?php echo $id; ?>" class="btn-mini">✏️ تعديل البيانات</a>
+        <?php endif; ?>
+        <a href="index.php" class="btn-mini">↩️ رجوع</a>
     </div>
 </div>
+
+<!-- Money cards -->
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:16px;">
+    <div class="pr-card" style="border-top:4px solid #0284c7;">
+        <div style="font-size:11.5px; color:#475569; font-weight:700;">إجمالي المفوتر</div>
+        <div style="font-size:17px; font-weight:900; color:#0f172a;"><?php echo number_format($stats['total_billed'], 2); ?> ج.م</div>
+        <div style="font-size:10.5px; color:#94a3b8;"><?php echo $stats['items_count']; ?> فاتورة وطلب</div>
+    </div>
+    <div class="pr-card" style="border-top:4px solid #10b981;">
+        <div style="font-size:11.5px; color:#475569; font-weight:700;">إجمالي المحصل</div>
+        <div style="font-size:17px; font-weight:900; color:#059669;"><?php echo number_format($stats['total_paid'], 2); ?> ج.م</div>
+    </div>
+    <div class="pr-card" style="border-top:4px solid <?php echo $stats['open_total'] > 0.009 ? '#dc2626' : '#94a3b8'; ?>;">
+        <div style="font-size:11.5px; color:#475569; font-weight:700;">المتبقي عليه (غير محاسب)</div>
+        <div style="font-size:17px; font-weight:900; color:#dc2626;"><?php echo number_format($stats['open_total'], 2); ?> ج.م</div>
+        <div style="font-size:10.5px; color:#94a3b8;"><?php echo $stats['open_count']; ?> عنصر مفتوح</div>
+    </div>
+    <div class="pr-card" style="border-top:4px solid #a855f7;">
+        <div style="font-size:11.5px; color:#475569; font-weight:700;">الرصيد في الدفتر</div>
+        <div style="font-size:17px; font-weight:900; color:#7c3aed;">
+            <?php if ($balance < -0.009): ?>
+                <span style="color:#dc2626;"><?php echo number_format(abs($balance), 2); ?> ج.م (مدين)</span>
+            <?php elseif ($balance > 0.009): ?>
+                <span style="color:#059669;"><?php echo number_format($balance, 2); ?> ج.م (دائن)</span>
+            <?php else: ?>
+                0.00
+            <?php endif; ?>
+        </div>
+        <div style="font-size:10.5px; color:#94a3b8;">السجل المصاحب للتحصيلات العامة</div>
+    </div>
+</div>
+
+<!-- Orders & invoices -->
+<div class="pr-card">
+
+<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; background:#0f172a; border-radius:12px; padding:12px 16px; margin-bottom:14px;">
+    <div style="flex:1; min-width:230px;">
+        <div style="color:#fbbf24; font-weight:800; font-size:14px;">💰 محاسبة الفواتير</div>
+        <div style="color:#cbd5e1; font-size:11.5px; margin-top:2px;">
+            حددا فواتير معينة (كل التواريخ) واضغط "محاسبة المحددد" — أو "محاسبة الكل" لكل ما تبقى مفتوح على العميل.
+        </div>
+    </div>
+    <div style="color:#93c5fd; font-size:12px; font-weight:800;">المفتوح الكلي: <?php echo number_format($stats['open_total'], 2); ?> ج.م</div>
+    <button type="button" onclick="cstSettleSelected()" class="btn-mini success" id="cstBtnSelected" disabled>✅ محاسبة المحدد (<span id="cstSelCount">0</span>)</button>
+    <button type="button" onclick="cstSettleAll()" class="btn-mini success" <?php echo $stats['open_total'] <= 0.009 ? 'disabled' : ''; ?>>🗂️ محاسبة الكل</button>
+</div>
+
+<!-- Filters -->
+<form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:12px 14px; margin-bottom:14px;">
+    <input type="hidden" name="id" value="<?php echo $id; ?>">
+    <input type="hidden" name="all_dates" value="<?php echo $isAllDates ? '1' : '0'; ?>">
+    <div style="display:flex; flex-direction:column; gap:3px; flex:2; min-width:180px;">
+        <label style="font-size:11px; font-weight:700; color:#64748b;">🔍 بحث في العناصر</label>
+        <input type="text" name="q" placeholder="رقم طلب/بون أو كلمة..." value="<?php echo htmlspecialchars($searchQ); ?>" style="padding:8px 10px; border-radius:8px; border:1px solid #cbd5e1; font-family:inherit; font-size:12.5px; font-weight:600;">
+    </div>
+    <div style="display:flex; flex-direction:column; gap:3px;">
+        <label style="font-size:11px; font-weight:700; color:#64748b;">من تاريخ</label>
+        <input type="date" name="date_from" value="<?php echo htmlspecialchars($dateFrom); ?>" <?php echo $isAllDates ? 'disabled' : ''; ?> style="padding:8px 10px; border-radius:8px; border:1px solid #cbd5e1; font-family:inherit; font-size:12.5px;">
+    </div>
+    <div style="display:flex; flex-direction:column; gap:3px;">
+        <label style="font-size:11px; font-weight:700; color:#64748b;">إلى تاريخ</label>
+        <input type="date" name="date_to" value="<?php echo htmlspecialchars($dateTo); ?>" <?php echo $isAllDates ? 'disabled' : ''; ?> style="padding:8px 10px; border-radius:8px; border:1px solid #cbd5e1; font-family:inherit; font-size:12.5px;">
+    </div>
+    <button type="submit" class="btn-mini blue" style="padding:9px 16px;">🎯 تصفية</button>
+    <a href="view.php?id=<?php echo $id; ?>" class="btn-mini" style="padding:9px 12px;">↺ اليوم</a>
+    <?php if (!$isAllDates): ?>
+    <a href="view.php?id=<?php echo $id; ?>&all_dates=1<?php echo $searchQ !== '' ? '&q=' . urlencode($searchQ) : ''; ?>" class="btn-mini" style="padding:9px 12px;">📅 كل التواريخ</a>
+    <?php else: ?>
+    <a href="view.php?id=<?php echo $id; ?>" class="btn-mini" style="padding:9px 12px;">📅 اليوم فقط</a>
+    <?php endif; ?>
+</form>
+
+<div style="font-size:11.5px; color:#64748b; margin-bottom:10px; display:flex; justify-content:space-between;">
+    <span>
+        <?php if ($isAllDates): ?>📄 كل التواريخ<?php else: ?>📅 من <?php echo htmlspecialchars($dateFrom); ?> إلى <?php echo htmlspecialchars($dateTo); ?><?php endif; ?>
+        — المستحق المفتوح داخل الفيلتر: <strong style="color:#c2410c;"><?php echo number_format($windowOpenTotal, 2); ?> ج.م</strong>
+    </span>
+    <span>إجمالي العناصر: <strong><?php echo $totalItems; ?></strong></span>
+</div>
+
+<?php if (empty($itemsPage)): ?>
+<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:700;">لا توجد فواتير أو طلبات مطابقة</div>
+<?php endif; ?>
+
+<div style="display:flex; flex-direction:column; gap:8px;">
+<?php foreach ($itemsPage as $it):
+    $rem    = (float)$it['remaining_amount'];
+    $isOpen = $rem > 0.009;
+    $isPart = $isOpen && (float)$it['paid_amount'] > 0.009;
+    $key    = profile_item_key($it);
+    $lineClass = $isOpen ? 'pr-row-open' : '';
+?>
+    <div class="pr-card <?php echo $lineClass; ?>" data-item-key="<?php echo $key; ?>" style="padding:10px 14px; display:flex; gap:12px; align-items:center; border-radius:10px; flex-wrap:wrap;">
+        <?php if ($isOpen): ?>
+        <input type="checkbox" class="cst-check" data-open-total="<?php echo number_format($rem, 2, '.', ''); ?>" onchange="cstSelToggle(this)"
+               style="width:17px; height:17px; accent-color:#ea580c;">
+        <?php else: ?>
+        <span style="width:17px; text-align:center; color:#059669; font-weight:900;">✔</span>
+        <?php endif; ?>
+
+        <div style="flex:1; min-width:180px;">
+            <div style="font-weight:800; font-size:13px; color:#0f172a;"><?php echo htmlspecialchars($it['item_label']); ?> — <?php echo htmlspecialchars($it['ref_number']); ?></div>
+            <div style="font-size:11px; color:#64748b;"><?php echo date('d/m/Y • h:i A', strtotime($it['item_date'])); ?></div>
+        </div>
+
+        <div style="display:flex; gap:14px; text-align:center; font-size:12px;">
+            <div><div style="color:#64748b; font-size:10.5px;">الإجمالي</div><strong style="color:#334155;"><?php echo number_format((float)$it['total_amount'], 2); ?></strong></div>
+            <div><div style="color:#64748b; font-size:10.5px;">المدفوع</div><strong style="color:#059669;"><?php echo number_format(min((float)$it['paid_amount'], (float)$it['total_amount']), 2); ?></strong></div>
+            <div><div style="color:#64748b; font-size:10.5px;">الباقي</div><strong style="color:<?php echo $isOpen ? '#dc2626' : '#94a3b8'; ?>;"><?php echo number_format($rem, 2); ?></strong></div>
+        </div>
+
+        <div style="min-width:110px; text-align:center;">
+            <?php if (!$isOpen): ?>
+                <span class="pr-chip pr-chip-done">✔ محاسبت بالكامل</span>
+            <?php elseif ($isPart): ?>
+                <span class="pr-chip pr-chip-part">⚠️ جزئي</span>
+            <?php else: ?>
+                <span class="pr-chip pr-chip-open">❌ غير محسبة</span>
+            <?php endif; ?>
+        </div>
+
+        <div style="display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end;">
+            <a href="<?php echo profile_kind_read_receipt($it); ?>" class="btn-mini" title="بون">🖨️ بون</a>
+            <?php if ($it['kind'] === 'order' && !in_array($it['status'], ['cancelled'], true) && ($it['payment_status'] ?? '') !== 'refunded'): ?>
+            <a href="../pos/index.php?edit_order=<?php echo $it['ref_id']; ?>&back=<?php echo urlencode('modules/customers/view.php?id=' . $id); ?>"
+               class="btn-mini" title="تعديل أو ارجاع — صرف أو حذف أصناف من الطلب">↩️ تعديل / ارجاع</a>
+            <?php endif; ?>
+            <?php if ($isOpen): ?>
+            <button type="button" class="btn-mini danger" onclick="cstSettleOne('<?php echo $key; ?>', <?php echo number_format($rem, 2, '.', ''); ?>)">💰 محاسبه</button>
+            <?php endif; ?>
+        </div>
+    </div>
+<?php endforeach; ?>
+</div>
+
+<?php if ($totalPages > 1): ?>
+<?php
+$qs = $_GET; unset($qs['page']);
+$baseQ = http_build_query($qs);
+?>
+<div style="display:flex; justify-content:center; gap:8px; margin-top:16px;">
+<?php if ($page > 1): ?><a href="view.php?<?php echo http_build_query(array_merge($qs, ['page' => $page - 1])); ?>" class="btn-mini">← السابق</a><?php endif; ?>
+<span class="badge badge-info" style="padding:8px 14px;">صفحة <?php echo $page; ?> من <?php echo $totalPages; ?></span>
+<?php if ($page < $totalPages): ?><a href="view.php?<?php echo http_build_query(array_merge($qs, ['page' => $page + 1])); ?>" class="btn-mini">التالي →</a><?php endif; ?>
+</div>
+<?php endif; ?>
+
+</div><!-- /items card -->
+</div><!-- /container -->
+
+<!-- Settlement modal -->
+<div id="cstSettleOverlay" style="position:fixed; inset:0; background:rgba(15,23,42,.65); backdrop-filter:blur(3px); display:none; align-items:center; justify-content:center; z-index:100002; padding:16px;">
+    <div style="background:#fff; border-radius:16px; width:100%; max-width:440px; padding:20px;" id="cstSettleBox"></div>
+</div>
+
+<script>
+const cstCustomerId = <?php echo json_encode($id); ?>;
+const cstSel = new Map(); // key -> open amount
+let cstMode = { keys: null, openTotal: 0 }; // keys null = ALL open items
+
+function moneyFmt(n) { return (parseFloat(n) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+
+function cstSelToggle(cb) {
+    let total = 0;
+    document.querySelectorAll('.cst-check:checked').forEach(x => total += parseFloat(x.dataset.openTotal));
+    document.getElementById('cstSelCount').textContent = document.querySelectorAll('.cst-check:checked').length;
+    document.getElementById('cstBtnSelected').disabled = total <= 0 && document.querySelectorAll('.cst-check:checked').length === 0;
+}
+
+/* One-item path */
+function cstSettleOne(key, rem) {
+    cstMode = { keys: [key], openTotal: rem, label: 'محاسبة عنصر واحد بقيمة <strong>' + moneyFmt(rem) + '</strong> ج.م' };
+    cstRenderModal();
+}
+
+/* Selected path */
+function cstSettleSelected() {
+    const checked = Array.from(document.querySelectorAll('.cst-check:checked'));
+    if (checked.length === 0) { appAlert('حدد عنصر (عناصر) للمحاسبة أولاً', 'error'); return; }
+    const keys = checked.map(cb => cb.dataset.key);
+    let total = 0; checked.forEach(cb => total += parseFloat(cb.dataset.openTotal));
+    total = Math.round(total * 100) / 100;
+    cstMode = { keys: keys, openTotal: total, label: 'محاسبة <strong>' + checked.length + '</strong> عنصر — إجماليها المفتوح <strong>' + moneyFmt(total) + '</strong> ج.م' };
+    cstRenderModal();
+}
+
+/* All open path */
+function cstSettleAll() {
+    const openTotal = <?php echo json_encode($stats['open_total']); ?>;
+    if (openTotal <= 0.009) { appAlert('لا يوجد مفتوح للتحصيل', 'error'); return; }
+    cstMode = { keys: null, openTotal: openTotal, label: 'تسوية <strong>كل</strong> الفواتير المفتوحة على العميل — إجماليها <strong>' + moneyFmt(openTotal) + '</strong> ج.م (كل التواريخ)' };
+    cstRenderModal();
+}
+
+function cstRenderModal() {
+    const box = document.getElementById('cstSettleBox');
+    document.querySelectorAll('.cst-check').forEach(cb => { cb.dataset.key = cb.closest('[data-key]').dataset.key || ''; });
+    box.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h3 style="font-size:15px; font-weight:900; color:#0f172a; margin:0;">💰 تسوية وحصاد حساب العميل</h3>
+            <button onclick="cstCloseSettle()" style="background:none;border:none;font-size:20px;cursor:pointer;">&times;</button>
+        </div>
+        <div style="background:#fff7ed; border-radius:10px; padding:10px 14px; font-size:12.5px; color:#7c2d12; margin-bottom:12px; line-height:1.9;">
+            ${cstMode.label}
+        </div>
+        <div style="margin-bottom:12px;">
+            <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المبلغ المحصل الآن:<span id="cstHintRemain" style="color:#dc2626; margin-right:8px;"></span></label>
+            <input type="number" id="cstAmountInput" value="${cstMode.openTotal.toFixed(2)}" min="0" max="${cstMode.openTotal.toFixed(2)}" step="1"
+                   oninput="cstUpdateRemain()"
+                   style="width:100%; padding:11px 14px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:16px; font-weight:800; font-family:inherit; text-align:center;">
+        </div>
+        <div style="margin-bottom:14px;">
+            <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:5px;">طريقة الدفع:</label>
+            <select id="cstMethodInput" style="width:100%; padding:9px 12px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:13px; font-family:inherit;">
+                <option value="cash">💵 نقداً (كاش)</option>
+                <option value="card">💳 فيزا / بطاقة</option>
+                <option value="instapay">⚡ إنستاباي (InstaPay)</option>
+                <option value="vodafone_cash">📱 فودافون كاش</option>
+            </select>
+        </div>
+        <button type="button" onclick="cstSubmitSettle()" id="cstSubmitBtn" style="width:100%; background:linear-gradient(135deg,#059669,#047857); color:#fff; border:none; border-radius:10px; padding:12px; font-size:15px; font-weight:900; cursor:pointer;">
+            ✅ تأكيد التحصيل
+        </button>
+    `;
+    document.getElementById('cstSettleOverlay').style.display = 'flex';
+    cstUpdateRemain();
+}
+
+function cstUpdateRemain() {
+    const max = cstMode.openTotal;
+    const input = document.getElementById('cstAmountInput');
+    let val = parseFloat(input.value) || 0;
+    if (val < 0) val = 0;
+    if (val > max) val = max;
+    input.value = val.toFixed(2);
+    document.getElementById('cstHintRemain').textContent = val < (max - 0.009)
+        ? `(باقي ${moneyFmt(max - val)} يفضل مفتوح على حسابه)` : '';
+}
+
+function cstCloseSettle() { document.getElementById('cstSettleOverlay').style.display = 'none'; }
+
+let cstBusy = false;
+async function cstSubmitSettle() {
+    if (cstBusy) return;
+    cstBusy = true;
+    const btn = document.getElementById('cstSubmitBtn');
+    btn.disabled = true;
+    try {
+        const amount = parseFloat(document.getElementById('cstAmountInput').value) || 0;
+        const method = document.getElementById('cstMethodInput').value;
+        const res = await fetch('ajax.php?action=settle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                customer_id: cstCustomerId,
+                items: cstMode.keys,
+                amount: amount,
+                method: method
+            })
+        });
+        const data = await res.json();
+        if (!data.success) { appAlert(data.error || 'فشل تسجيل التسوية', 'error'); return; }
+        const stl = data.summary;
+        appAlert(`تم تحصيل ${moneyFmt(stl.collected)} ج.م وتسجيلها على العميل (${stl.settlement_number})`, 'success');
+        setTimeout(() => location.reload(), 1300);
+    } catch (err) {
+        console.error(err);
+        appAlert('خطأ في الاتصال بالسيرفر', 'error');
+    } finally {
+        cstBusy = false; btn.disabled = false;
+    }
+}
+
+/* Wire dataset keys to checkboxes (for selection across re-renders) */
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.cst-check').forEach(cb => {
+        const row = cb.closest('[data-item-key]');
+        if (row) cb.dataset.key = row.dataset.itemKey;
+    });
+});
+</script>
 
 <?php include '../../includes/footer.php'; ?>

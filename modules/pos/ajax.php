@@ -53,6 +53,7 @@ try {
                     'discount_amount' => (float)$editOrder['discount_amount'],
                     'payment_method' => $editOrder['payment_method'],
                     'customer_name' => $editOrder['customer_name'],
+                    'customer_id' => (int)($editOrder['customer_id'] ?? 0),
                     'notes' => $editOrder['notes'],
                     'table_session_id' => $editOrder['table_session_id'],
                     'gaming_session_id' => $editOrder['gaming_session_id'],
@@ -228,7 +229,13 @@ try {
             $customerName = trim($data['customer_name'] ?? '');
             $customerPhone = trim($data['customer_phone'] ?? '');
             $orderNotes = trim($data['notes'] ?? '');
-            // Edit mode: update an existing order in place instead of creating one
+            // Customer account linking + auto-registration
+            require_once __DIR__ . '/../../config/customer_accounts.php';
+            $postedCustomerId = (int)($data['customer_id'] ?? 0);
+            // Collected amount: null => legacy behavior (full pay, or 0 when deferred)
+            $paidInput = isset($data['paid_amount']) && $data['paid_amount'] !== null
+                ? max(0.0, round(floatval($data['paid_amount']), 2)) : null;
+            // Edit mode is updated in place (money trails handled separately)
             $editOrderId = !empty($data['edit_order_id']) ? (int)$data['edit_order_id'] : null;
 
             beginTransaction();
@@ -250,6 +257,17 @@ try {
                 $gamingSessionId = !empty($oldOrder['gaming_session_id']) ? (int)$oldOrder['gaming_session_id'] : null;
                 $billiardSessionId = !empty($oldOrder['billiard_session_id']) ? (int)$oldOrder['billiard_session_id'] : null;
                 $tableSessionId = !empty($oldOrder['table_session_id']) ? (int)$oldOrder['table_session_id'] : null;
+            }
+
+            // ربط/تسجيل العميل (من المحدد، أو تسجيل تلقائي لاسم جديد)
+            $customer = resolveCustomerInput($postedCustomerId, $customerName, $customerPhone);
+            if ($postedCustomerId > 0 && !$customer) {
+                throw new RuntimeException('العميل المحدد غير موجود');
+            }
+            $customerIdFk = $customer ? (int)$customer['id'] : null;
+            if ($customer) {
+                $customerName = $customer['name'];
+                if ($customerPhone === '' && !empty($customer['phone'])) $customerPhone = $customer['phone'];
             }
 
             // Idempotency: a retried submit with the same client key returns the original order
@@ -276,8 +294,8 @@ try {
             // (طلبات جديدة فقط — التعديل يحتفظ بجلساته الأصلية)
             if (!$editOrderId && $orderType === 'dine_in' && !$tableSessionId && $tableId) {
                 $tableSessionId = insert(
-                    "INSERT INTO table_sessions (table_id, opened_at, status, opened_by, customer_name) VALUES (?, NOW(), 'active', ?, ?)",
-                    [$tableId, getCurrentUserId(), $data['customer_name'] ?? 'عميل صالة']
+                    "INSERT INTO table_sessions (table_id, opened_at, status, opened_by, customer_id, customer_name) VALUES (?, NOW(), 'active', ?, ?, ?)",
+                    [$tableId, getCurrentUserId(), $customerIdFk, $customer['name'] ?? ($data['customer_name'] ?? 'عميل صالة')]
                 );
                 execute("UPDATE cafe_tables SET status = 'occupied' WHERE id = ?", [$tableId]);
             }
@@ -316,9 +334,19 @@ try {
             // تحديد حالة الدفع
             // إذا كان الطلب مربوطاً بجلسة بلايستيشن أو بلياردو أو طاولة مفتوحة، يمكن أن يكون الحساب معلقاً حتى إغلاق الجلسة
             $isDeferred = in_array($orderType, ['gaming_ps', 'gaming_billiard', 'dine_in']) && empty($data['pay_now']);
-            $paidAmount = $isDeferred ? 0 : $totalAmount;
-            $paymentStatus = $isDeferred ? 'unpaid' : 'paid';
-            $orderStatus = $isDeferred ? 'preparing' : 'completed';
+            if ($isDeferred) {
+                $paidAmount = 0;
+                $paymentStatus = 'unpaid';
+                $orderStatus = 'preparing';
+            } else {
+                // الدفع الفوري: كامل (افتراضي) أو جزئي (من خانة المدفوع) مع اشتراط حساب عميل للباقي
+                $paidAmount = ($paidInput === null) ? $totalAmount : min($paidInput, $totalAmount);
+                $paymentStatus = ($paidAmount >= $totalAmount - 0.009) ? 'paid' : 'partial';
+                $orderStatus = 'completed';
+                if ($paidAmount < $totalAmount - 0.009 && !$customer) {
+                    throw new RuntimeException('لازم تسجل صاحب الطلب باسمه في العملاء عشان الباقي يتحسب على حسابه — اكتب اسمه في خانة العميل');
+                }
+            }
 
             if ($oldOrder) {
                 // ---- Edit mode: update the order in place ----
@@ -354,7 +382,7 @@ try {
                                 execute("UPDATE shifts SET total_sales_wallet = total_sales_wallet - ? WHERE id = ?", [$refundAmount, $shiftId]);
                             }
                         }
-                        $paidKept = $totalAmount;
+                    $paidKept = $totalAmount;
                     }
                 }
                 $paidAmount = $paidKept;
@@ -366,9 +394,9 @@ try {
 
                 execute(
                     "UPDATE orders SET subtotal = ?, discount_amount = ?, tax_amount = ?, total_amount = ?, paid_amount = ?,
-                                     payment_status = ?, status = ?, customer_name = ?, customer_phone = ?, notes = ?
+                                     payment_status = ?, status = ?, customer_id = ?, customer_name = ?, customer_phone = ?, notes = ?
                      WHERE id = ?",
-                    [$subtotal, $discountAmount, $taxAmount, $totalAmount, $paidAmount, $paymentStatus, $newOrderStatus, $customerName, $customerPhone, $orderNotes, $orderId]
+                    [$subtotal, $discountAmount, $taxAmount, $totalAmount, $paidAmount, $paymentStatus, $newOrderStatus, $customerIdFk, $customerName, $customerPhone, $orderNotes, $orderId]
                 );
 
                 // Reverse the old stock deduction (tracked items only), then clear old lines
@@ -387,16 +415,29 @@ try {
                 }
                 execute("DELETE FROM order_items WHERE order_id = ?", [$orderId]);
             } else {
+            // الطلبات الجديدة: وراثة حساب العميل من الجلسة المربوطة (ترابيزة مثلاً بدأناها باسم عميل)
+            if (!$customerIdFk) {
+                if ($tableSessionId) {
+                    $s = getRow("SELECT customer_id, customer_name FROM table_sessions WHERE id = ?", [$tableSessionId]);
+                    if ($s && !empty($s['customer_id'])) { $customerIdFk = (int)$s['customer_id']; $customerName = $s['customer_name'] ?: $customerName; }
+                } elseif ($gamingSessionId) {
+                    $s = getRow("SELECT customer_id, customer_name FROM gaming_sessions WHERE id = ?", [$gamingSessionId]);
+                    if ($s && !empty($s['customer_id'])) { $customerIdFk = (int)$s['customer_id']; $customerName = $s['customer_name'] ?: $customerName; }
+                } elseif ($billiardSessionId) {
+                    $s = getRow("SELECT customer_id, customer_name FROM billiard_sessions WHERE id = ?", [$billiardSessionId]);
+                    if ($s && !empty($s['customer_id'])) { $customerIdFk = (int)$s['customer_id']; $customerName = $s['customer_name'] ?: $customerName; }
+                }
+            }
             // إنشاء الطلب
             $orderId = insert(
                 "INSERT INTO orders (order_number, order_type, table_session_id, gaming_session_id, billiard_session_id,
                                      status, subtotal, discount_amount, tax_amount, total_amount, paid_amount, payment_status,
-                                     payment_method, customer_name, customer_phone, notes, shift_id, created_by, client_key)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                     payment_method, customer_id, customer_name, customer_phone, notes, shift_id, created_by, client_key)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     $orderNumber, $orderType, $tableSessionId, $gamingSessionId, $billiardSessionId,
                     $orderStatus, $subtotal, $discountAmount, $taxAmount, $totalAmount, $paidAmount, $paymentStatus,
-                    $paymentMethod, $customerName, $customerPhone, $orderNotes, $shiftId, getCurrentUserId(), $clientKey
+                    $paymentMethod, $customerIdFk, $customerName, $customerPhone, $orderNotes, $shiftId, getCurrentUserId(), $clientKey
                 ]
             );
 
@@ -479,6 +520,12 @@ try {
                         execute("UPDATE shifts SET total_sales_wallet = total_sales_wallet + ? WHERE id = ?", [$paidAmount, $shiftId]);
                     }
                 }
+            }
+
+            // أي متبقي على طلب فوري لعميل مسجل = دين يتحسب على حسابه
+            if (!$oldOrder && !$isDeferred && $customerIdFk && $paidAmount < $totalAmount - 0.009) {
+                $dueAmount = round($totalAmount - $paidAmount, 2);
+                execute("UPDATE customers SET balance = balance - ? WHERE id = ?", [$dueAmount, $customerIdFk]);
             }
 
             // تحديث إجماليات الجلسات: طلب جديد يضيف الإجمالي، والتعديل يضيف الفرق فقط

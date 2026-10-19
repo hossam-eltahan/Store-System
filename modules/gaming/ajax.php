@@ -100,6 +100,16 @@ try {
             $presetMinutes = !empty($data['preset_minutes']) ? (int)$data['preset_minutes'] : null;
             $customerName = trim($data['customer_name'] ?? '');
 
+            // ربط/تسجيل العميل
+            require_once __DIR__ . '/../../config/customer_accounts.php';
+            $customer = resolveCustomerInput((int)($data['customer_id'] ?? 0), $customerName);
+            if ((int)($data['customer_id'] ?? 0) > 0 && !$customer) {
+                echo json_encode(['success' => false, 'error' => 'العميل المحدد غير موجود'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            $customerIdFk = $customer ? (int)$customer['id'] : null;
+            if ($customer) $customerName = $customer['name'];
+
             $device = getRow("SELECT * FROM gaming_devices WHERE id = ? AND is_active = 1", [$deviceId]);
             if (!$device) {
                 echo json_encode(['success' => false, 'error' => 'الجهاز غير موجود']);
@@ -122,9 +132,9 @@ try {
             }
 
             $sessionId = insert(
-                "INSERT INTO gaming_sessions (device_id, session_type, started_at, time_mode, preset_minutes, applied_rate, status, opened_by, customer_name)
-                 VALUES (?, ?, NOW(), ?, ?, ?, 'active', ?, ?)",
-                [$deviceId, $sessionType, $timeMode, $presetMinutes, $appliedRate, getCurrentUserId(), $customerName]
+                "INSERT INTO gaming_sessions (device_id, session_type, started_at, time_mode, preset_minutes, applied_rate, status, opened_by, customer_id, customer_name)
+                 VALUES (?, ?, NOW(), ?, ?, ?, 'active', ?, ?, ?)",
+                [$deviceId, $sessionType, $timeMode, $presetMinutes, $appliedRate, getCurrentUserId(), $customerIdFk, $customerName]
             );
 
             echo json_encode(['success' => true, 'session_id' => $sessionId, 'message' => 'تم بدء الجلسة بنجاح'], JSON_UNESCAPED_UNICODE);
@@ -378,6 +388,13 @@ try {
             $discountAmount = max(0, floatval($data['discount_amount'] ?? 0));
             $paymentMethod = $data['payment_method'] ?? 'cash';
 
+            // المحصل الآن (null = نحصل الإجمالي كله كما من قبل)
+            $collectedInput = isset($data['paid_amount']) && $data['paid_amount'] !== null
+                ? max(0.0, round(floatval($data['paid_amount']), 2)) : null;
+
+            // ربط/تسجيل العميل وقت القفل (اختياري إذا التسوية كاملة، وإجباري عند الباقي)
+            require_once __DIR__ . '/../../config/customer_accounts.php';
+
             $session = getRow(
                 "SELECT gs.*, gd.display_name, gd.min_billable_minutes,
                         TIMESTAMPDIFF(SECOND, gs.started_at, NOW()) as raw_seconds
@@ -438,6 +455,26 @@ try {
 
             $totalAmount = max(0, ($gamingCharge + $cafeDue + $carriedAmount) - $discountAmount + $taxAmount);
 
+            // حل اختياري/إجباري للعميل:
+            $customerAtEnd = resolveCustomerInput((int)($data['customer_id'] ?? 0), (string)($data['customer_name'] ?? ''));
+            if ((int)($data['customer_id'] ?? 0) > 0 && !$customerAtEnd) {
+                throw new RuntimeException('العميل المحدد غير موجود');
+            }
+            if (!$customerAtEnd && !empty($session['customer_id'])) {
+                $customerAtEnd = getRow("SELECT * FROM customers WHERE id = ?", [$session['customer_id']]);
+            }
+            // المحصل أقل من الإجمالي → لازم وجود حساب عميل يتحسب عليه الباقي
+            if ($collectedInput !== null && $collectedInput < $totalAmount - 0.009 && !$customerAtEnd) {
+                throw new RuntimeException('لازم تسجل العميل — اكتب اسمه في خانة العميل في نافذة القفل، الباقي هيتحسب على حسابه');
+            }
+            if ($customerAtEnd) {
+                $collected = ($collectedInput === null) ? $totalAmount : min($collectedInput, $totalAmount);
+            } else {
+                $collected = $totalAmount; // بدون عميل = التحصيل الكامل (كما من قبل)
+            }
+            $collected = min($collected, $totalAmount);
+            $sessionRemainingDue = round(max(0.0, $totalAmount - $collected), 2);
+
             // جلب الشيفت المفتوح الحالي
             $currentShift = getRow("SELECT id FROM shifts WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1", [getCurrentUserId()]);
             $shiftId = $currentShift ? $currentShift['id'] : null;
@@ -453,39 +490,53 @@ try {
                     tax_amount = ?,
                     total_amount = ?,
                     paid_amount = ?,
+                    customer_id = ?,
                     status = 'completed',
                     closed_by = ?
                  WHERE id = ?",
                 [
                     $billableMinutes, $gamingCharge, $cafeTotal, $discountAmount,
-                    $taxAmount, $totalAmount, $totalAmount, getCurrentUserId(), $sessionId
+                    $taxAmount, $totalAmount, $collected,
+                    $customerAtEnd ? (int)$customerAtEnd['id'] : ($session['customer_id'] ?? null),
+                    getCurrentUserId(), $sessionId
                 ]
             );
 
-            // تسجيل إيصال دفع
+            // تسجيل إيصال دفع (بالمحصل فعلاً — الباقي يتحسب على العميل)
             $payNumber = 'PAY-PS-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
-            insert(
-                "INSERT INTO payment_records (payment_number, source_type, source_id, amount, payment_method, payment_type, shift_id, created_by)
-                 VALUES (?, 'gaming_session', ?, ?, ?, 'payment', ?, ?)",
-                [$payNumber, $sessionId, $totalAmount, $paymentMethod, $shiftId, getCurrentUserId()]
-            );
+            if ($collected > 0) {
+                insert(
+                    "INSERT INTO payment_records (payment_number, source_type, source_id, amount, payment_method, payment_type, shift_id, created_by)
+                     VALUES (?, 'gaming_session', ?, ?, ?, 'payment', ?, ?)",
+                    [$payNumber, $sessionId, $collected, $paymentMethod, $shiftId, getCurrentUserId()]
+                );
+            }
 
-            // تسجيل حركة نقدية في الشيفت
-            if ($shiftId) {
+            // المتبقي غير المحصل → دين على حساب العميل المربوط
+            if ($sessionRemainingDue > 0.009 && $customerAtEnd) {
+                execute(
+                    "UPDATE customers SET balance = balance - ? WHERE id = ?",
+                    [$sessionRemainingDue, $customerAtEnd['id']]
+                );
+                logActivity('مديونية بون بلايستيشن', 'تبقى ' . number_format($sessionRemainingDue, 2) . ' ج.م على ' . $customerAtEnd['name'] . ' من بون الجهاز (' . $session['display_name'] . ')');
+            }
+
+            // تسجيل حركة نقدية في الشيفت (بالمحصل فعلاً)
+            if ($shiftId && $collected > 0.009) {
                 insert(
                     "INSERT INTO cash_movements (shift_id, movement_type, amount, payment_method, description, reference_type, reference_id, created_by)
                      VALUES (?, 'sale', ?, ?, ?, 'gaming_session', ?, ?)",
-                    [$shiftId, $totalAmount, $paymentMethod, "تحصيل جلسة بلايستيشن {$session['display_name']}", $sessionId, getCurrentUserId()]
+                    [$shiftId, $collected, $paymentMethod, "تحصيل جلسة بلايستيشن {$session['display_name']}", $sessionId, getCurrentUserId()]
                 );
 
                 execute("UPDATE shifts SET total_gaming_revenue = total_gaming_revenue + ? WHERE id = ?", [$gamingCharge, $shiftId]);
 
                 if ($paymentMethod === 'cash') {
-                    execute("UPDATE shifts SET total_sales_cash = total_sales_cash + ? WHERE id = ?", [$totalAmount, $shiftId]);
+                    execute("UPDATE shifts SET total_sales_cash = total_sales_cash + ? WHERE id = ?", [$collected, $shiftId]);
                 } elseif ($paymentMethod === 'card') {
-                    execute("UPDATE shifts SET total_sales_card = total_sales_card + ? WHERE id = ?", [$totalAmount, $shiftId]);
+                    execute("UPDATE shifts SET total_sales_card = total_sales_card + ? WHERE id = ?", [$collected, $shiftId]);
                 } else {
-                    execute("UPDATE shifts SET total_sales_wallet = total_sales_wallet + ? WHERE id = ?", [$totalAmount, $shiftId]);
+                    execute("UPDATE shifts SET total_sales_wallet = total_sales_wallet + ? WHERE id = ?", [$collected, $shiftId]);
                 }
             }
 

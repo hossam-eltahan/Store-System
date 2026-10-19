@@ -185,7 +185,9 @@ include '../../includes/navbar.php';
                 </label>
             </div>
             <label style="font-size:12.5px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">اسم العميل (اختياري):</label>
-            <input type="text" id="startBilliardCustomer" placeholder="اسم العميل..." style="width:100%; padding:9px; border-radius:8px; border:1px solid #cbd5e1; font-size:13px; font-family:inherit; margin-bottom:14px;">
+            <input type="text" id="startBilliardCustomer" placeholder="اسم العميل..." style="width:100%; padding:9px; border-radius:8px; border:1px solid #cbd5e1; font-size:13px; font-family:inherit; margin-bottom:10px; border-radius:8px 8px 0 0;">
+            <input type="hidden" id="startBilliardCustomerId" value="">
+            <div id="startBilliardCustomerBalance" style="font-size:12px; display:none; margin-bottom:10px; margin-top:-6px;"></div>
 
             <label style="font-size: 12.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 6px;">نظام الوقت:</label>
             <select id="startBilliardTimeMode" style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 13px; font-family: inherit;" onchange="toggleBilliardCountdownInput()">
@@ -313,6 +315,7 @@ include '../../includes/navbar.php';
     </div>
 </div>
 
+<script src="../../assets/js/customer_picker.js?v=1"></script>
 <script>
 let tables = [];
 let activeBilliardSessionId = null;
@@ -320,9 +323,21 @@ let expiredBilliardSessions = new Set();
 
 document.addEventListener('DOMContentLoaded', () => {
     loadTables();
+    // حقل العميل في مودال بدء جلسة الطاولة = اختيار من الموجودين / عميل جديد / بدون
+    staticInitCustomerPickerWhenReady();
     setInterval(tickBilliardsLocally, 1000);
     setInterval(loadTables, 15000);
 });
+
+function staticInitCustomerPickerWhenReady() {
+    const inp = document.getElementById('startBilliardCustomer');
+    const hid = document.getElementById('startBilliardCustomerId');
+    if (inp && hid && typeof initCustomerPicker === 'function') {
+        initCustomerPicker(inp, hid, { balanceEl: document.getElementById('startBilliardCustomerBalance') });
+    } else {
+        setTimeout(staticInitCustomerPickerWhenReady, 60);
+    }
+}
 
 async function loadTables() {
     try {
@@ -636,6 +651,8 @@ function openStartBilliardModal(tableId, name, hourRate, gameRate) {
     document.getElementById('startGameRate').textContent = `${parseFloat(gameRate).toFixed(2)} ج.م / جيم`;
     document.querySelector('input[name="billiardMode"][value="hourly"]').checked = true;
     updateBilliardModeRadio();
+    const custHidden = document.getElementById('startBilliardCustomerId');
+    if (custHidden) custHidden.value = '';
     document.getElementById('startBilliardModal').style.display = 'flex';
 }
 
@@ -664,6 +681,7 @@ async function submitStartBilliard() {
             table_id: tableId, 
             billing_mode: mode, 
             customer_name: cust,
+            customer_id: document.getElementById('startBilliardCustomerId').value || 0,
             time_mode: timeMode,
             preset_minutes: presetMinutes
         })
@@ -760,11 +778,64 @@ async function openEndBilliardModal(sessionId) {
                     <option value="vodafone_cash">📱 فودافون كاش</option>
                 </select>
             </div>
+            <div style="margin-bottom:12px;">
+                <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">👤 العميل (اختياري — لبقية التحصيل على الحساب):</label>
+                <div style="position:relative;">
+                    <input type="text" id="endBilliardCustomerInput" placeholder="ابحث أو اكتب اسم عميل جديد..." autocomplete="off"
+                           style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid #cbd5e1; font-size:13px; font-family:inherit;">
+                    <input type="hidden" id="endBilliardCustomerId" value="">
+                </div>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label style="font-size:12px; font-weight:700; color:#475569; display:block; margin-bottom:4px;">المحصل الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>
+                <input type="number" id="billiardPaidInput" value="" min="0" max="${(parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2)}" step="1" oninput="updateBilliardPaid()"
+                       style="width:100%; padding:9px 12px; border-radius:8px; border:1.5px solid #cbd5e1; font-size:15px; font-weight:800; text-align:center;">
+                <div id="billiardPaidNote" style="font-size:11.5px; font-weight:700; border-radius:8px; padding:7px 10px; margin-top:6px; display:none;"></div>
+            </div>
             <button onclick="submitEndBilliard()" style="width:100%; background:#059669; color:white; border:none; border-radius:8px; padding:12px; font-size:14px; font-weight:bold; cursor:pointer;">
                 🏁 تحصيل وطباعة البون
             </button>
         `;
+        const paidInput = document.getElementById('billiardPaidInput');
+        if (paidInput) {
+            paidInput.value = (parseFloat(data.amount_due) + parseFloat(data.tax_amount)).toFixed(2);
+            updateBilliardPaid();
+        }
+        // ربط حقل عميل الإغلاق — افتراضياً العميل المسجل على الجلسة
+        const endPickInput = document.getElementById('endBilliardCustomerInput');
+        if (endPickInput) {
+            const endPick = initCustomerPicker(endPickInput, document.getElementById('endBilliardCustomerId'));
+            if (data.session && data.session.customer_id) {
+                fetch('../../modules/customers/ajax.php?action=get&customer_id=' + data.session.customer_id)
+                    .then(r => r.json())
+                    .then(d => { if (d.success) endPick.set(d.customer); })
+                    .catch(() => {});
+            }
+        }
     }
+}
+
+// المحصل أقل من الإجمالي → يترحل على حساب العميل (أو خطأ لو مفيش عميل)
+function updateBilliardPaid() {
+    const inp = document.getElementById('billiardPaidInput');
+    const note = document.getElementById('billiardPaidNote');
+    if (!inp || !note) return;
+    const final = parseFloat(inp.max) || 0;
+    let paid = parseFloat(inp.value) || 0;
+    if (paid < 0) paid = 0;
+    inp.dataset.touchedOnce = '1';
+    inp.value = paid.toFixed(2);
+    const remaining = Math.round((final - paid) * 100) / 100;
+    if (remaining <= 0.009) { note.style.display = 'none'; return; }
+    const custName = ((document.getElementById('endBilliardCustomerInput') || {}).value || '').trim();
+    const hasCustomer = (document.getElementById('endBilliardCustomerId') || {}).value || custName;
+    note.style.display = 'block';
+    note.style.color = hasCustomer ? '#92400e' : '#dc2626';
+    note.style.background = hasCustomer ? '#fefce8' : '#fef2f2';
+    note.style.borderColor = hasCustomer ? '#fde047' : '#fca5a5';
+    note.innerHTML = hasCustomer
+        ? `💳 باقي <strong>${remaining.toFixed(2)}</strong> ج.م هيتسجل على حساب العميل (${custName || 'مربوط'})`
+        : `❌ باقي <strong>${remaining.toFixed(2)}</strong> ج.م — لازم تسجل العميل: اكتب اسمه في خانة العميل (هيتسجل في العملاء تلقائياً)`;
 }
 
 function updateBilliardNet(base, cafeTax, taxPct) {
@@ -775,17 +846,48 @@ function updateBilliardNet(base, cafeTax, taxPct) {
     const tax = Math.round((Math.max(0, net - (parseFloat(cafeTax) || 0)) * (parseFloat(taxPct) || 0) / 100 + 1e-9) * 100) / 100;
     document.getElementById('endBilliardNetTotal').textContent = `${net.toFixed(2)} ج.م`;
     document.getElementById('endBilliardTax').textContent = `${tax.toFixed(2)} ج.م`;
-    document.getElementById('endBilliardFinal').textContent = `${(Math.round((net + tax + 1e-9) * 100) / 100).toFixed(2)} ج.م`;
+    const newFinal = Math.round((net + tax + 1e-9) * 100) / 100;
+    document.getElementById('endBilliardFinal').textContent = `${newFinal.toFixed(2)} ج.م`;
+    // المحصل الافتراضي يمشي مع الإجمالي الجديد (إلا لو عدله الكاشير)
+    const inp = document.getElementById('billiardPaidInput');
+    if (inp && !inp.dataset.touchedOnce) {
+        inp.max = newFinal.toFixed(2);
+        inp.value = newFinal.toFixed(2);
+        updateBilliardPaid();
+    }
 }
 
 async function submitEndBilliard() {
     const disc = Math.max(0, parseFloat(document.getElementById('billiardDiscInput').value) || 0);
     const method = document.getElementById('billiardPayMethod').value;
+    let paidAmount = null;
+    const inp = document.getElementById('billiardPaidInput');
+    const finalStr = (document.getElementById('endBilliardFinal')?.textContent || '0').replace(/[^\d.]/g, '');
+    const final = parseFloat(finalStr) || 0;
+    if (inp) {
+        paidAmount = Math.max(0, parseFloat(inp.value) || 0);
+        inp.dataset.touchedOnce = '1';
+        if (final > 0 && paidAmount < final - 0.009) {
+            const cid = document.getElementById('endBilliardCustomerId').value;
+            const cname = (document.getElementById('endBilliardCustomerInput')?.value || '').trim();
+            if (!cid && cname === '') {
+                appAlert('❌ لازم تسجل العميل — اكتب اسمه في خانة "العميل" لتسجيل باقي الفاتورة على حسابه', 'error');
+                return;
+            }
+        }
+    }
 
     const res = await fetch('ajax.php?action=end_session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: activeBilliardSessionId, discount_amount: disc, payment_method: method })
+        body: JSON.stringify({
+            session_id: activeBilliardSessionId,
+            discount_amount: disc,
+            paid_amount: paidAmount,
+            customer_id: (document.getElementById('endBilliardCustomerId') || {}).value || 0,
+            customer_name: (document.getElementById('endBilliardCustomerInput') || {}).value || '',
+            payment_method: method
+        })
     });
     const data = await res.json();
     if (data.success) {
