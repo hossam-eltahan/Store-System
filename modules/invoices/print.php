@@ -11,17 +11,6 @@ requireAnyPermission(['invoices.sale.view', 'invoices.sale.create', 'reports.vie
 
 $id = $_GET['id'] ?? 0;
 
-// Determine safe return URL based on permissions and referer
-if (isset($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'reports') !== false) {
-    $returnUrl = $_SERVER['HTTP_REFERER'];
-} elseif (hasPermission('invoices.sale.view')) {
-    $returnUrl = 'list.php';
-} elseif (hasPermission('invoices.sale.create')) {
-    $returnUrl = 'sale.php';
-} else {
-    $returnUrl = '../../index.php';
-}
-
 $invoice = getRow(
     "SELECT i.*, 
             w.name as warehouse_name,
@@ -87,8 +76,6 @@ $formatUrl = function ($fmt) use ($id) {
         .no-print { text-align: center; padding: 8px; background: #3b82f6; }
         .no-print .btn { display: inline-block; padding: 6px 15px; margin: 0 3px; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; text-decoration: none; color: white; }
         .btn-print { background: #10b981; }
-        .btn-close { background: #ef4444; }
-        .btn-new { background: #8b5cf6; }
         
         /* Narrower width for better print margins */
         .print-area { max-width: 190mm; margin: 10px auto; background: white; padding: 5mm; }
@@ -182,10 +169,6 @@ $formatUrl = function ($fmt) use ($id) {
 <body class="<?php echo $format === 'thermal' ? 'thermal' : ''; ?>">
     <div class="no-print">
         <button class="btn btn-print" onclick="window.print()">🖨️ طباعة</button>
-        <button class="btn btn-close" onclick="closePage()">↩️ رجوع / إغلاق</button>
-        <?php if (hasPermission('invoices.sale.create')): ?>
-        <a href="sale.php" class="btn btn-new">✚ فاتورة جديدة</a>
-        <?php endif; ?>
         <span style="display:inline-flex;gap:4px;margin-right:8px;vertical-align:middle;">
             <a href="<?php echo $formatUrl('a4'); ?>" class="btn"
                style="background:<?php echo $format === 'a4' ? '#0f172a' : '#e2e8f0'; ?>;color:<?php echo $format === 'a4' ? '#fff' : '#0f172a'; ?>;">📄 ورقة A4</a>
@@ -386,13 +369,4 @@ window.addEventListener('beforeprint', function() {
 });
 </script>
 </body>
-<script>
-function closePage() {
-    if (window.opener && !window.opener.closed) {
-        window.close();
-    } else {
-        window.location.href = <?php echo json_encode($returnUrl); ?>;
-    }
-}
-</script>
 </html>
