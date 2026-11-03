@@ -310,6 +310,37 @@
     }
 
     // ---------------- Customer ----------------
+    function validateCustomerFields(showMessage) {
+        var nameEl = $('customerNameInput');
+        var phoneEl = $('customerPhoneInput');
+        var msgEl = $('customerValidationMsg');
+        if (!nameEl || !phoneEl) return true;
+
+        var name = (nameEl.value || '').trim();
+        var phone = (phoneEl.value || '').trim();
+        var error = '';
+        var invalidEl = null;
+
+        if (name && !phone) {
+            error = 'اكتب رقم موبايل العميل عشان يتسجل في العملاء';
+            invalidEl = phoneEl;
+        } else if (!name && phone) {
+            error = 'اكتب اسم العميل أولاً قبل رقم الموبايل';
+            invalidEl = nameEl;
+        }
+
+        nameEl.style.borderColor = '#cbd5e1';
+        phoneEl.style.borderColor = '#cbd5e1';
+        if (invalidEl && showMessage) {
+            invalidEl.style.borderColor = '#dc2626';
+        }
+        if (msgEl) {
+            msgEl.textContent = error;
+            msgEl.style.display = (error && showMessage) ? 'block' : 'none';
+        }
+        return !error;
+    }
+
     function setupCustomerSearch() {
         var input = $('customerNameInput');
         var phone = $('customerPhoneInput');
@@ -338,8 +369,13 @@
 
         input.addEventListener('input', function () {
             if (hidden) hidden.value = '';
+            validateCustomerFields(false);
             clearTimeout(searchTimer);
             searchTimer = setTimeout(lookup, 250);
+        });
+
+        input.addEventListener('blur', function () {
+            validateCustomerFields(true);
         });
 
         input.addEventListener('change', function () {
@@ -359,17 +395,23 @@
                 if (hidden) hidden.value = '';
                 showCustomerBalance(null);
             }
+            validateCustomerFields(false);
         });
 
         if (phone) {
+            phone.addEventListener('input', function () {
+                validateCustomerFields(false);
+            });
+
             phone.addEventListener('blur', function () {
-                if (phone.value.trim() && !(input.value || '').trim()) {
-                    showToast('اكتب اسم العميل أولاً قبل رقم الموبايل', 'error');
-                }
+                validateCustomerFields(true);
             });
 
             phone.addEventListener('change', function () {
-                if (!phone.value.trim()) return;
+                if (!phone.value.trim()) {
+                    validateCustomerFields(false);
+                    return;
+                }
                 fetch(CFG.customersUrl + '?action=search&q=' + encodeURIComponent(phone.value.trim()), { credentials: 'same-origin' })
                     .then(function (r) { return r.json(); })
                     .then(function (data) {
@@ -382,6 +424,7 @@
                             if (hidden) hidden.value = match.id;
                             showCustomerBalance(match.balance);
                         }
+                        validateCustomerFields(false);
                     })
                     .catch(function () {});
             });
@@ -405,6 +448,7 @@
     // ---------------- Checkout modal ----------------
     function openCheckoutModal() {
         if (!cart.length) return;
+        if (!validateCustomerFields(true)) return;
         if (!CFG.canSell) {
             appAlert('لا تملك صلاحية البيع من الكاشير', 'error');
             return;
@@ -634,6 +678,7 @@
         if ($('customerNameInput')) $('customerNameInput').value = '';
         if ($('customerIdInput')) $('customerIdInput').value = '';
         if ($('customerPhoneInput')) $('customerPhoneInput').value = '';
+        validateCustomerFields(false);
         showCustomerBalance(null);
         renderCart();
     }
@@ -732,6 +777,7 @@
             if ($('customerNameInput')) $('customerNameInput').value = hold.customer_name || '';
             if ($('customerPhoneInput')) $('customerPhoneInput').value = hold.customer_phone || '';
             if ($('customerIdInput')) $('customerIdInput').value = hold.customer_id || '';
+            validateCustomerFields(false);
             resetCheckoutKey();
             closeHoldsModal();
             renderCart();

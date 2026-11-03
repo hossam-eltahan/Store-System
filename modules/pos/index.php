@@ -138,6 +138,7 @@ include '../../includes/navbar.php';
             <input type="text" id="customerPhoneInput" placeholder="📞 التليفون..."
                    style="flex:1;min-width:110px;padding:6px 10px;border-radius:6px;border:1px solid #cbd5e1;font-size:12px;font-family:inherit;">
             <span id="customerBalanceBadge" style="font-size:11px;font-weight:800;display:none;"></span>
+            <div id="customerValidationMsg" style="flex-basis:100%;font-size:11px;font-weight:700;color:#dc2626;display:none;"></div>
         </div>
 
         <div class="cart-items-list" id="cartItemsList">
