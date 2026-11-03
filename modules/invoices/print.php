@@ -75,8 +75,6 @@ $formatUrl = function ($fmt) use ($id) {
         
         .no-print { text-align: center; padding: 8px; background: #3b82f6; }
         .no-print .btn { display: inline-block; padding: 6px 15px; margin: 0 3px; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; text-decoration: none; color: white; }
-        .btn-print { background: #10b981; }
-        
         /* Narrower width for better print margins */
         .print-area { max-width: 190mm; margin: 10px auto; background: white; padding: 5mm; }
         
@@ -168,8 +166,7 @@ $formatUrl = function ($fmt) use ($id) {
 </head>
 <body class="<?php echo $format === 'thermal' ? 'thermal' : ''; ?>">
     <div class="no-print">
-        <button class="btn btn-print" onclick="window.print()">🖨️ طباعة</button>
-        <span style="display:inline-flex;gap:4px;margin-right:8px;vertical-align:middle;">
+        <span style="display:inline-flex;gap:4px;vertical-align:middle;">
             <a href="<?php echo $formatUrl('a4'); ?>" class="btn"
                style="background:<?php echo $format === 'a4' ? '#0f172a' : '#e2e8f0'; ?>;color:<?php echo $format === 'a4' ? '#fff' : '#0f172a'; ?>;">📄 ورقة A4</a>
             <a href="<?php echo $formatUrl('thermal'); ?>" class="btn"
