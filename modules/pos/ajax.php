@@ -367,9 +367,6 @@ function posCheckout() {
     $customerPhone = sanitize($data['customer_phone'] ?? '');
     $notes = sanitize($data['notes'] ?? '');
 
-    if ($customerPhone !== '' && $customerName === '') {
-        posFail('لا يمكن إدخال رقم الموبايل بدون اسم العميل');
-    }
     $handledBy = getCurrentUserName();
     $userId = getCurrentUserId();
 
@@ -461,6 +458,15 @@ function posCheckout() {
                 $customerId = (int)$existingCustomer['id'];
                 $oldBalance = (float)$existingCustomer['balance'];
             }
+        }
+
+        // A named customer must always have a phone so the sale is linked to a
+        // real customer record. A phone alone is never accepted either.
+        if ($customerName !== '' && $customerPhone === '') {
+            throw new Exception('لازم تكتب رقم موبايل العميل عشان يتسجل في العملاء');
+        }
+        if ($customerPhone !== '' && $customerName === '') {
+            throw new Exception('لا يمكن إدخال رقم الموبايل بدون اسم العميل');
         }
 
         $paidAmount = $paidInput === null ? $finalAmount : posMoney($paidInput);

@@ -558,6 +558,10 @@
         var customerName = ($('customerNameInput') ? $('customerNameInput').value.trim() : '');
         var customerPhone = ($('customerPhoneInput') ? $('customerPhoneInput').value.trim() : '');
 
+        if (customerName && !customerPhone) {
+            appAlert('لازم تكتب رقم موبايل العميل عشان يتسجل في العملاء', 'error');
+            return;
+        }
         if (customerPhone && !customerName) {
             appAlert('لا يمكن إدخال رقم الموبايل بدون اسم العميل — اكتب اسم العميل أولاً', 'error');
             return;
