@@ -323,6 +323,8 @@ function posCheckout() {
         posFail('قاعدة البيانات تحتاج تحديث POS. شغّل database/migrations/002_pos.sql أولاً.', 409);
     }
 
+    $allowNegativeStock = getSetting('allow_negative_stock', '0') === '1';
+
     $data = posBody();
     $items = $data['items'] ?? [];
     if (!is_array($items) || count($items) === 0) {
@@ -364,6 +366,10 @@ function posCheckout() {
     $customerName = sanitize($data['customer_name'] ?? '');
     $customerPhone = sanitize($data['customer_phone'] ?? '');
     $notes = sanitize($data['notes'] ?? '');
+
+    if ($customerPhone !== '' && $customerName === '') {
+        posFail('لا يمكن إدخال رقم الموبايل بدون اسم العميل');
+    }
     $handledBy = getCurrentUserName();
     $userId = getCurrentUserId();
 
@@ -397,9 +403,11 @@ function posCheckout() {
                 throw new Exception('لا تملك صلاحية تعديل سعر الصنف');
             }
 
-            $available = posAvailableStock($warehouseId, $product);
-            if ($qty > $available) {
-                throw new Exception('الكمية المطلوبة من "' . $product['name'] . '" أكبر من المتاح (' . $available . ')');
+            if (!$allowNegativeStock) {
+                $available = posAvailableStock($warehouseId, $product);
+                if ($qty > $available) {
+                    throw new Exception('الكمية المطلوبة من "' . $product['name'] . '" أكبر من المتاح (' . $available . ')');
+                }
             }
 
             $lineTotal = posMoney($unitPrice * $qty);
@@ -446,17 +454,12 @@ function posCheckout() {
                 logActivity('إضافة عميل تلقائي', "تم إضافة العميل تلقائياً: $customerName من الكاشير", $handledBy);
             }
         } elseif ($customerName !== '') {
-            // Name only (no phone): reuse an exact match, otherwise create.
+            // Name only (no phone): reuse an exact match, but do not create a
+            // customer record. Registration requires both name and phone.
             $existingCustomer = getRow("SELECT id, name, phone, balance FROM customers WHERE name = ? LIMIT 1", [$customerName]);
             if ($existingCustomer) {
                 $customerId = (int)$existingCustomer['id'];
                 $oldBalance = (float)$existingCustomer['balance'];
-            } else {
-                $customerId = (int)insert(
-                    "INSERT INTO customers (name, phone, balance) VALUES (?, NULL, 0)",
-                    [$customerName]
-                );
-                logActivity('إضافة عميل تلقائي', "تم إضافة العميل تلقائياً: $customerName من الكاشير", $handledBy);
             }
         }
 
@@ -475,8 +478,8 @@ function posCheckout() {
         }
 
         $remaining = posMoney($finalAmount - $paidAmount);
-        if ($remaining > 0 && $customerId <= 0) {
-            throw new Exception('البيع الآجل يحتاج عميلاً مسجلاً أو اسم وتليفون');
+        if ($remaining > 0 && ($customerId <= 0 || $customerPhone === '')) {
+            throw new Exception('البيع الآجل يتطلب اسم العميل ورقم الموبايل حتى يتسجل في العملاء ويتحسب على حسابه');
         }
 
         if ($paidAmount >= $finalAmount && $finalAmount > 0) {

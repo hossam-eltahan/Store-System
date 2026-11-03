@@ -139,7 +139,9 @@
         var base = parseInt(prod.stock, 10) || 0;
         var preview = base - cartQtyOf(prod.id);
         var cls = preview <= 0 ? 'out' : (preview <= 2 ? 'low' : 'ok');
-        var label = preview <= 0 ? '🔴 نفذ' : '📦 ' + preview;
+        var label = preview <= 0
+            ? (CFG.allowNegativeStock ? '📦 ' + preview : '🔴 نفذ')
+            : '📦 ' + preview;
         return '<span class="stock-badge ' + cls + '">' + label + '</span>';
     }
 
@@ -154,7 +156,7 @@
         }
 
         grid.innerHTML = products.map(function (prod) {
-            var out = (parseInt(prod.stock, 10) || 0) - cartQtyOf(prod.id) <= 0;
+            var out = !CFG.allowNegativeStock && (parseInt(prod.stock, 10) || 0) - cartQtyOf(prod.id) <= 0;
             return '<div class="pos-product-card' + (out ? ' out-of-stock' : '') + '" data-product-id="' + prod.id + '">' +
                 '<div class="product-name">' + escapeHtml(prod.name) + ' ' + stockBadge(prod) + '</div>' +
                 '<div class="product-footer">' +
@@ -181,13 +183,13 @@
         }
 
         if (existing) {
-            if (existing.quantity + 1 > available) {
+            if (!CFG.allowNegativeStock && existing.quantity + 1 > available) {
                 showToast('الكمية المتاحة من "' + prod.name + '" هي ' + available, 'error');
                 return;
             }
             existing.quantity += 1;
         } else {
-            if (available <= 0) {
+            if (!CFG.allowNegativeStock && available <= 0) {
                 showToast('"' + prod.name + '" غير متوفر في المخزن', 'error');
                 return;
             }
@@ -212,7 +214,7 @@
         var next = item.quantity + delta;
         if (next <= 0) {
             cart.splice(index, 1);
-        } else if (delta > 0 && next > item.stock) {
+        } else if (!CFG.allowNegativeStock && delta > 0 && next > item.stock) {
             showToast('الكمية المتاحة ' + item.stock + ' فقط', 'error');
             return;
         } else {
@@ -360,6 +362,12 @@
         });
 
         if (phone) {
+            phone.addEventListener('blur', function () {
+                if (phone.value.trim() && !(input.value || '').trim()) {
+                    showToast('اكتب اسم العميل أولاً قبل رقم الموبايل', 'error');
+                }
+            });
+
             phone.addEventListener('change', function () {
                 if (!phone.value.trim()) return;
                 fetch(CFG.customersUrl + '?action=search&q=' + encodeURIComponent(phone.value.trim()), { credentials: 'same-origin' })
@@ -495,12 +503,18 @@
             }
 
             var name = ($('customerNameInput') ? $('customerNameInput').value.trim() : '');
-            note.style.color = name ? '#92400e' : '#dc2626';
-            note.style.background = name ? '#fefce8' : '#fef2f2';
-            note.style.borderColor = name ? '#fde047' : '#fca5a5';
-            note.innerHTML = name
-                ? '💳 باقي <strong>' + fmt(Math.abs(diff)) + '</strong> هيتسجل <strong>على حساب العميل</strong> (' + escapeHtml(name) + ')'
-                : '❌ باقي <strong>' + fmt(Math.abs(diff)) + '</strong> وبدون تسجيل العميل — اكتب اسم العميل فوق';
+            var phone = ($('customerPhoneInput') ? $('customerPhoneInput').value.trim() : '');
+            var registered = name && phone;
+            note.style.color = registered ? '#92400e' : '#dc2626';
+            note.style.background = registered ? '#fefce8' : '#fef2f2';
+            note.style.borderColor = registered ? '#fde047' : '#fca5a5';
+            if (registered) {
+                note.innerHTML = '💳 باقي <strong>' + fmt(Math.abs(diff)) + '</strong> هيتسجل <strong>على حساب العميل</strong> (' + escapeHtml(name) + ')';
+            } else if (name) {
+                note.innerHTML = '❌ باقي <strong>' + fmt(Math.abs(diff)) + '</strong> — اكتب <strong>رقم موبايل العميل</strong> فوق كمان';
+            } else {
+                note.innerHTML = '❌ باقي <strong>' + fmt(Math.abs(diff)) + '</strong> — اكتب <strong>اسم العميل ورقم الموبايل</strong> فوق';
+            }
         }
 
         if (discountInput) discountInput.addEventListener('input', updateTotals);
@@ -541,14 +555,24 @@
         var net = Math.max(0, subtotal - discount);
         var paid = opts.paid === '' ? net : num(opts.paid);
 
+        var customerName = ($('customerNameInput') ? $('customerNameInput').value.trim() : '');
+        var customerPhone = ($('customerPhoneInput') ? $('customerPhoneInput').value.trim() : '');
+
+        if (customerPhone && !customerName) {
+            appAlert('لا يمكن إدخال رقم الموبايل بدون اسم العميل — اكتب اسم العميل أولاً', 'error');
+            return;
+        }
         if (paid > net && opts.method !== 'كاش') {
             appAlert('الدفع الزائد مسموح في الكاش فقط', 'error');
             return;
         }
         if (paid < net - 0.009) {
-            var name = ($('customerNameInput') ? $('customerNameInput').value.trim() : '');
-            if (!name) {
-                appAlert('لازم تسجل العميل (اكتب اسمه فوق) عشان الباقي يتحسب على حسابه', 'error');
+            if (!customerName) {
+                appAlert('البيع الآجل يتطلب اسم العميل ورقم الموبايل عشان المبلغ يتحسب على حسابه', 'error');
+                return;
+            }
+            if (!customerPhone) {
+                appAlert('البيع الآجل يتطلب رقم موبايل العميل عشان يتسجل في العملاء ويتحسب على حسابه', 'error');
                 return;
             }
         }

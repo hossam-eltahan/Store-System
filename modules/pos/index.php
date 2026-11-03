@@ -200,6 +200,7 @@ window.POS_CONFIG = {
     canSell: <?php echo $canSell ? 'true' : 'false'; ?>,
     canDiscount: <?php echo $canDiscount ? 'true' : 'false'; ?>,
     canHold: <?php echo $canHold ? 'true' : 'false'; ?>,
+    allowNegativeStock: <?php echo getSetting('allow_negative_stock', '0') === '1' ? 'true' : 'false'; ?>,
     ready: <?php echo $posReady ? 'true' : 'false'; ?>
 };
 </script>

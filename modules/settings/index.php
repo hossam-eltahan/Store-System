@@ -34,6 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $enableSoundAlerts = isset($_POST['enable_sound_alerts']) ? '1' : '0';
     $allowEditInvoices = isset($_POST['allow_edit_invoices']) ? '1' : '0';
     $allowDeleteInvoices = isset($_POST['allow_delete_invoices']) ? '1' : '0';
+    $allowNegativeStock = isset($_POST['allow_negative_stock']) ? '1' : '0';
     
     // Handle logo upload
     if (isset($_FILES['store_logo']) && $_FILES['store_logo']['error'] === UPLOAD_ERR_OK) {
@@ -59,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     updateSetting('enable_sound_alerts', $enableSoundAlerts);
     updateSetting('allow_edit_invoices', $allowEditInvoices);
     updateSetting('allow_delete_invoices', $allowDeleteInvoices);
+    updateSetting('allow_negative_stock', $allowNegativeStock);
     
     logActivity('تحديث الإعدادات', 'تم تحديث إعدادات النظام');
     setSuccess('تم حفظ الإعدادات بنجاح');
@@ -288,6 +290,17 @@ $statusText = $isLife ? '💎 ترخيص دائم مدى الحياة' : ($isDev
                                <?php echo ($settings['allow_delete_invoices'] ?? '0') == '1' ? 'checked' : ''; ?>>
                         <span>تفعيل زر (مسح) للفواتير</span>
                     </label>
+                </div>
+
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85em;">
+                        <input type="checkbox" name="allow_negative_stock" value="1" 
+                               <?php echo ($settings['allow_negative_stock'] ?? '0') == '1' ? 'checked' : ''; ?>>
+                        <span>السماح بالبيع عند نفاد المخزون (مخزون بالسالب)</span>
+                    </label>
+                    <small style="display:block;color:#64748b;font-size:11px;margin-top:3px;line-height:1.7;">
+                        عند التفعيل يمكن إتمام البيع من الكاشير حتى لو رصيد الصنف صفر، ويُسجل المخزون بالسالب.
+                    </small>
                 </div>
                 
                 <div style="margin-top: 15px; display: flex; gap: 8px;">
