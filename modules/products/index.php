@@ -45,8 +45,8 @@ $where = [];
 $params = [];
 
 if ($search) {
-    $where[] = "(p.code LIKE ? OR p.name LIKE ? OR p.description LIKE ?)";
-    $searchTerm = "%$search%";
+    $where[] = "(" . search_like_expr('p.code') . " LIKE ? OR " . search_like_expr('p.name') . " LIKE ? OR " . search_like_expr('p.description') . " LIKE ?)";
+    $searchTerm = search_like_term($search);
     $params[] = $searchTerm;
     $params[] = $searchTerm;
     $params[] = $searchTerm;

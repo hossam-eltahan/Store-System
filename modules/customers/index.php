@@ -41,8 +41,8 @@ $sql = "SELECT * FROM customers WHERE 1=1";
 $params = [];
 
 if ($search !== '') {
-    $sql .= " AND (name LIKE ? OR phone LIKE ? OR address LIKE ?)";
-    $searchParam = "%$search%";
+    $sql .= " AND (" . search_like_expr('name') . " LIKE ? OR " . search_like_expr('phone') . " LIKE ? OR " . search_like_expr('address') . " LIKE ?)";
+    $searchParam = search_like_term($search);
     $params[] = $searchParam;
     $params[] = $searchParam;
     $params[] = $searchParam;

@@ -47,8 +47,8 @@ $params = [];
 
 // Text search filter
 if ($search !== '') {
-    $sql .= " AND (name LIKE ? OR phone LIKE ? OR expected_products LIKE ?)";
-    $searchParam = "%$search%";
+    $sql .= " AND (" . search_like_expr('name') . " LIKE ? OR " . search_like_expr('phone') . " LIKE ? OR " . search_like_expr('expected_products') . " LIKE ?)";
+    $searchParam = search_like_term($search);
     $params[] = $searchParam;
     $params[] = $searchParam;
     $params[] = $searchParam;

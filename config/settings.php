@@ -154,6 +154,52 @@ function getError() {
     return null;
 }
 
+// =============================================
+// Arabic-insensitive search helpers
+// تطبيع النص العربي للبحث المتسامح
+// =============================================
+
+/**
+ * Normalize Arabic text so searches ignore hamza/yaa/taa-marbuta forms.
+ * Mirrors normSearchText() in assets/js/main.js.
+ */
+function mb_search_normalize($text) {
+    $text = trim((string)$text);
+    $text = str_replace(['أ', 'إ', 'آ', 'ٱ'], 'ا', $text);
+    $text = str_replace('ة', 'ه', $text);
+    $text = str_replace(['ى', 'ی', 'ئ'], 'ي', $text);
+    $text = str_replace('ؤ', 'و', $text);
+    $text = str_replace('ـ', '', $text);
+    $text = strtr($text, [
+        '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+        '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+        '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+        '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+    ]);
+    $text = preg_replace('/[\x{064B}-\x{065F}\x{0670}]/u', '', $text);
+    return $text;
+}
+
+/**
+ * Build an SQL expression that applies the same normalization to a column,
+ * so LIKE 'احمد' also matches 'أحمد' and 'حمزه' matches 'حمزة'.
+ */
+function search_like_expr($col) {
+    $c = "REPLACE(REPLACE(REPLACE($col, 'أ', 'ا'), 'إ', 'ا'), 'آ', 'ا')";
+    $c = "REPLACE(REPLACE($c, 'ٱ', 'ا'), 'ة', 'ه')";
+    $c = "REPLACE(REPLACE(REPLACE($c, 'ى', 'ي'), 'ی', 'ي'), 'ئ', 'ي')";
+    $c = "REPLACE($c, 'ؤ', 'و')";
+    $c = "REPLACE($c, 'ـ', '')";
+    return $c;
+}
+
+/**
+ * Normalized LIKE term for search_like_expr() columns.
+ */
+function search_like_term($term) {
+    return '%' . mb_search_normalize($term) . '%';
+}
+
 // Log activity
 function logActivity($action, $description, $user = null) {
     if ($user === null) {

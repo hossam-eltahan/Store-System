@@ -54,9 +54,9 @@ function searchCustomers() {
         return;
     }
     
-    $searchTerm = "%$query%";
+    $searchTerm = search_like_term($query);
     $customers = getRows(
-        "SELECT id, name, phone, balance FROM customers WHERE name LIKE ? OR phone LIKE ? ORDER BY name LIMIT 20",
+        "SELECT id, name, phone, balance FROM customers WHERE " . search_like_expr('name') . " LIKE ? OR " . search_like_expr('phone') . " LIKE ? ORDER BY name LIMIT 20",
         [$searchTerm, $searchTerm]
     );
     
