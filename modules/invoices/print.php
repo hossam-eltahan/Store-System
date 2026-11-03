@@ -62,6 +62,18 @@ $totalRemaining = $invoiceRemaining + $oldDebt;
 
 $totalItems = count($items);
 $pageTitle = 'فاتورة بيع ' . $invoice['invoice_number'];
+
+// Print format: 'a4' (default, identical to the old invoice) or 'thermal' (80mm).
+$format = (($_GET['format'] ?? '') === 'thermal') ? 'thermal' : 'a4';
+$cashReceived = isset($invoice['cash_received']) && $invoice['cash_received'] !== null
+    ? (float)$invoice['cash_received']
+    : null;
+$changeDue = ($cashReceived !== null && $cashReceived > (float)$invoice['paid_amount'])
+    ? $cashReceived - (float)$invoice['paid_amount']
+    : 0;
+$formatUrl = function ($fmt) use ($id) {
+    return 'print.php?id=' . (int)$id . '&format=' . $fmt;
+};
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -113,7 +125,34 @@ $pageTitle = 'فاتورة بيع ' . $invoice['invoice_number'];
         .summary-row.total { font-weight: bold; font-size: 12px; background: #3b82f6; color: white; padding: 4px 5px; margin: 2px 0; }
         
         .footer-sig { text-align: center; padding-top: 8px; border-top: 2px solid #333; margin-top: 8px; font-size: 10px; }
-        
+
+        /* ---- Thermal 80mm receipt ---- */
+        .thermal-area {
+            width: 80mm; max-width: 100%; margin: 10px auto; background: #fff;
+            padding: 4mm; font-size: 11px; line-height: 1.5; color: #000;
+            border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,.08);
+        }
+        .thermal-area .t-store { text-align: center; }
+        .thermal-area .t-store-name { font-size: 17px; font-weight: 900; margin-bottom: 2px; }
+        .thermal-area .t-store-info { font-size: 9.5px; }
+        .thermal-area .t-sep { border-top: 1px dashed #000; margin: 6px 0; }
+        .thermal-area .t-meta { font-size: 10px; }
+        .thermal-area .t-meta div { display: flex; justify-content: space-between; gap: 8px; }
+        .thermal-area .t-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+        .thermal-area .t-table th {
+            border-bottom: 1px solid #000; padding: 3px 2px; text-align: right; font-size: 9.5px;
+        }
+        .thermal-area .t-table td { padding: 3px 2px; text-align: center; vertical-align: top; }
+        .thermal-area .t-table td.t-name { text-align: right; }
+        .thermal-area .t-totals { font-size: 11px; }
+        .thermal-area .t-totals div { display: flex; justify-content: space-between; padding: 2px 0; }
+        .thermal-area .t-grand {
+            border-top: 2px solid #000; border-bottom: 2px solid #000;
+            margin: 4px 0; padding: 4px 0 !important; font-weight: 900; font-size: 13px;
+        }
+        .thermal-area .t-thanks { text-align: center; font-size: 10px; font-weight: 700; margin-top: 6px; }
+        .thermal-area .t-barcode { text-align: center; font-size: 10px; letter-spacing: 2px; margin-top: 4px; }
+
         @media print {
             .no-print { display: none !important; }
             body { background: white; font-size: 10px; }
@@ -126,18 +165,36 @@ $pageTitle = 'فاتورة بيع ' . $invoice['invoice_number'];
             @page { 
                 margin: 8mm;
             }
+
+            /* Thermal: no page margins, roll width only */
+            body.thermal { width: 80mm; margin: 0; padding: 0; }
+            .thermal-area {
+                width: 80mm; margin: 0; padding: 2mm 3mm; box-shadow: none; border-radius: 0;
+            }
         }
+        <?php if ($format === 'thermal'): ?>
+        @media print {
+            @page { size: 80mm auto; margin: 2mm; }
+        }
+        <?php endif; ?>
     </style>
 </head>
-<body>
+<body class="<?php echo $format === 'thermal' ? 'thermal' : ''; ?>">
     <div class="no-print">
         <button class="btn btn-print" onclick="window.print()">🖨️ طباعة</button>
         <button class="btn btn-close" onclick="closePage()">↩️ رجوع / إغلاق</button>
         <?php if (hasPermission('invoices.sale.create')): ?>
         <a href="sale.php" class="btn btn-new">✚ فاتورة جديدة</a>
         <?php endif; ?>
+        <span style="display:inline-flex;gap:4px;margin-right:8px;vertical-align:middle;">
+            <a href="<?php echo $formatUrl('a4'); ?>" class="btn"
+               style="background:<?php echo $format === 'a4' ? '#0f172a' : '#e2e8f0'; ?>;color:<?php echo $format === 'a4' ? '#fff' : '#0f172a'; ?>;">📄 ورقة A4</a>
+            <a href="<?php echo $formatUrl('thermal'); ?>" class="btn"
+               style="background:<?php echo $format === 'thermal' ? '#0f172a' : '#e2e8f0'; ?>;color:<?php echo $format === 'thermal' ? '#fff' : '#0f172a'; ?>;">🧻 حراري 80مم</a>
+        </span>
     </div>
     
+    <?php if ($format === 'a4'): ?>
     <div class="print-area">
         <table class="invoice-table">
             <thead>
@@ -233,6 +290,80 @@ $pageTitle = 'فاتورة بيع ' . $invoice['invoice_number'];
             توقيع العميل: _______________ &nbsp;&nbsp;&nbsp; توقيع البائع: _______________
         </div>
     </div>
+    <?php else: ?>
+    <div class="thermal-area">
+        <div class="t-store">
+            <div class="t-store-name"><?php echo $storeName; ?></div>
+            <div class="t-store-info">
+                <?php if ($storeAddress): ?><?php echo $storeAddress; ?><br><?php endif; ?>
+                <?php if ($storePhone): ?>ت: <?php echo $storePhone; ?><?php endif; ?>
+                <?php if ($storePhone2): ?> - <?php echo $storePhone2; ?><?php endif; ?>
+            </div>
+        </div>
+
+        <div class="t-sep"></div>
+
+        <div class="t-meta">
+            <div><span>فاتورة بيع</span><strong><?php echo $invoice['invoice_number']; ?></strong></div>
+            <div><span>التاريخ:</span><span><?php echo date('Y/m/d h:i A', strtotime($invoice['created_at'] ?? $invoice['date'])); ?></span></div>
+            <div><span>العميل:</span><span><?php echo $customerName; ?></span></div>
+            <?php if ($customerPhone && $customerPhone !== '-'): ?>
+            <div><span>التليفون:</span><span><?php echo $customerPhone; ?></span></div>
+            <?php endif; ?>
+            <div><span>الكاشير:</span><span><?php echo $invoice['handled_by']; ?></span></div>
+        </div>
+
+        <div class="t-sep"></div>
+
+        <table class="t-table">
+            <thead>
+                <tr>
+                    <th style="width:38%;">الصنف</th>
+                    <th style="width:14%;">كمية</th>
+                    <th style="width:22%;">سعر</th>
+                    <th style="width:26%;">إجمالي</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($items as $item): ?>
+                <tr>
+                    <td class="t-name"><?php echo $item['product_name']; ?></td>
+                    <td><?php echo $item['quantity']; ?></td>
+                    <td><?php echo number_format($item['unit_price'], 2); ?></td>
+                    <td><?php echo number_format($item['total'], 2); ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+
+        <div class="t-sep"></div>
+
+        <div class="t-totals">
+            <div><span>الإجمالي:</span><span><?php echo number_format($invoice['total_amount'], 2); ?> <?php echo $currency; ?></span></div>
+            <?php if ($invoice['discount'] > 0): ?>
+            <div><span>الخصم:</span><span>- <?php echo number_format($invoice['discount'], 2); ?> <?php echo $currency; ?></span></div>
+            <?php endif; ?>
+            <div class="t-grand"><span>الصافي:</span><span><?php echo number_format($invoice['total_amount'] - $invoice['discount'], 2); ?> <?php echo $currency; ?></span></div>
+            <div><span>المدفوع:</span><span><?php echo number_format($invoice['paid_amount'], 2); ?> <?php echo $currency; ?></span></div>
+            <?php if ($cashReceived !== null): ?>
+            <div><span>المستلم:</span><span><?php echo number_format($cashReceived, 2); ?> <?php echo $currency; ?></span></div>
+            <?php if ($changeDue > 0): ?>
+            <div><span>الباقي للعميل:</span><span><?php echo number_format($changeDue, 2); ?> <?php echo $currency; ?></span></div>
+            <?php endif; ?>
+            <?php endif; ?>
+            <?php if ($invoiceRemaining > 0): ?>
+            <div><span>المتبقي على الفاتورة:</span><span><?php echo number_format($invoiceRemaining, 2); ?> <?php echo $currency; ?></span></div>
+            <?php endif; ?>
+            <?php if ($oldDebt > 0): ?>
+            <div><span>رصيد قديم:</span><span><?php echo number_format($oldDebt, 2); ?> <?php echo $currency; ?></span></div>
+            <?php endif; ?>
+        </div>
+
+        <div class="t-sep"></div>
+        <div class="t-thanks">شكراً لتعاملكم معنا 🌟</div>
+        <div class="t-thanks" style="font-weight:400;font-size:9px;">الاستبدال خلال 14 يوم بشرط الفاتورة</div>
+    </div>
+    <?php endif; ?>
     
     <?php if (isset($_GET['show_installment']) && $totalRemaining > 0 && $invoice['customer_id']): ?>
     <div class="no-print" style="max-width:190mm;margin:10px auto;padding:15px;background:#eff6ff;border:2px solid #3b82f6;border-radius:8px;text-align:center;">
@@ -245,6 +376,7 @@ $pageTitle = 'فاتورة بيع ' . $invoice['invoice_number'];
 <script>
 window.addEventListener('beforeprint', function() {
     var printArea = document.querySelector('.print-area');
+    if (!printArea) return;
     var pageHeight = 277;
     var contentHeight = printArea.scrollHeight * 0.264583;
     var totalPages = Math.max(1, Math.ceil(contentHeight / pageHeight));
