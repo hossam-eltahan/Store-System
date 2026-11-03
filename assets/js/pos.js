@@ -438,18 +438,11 @@
                 '</select>' +
             '</div>' +
 
-            '<div style="margin-bottom:12px;">' +
-                '<label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px;">المدفوع الآن (اتركه بالإجمالي للمحاسبة الكاملة):</label>' +
+            '<div style="margin-bottom:14px;">' +
+                '<label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px;">المبلغ المدفوع:</label>' +
                 '<input type="text" inputmode="decimal" id="coPaidInput" autocomplete="off" ' +
                     'style="width:100%;padding:9px 12px;border-radius:8px;border:1.5px solid #cbd5e1;font-size:15px;font-weight:800;text-align:center;">' +
                 '<div id="coPaidNote" style="font-size:11.5px;font-weight:700;color:#92400e;background:#fefce8;border:1px solid #fde047;border-radius:8px;padding:7px 10px;margin-top:6px;display:none;"></div>' +
-            '</div>' +
-
-            '<div id="coCashRow" style="margin-bottom:14px;">' +
-                '<label style="font-size:12px;font-weight:700;color:#475569;display:block;margin-bottom:4px;">المستلم من العميل (لحساب الباقي):</label>' +
-                '<input type="text" inputmode="decimal" id="coCashInput" autocomplete="off" placeholder="اتركه فارغاً إذا دفعت بالضبط" ' +
-                    'style="width:100%;padding:9px 12px;border-radius:8px;border:1.5px solid #cbd5e1;font-size:15px;font-weight:800;text-align:center;">' +
-                '<div id="coChangeDisplay" style="font-size:12.5px;font-weight:800;color:#059669;margin-top:6px;display:none;"></div>' +
             '</div>' +
 
             '<button type="button" id="coSubmitBtn" style="width:100%;background:linear-gradient(135deg,#ea580c,#c2410c);color:#fff;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:800;cursor:pointer;">' +
@@ -460,7 +453,6 @@
 
         var discountInput = $('coDiscountInput');
         var paidInput = $('coPaidInput');
-        var cashInput = $('coCashInput');
         var methodSelect = $('coPaymentMethod');
 
         function updateTotals() {
@@ -476,43 +468,39 @@
             updatePaidNote();
         }
 
-        function updatePaidNote() {
-            var net = Math.max(0, subtotal - Math.min(subtotal, Math.max(0, num(discountInput ? discountInput.value : 0))));
-            var paid = num(paidInput ? paidInput.value : net);
-            var remaining = Math.round((net - Math.max(0, paid)) * 100) / 100;
-            var note = $('coPaidNote');
-            if (!note) return;
-            if (remaining <= 0.009) {
-                note.style.display = 'none';
-            } else {
-                var name = ($('customerNameInput') ? $('customerNameInput').value.trim() : '');
-                note.style.display = 'block';
-                note.style.color = name ? '#92400e' : '#dc2626';
-                note.style.background = name ? '#fefce8' : '#fef2f2';
-                note.style.borderColor = name ? '#fde047' : '#fca5a5';
-                note.innerHTML = name
-                    ? '💳 باقي <strong>' + fmt(remaining) + '</strong> هيتسجل <strong>على حساب العميل</strong> (' + escapeHtml(name) + ')'
-                    : '❌ باقي <strong>' + fmt(remaining) + '</strong> وبدون تسجيل العميل — اكتب اسم العميل فوق';
-            }
+        function currentNet() {
+            var disc = Math.min(subtotal, Math.max(0, num(discountInput ? discountInput.value : 0)));
+            return Math.max(0, subtotal - disc);
         }
 
-        function updateChange() {
-            var row = $('coCashRow');
-            var display = $('coChangeDisplay');
-            if (!row || !display) return;
-            var isCash = (methodSelect.value === 'كاش');
-            row.style.display = isCash ? 'block' : 'none';
-            if (!isCash) return;
-            var cash = num(cashInput.value);
-            var paid = num(paidInput.value);
-            if (cashInput && typeof normDigitInput === 'function') normDigitInput(cashInput);
-            if (!cashInput.value) { display.style.display = 'none'; return; }
-            var change = Math.round((cash - paid) * 100) / 100;
-            display.style.display = 'block';
-            display.textContent = change >= 0
-                ? ('الباقي للعميل: ' + fmt(change))
-                : ('ناقص: ' + fmt(Math.abs(change)));
-            display.style.color = change >= 0 ? '#059669' : '#dc2626';
+        function updatePaidNote() {
+            var net = currentNet();
+            var paid = paidInput && paidInput.value !== '' ? num(paidInput.value) : net;
+            var diff = Math.round((paid - net) * 100) / 100;
+            var note = $('coPaidNote');
+            if (!note) return;
+
+            if (Math.abs(diff) <= 0.009) {
+                note.style.display = 'none';
+                return;
+            }
+
+            note.style.display = 'block';
+            if (diff > 0) {
+                note.style.color = '#047857';
+                note.style.background = '#ecfdf5';
+                note.style.borderColor = '#6ee7b7';
+                note.innerHTML = '💵 الباقي للعميل: <strong>' + fmt(diff) + '</strong>';
+                return;
+            }
+
+            var name = ($('customerNameInput') ? $('customerNameInput').value.trim() : '');
+            note.style.color = name ? '#92400e' : '#dc2626';
+            note.style.background = name ? '#fefce8' : '#fef2f2';
+            note.style.borderColor = name ? '#fde047' : '#fca5a5';
+            note.innerHTML = name
+                ? '💳 باقي <strong>' + fmt(Math.abs(diff)) + '</strong> هيتسجل <strong>على حساب العميل</strong> (' + escapeHtml(name) + ')'
+                : '❌ باقي <strong>' + fmt(Math.abs(diff)) + '</strong> وبدون تسجيل العميل — اكتب اسم العميل فوق';
         }
 
         if (discountInput) discountInput.addEventListener('input', updateTotals);
@@ -521,11 +509,8 @@
                 paidInput.dataset.touched = '1';
                 if (typeof normDigitInput === 'function') normDigitInput(paidInput);
                 updatePaidNote();
-                updateChange();
             });
         }
-        if (cashInput) cashInput.addEventListener('input', updateChange);
-        if (methodSelect) methodSelect.addEventListener('change', updateChange);
 
         var submitBtn = $('coSubmitBtn');
         if (submitBtn) {
@@ -533,14 +518,12 @@
                 submitCheckout({
                     discount: num(discountInput ? discountInput.value : 0),
                     method: methodSelect ? methodSelect.value : 'كاش',
-                    paid: paidInput ? paidInput.value : '',
-                    cashReceived: cashInput ? cashInput.value : ''
+                    paid: paidInput ? paidInput.value : ''
                 });
             });
         }
 
         updateTotals();
-        updateChange();
         $('checkoutModal').style.display = 'flex';
         if (paidInput) paidInput.focus();
     }
@@ -557,7 +540,6 @@
         var discount = Math.min(subtotal, Math.max(0, num(opts.discount)));
         var net = Math.max(0, subtotal - discount);
         var paid = opts.paid === '' ? net : num(opts.paid);
-        var cashReceived = opts.cashReceived === '' ? null : num(opts.cashReceived);
 
         if (paid > net && opts.method !== 'كاش') {
             appAlert('الدفع الزائد مسموح في الكاش فقط', 'error');
@@ -583,7 +565,6 @@
             discount: discount,
             payment_method: opts.method,
             paid_amount: paid,
-            cash_received: cashReceived,
             items: cart.map(function (it) {
                 return {
                     product_id: it.product_id,
