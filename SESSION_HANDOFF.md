@@ -1,11 +1,19 @@
 # Session Handoff
 
+> **🔴 READ FIRST — State when this session ended (2026-11-03):**
+> - Branch **`cafe-system`**, HEAD **`7fe172c`** — pushed, working tree CLEAN. Safe to branch/switch and edit; nothing uncommitted.
+> - v1.0.11 (customer accounts + feedback rounds 1-3 + project-wide forgiving Arabic search + profile payments timeline) is **DONE and committed** — see §3. The only remaining piece of that task is **packaging the update ZIP** (§3 "Next").
+> - `config/version.php` still says **1.0.10** — bump AFTER building the 1.0.11 ZIP (and `fresh_install.sql`/migrations already contain 017).
+> - **Environment trap (verified):** on 2026-11-03 the MySQL listening on port 3306 is `C:\StoreSystem\mysql\bin\mysqld.exe` (PID 8548) — the owner's **portable production install** at `C:\StoreSystem`, whose DB is `store_management` (an OLD 24-table schema with no POS/orders tables — don't confuse it with ours, never touch it). With that server on the port, the dev app's `cafe_management` DB is **not reachable**: the XAMPP MySQL was not running at all. To resume dev testing on the XAMPP copy either stop the C:\StoreSystem mysqld (ask owner first — it may be their live shop DB) or run XAMPP MySQL on another port and set it in `config/ports.ini`.
+> - Owner's stated plan: "switch branch and edit" — i.e. next session may be on a different feature branch; this abstract + §3 tells you everything the customer-accounts round shipped.
+> - Scratch/whitespace hygiene: temp scripts deleted; DB test rows (temp customers 12/13 etc.) all deleted; real rows untouched.
+
 ## 1. Project Overview
 
 - **Project:** Store-System — café cashier/management system (vanilla PHP, no framework/composer + MySQL/MariaDB via PDO, RTL Arabic UI, 80mm thermal receipts). No test suite, no CI.
-- **Runtime (trust this, README is stale):** Docroot `C:\xampp\htdocs\Store-System` → `http://127.0.0.1/Store-System/`. DB `cafe_management` @ 127.0.0.1 root/empty (port from `config/ports.ini`, else 3306). Branch `cafe-system`, HEAD `1f2c6c5`, pushed.
-- **Versions:** `APP_VERSION 1.0.7` (`config/version.php`), `DB_SCHEMA_VERSION 3`, migrations `001`–`013` in `database/migrations/`.
-- **Live-data rule:** the dev copy at `C:\xampp\htdocs\Store-System` is the owner's live test env — never touch their rows (their invoices `PUR-00001/2/6`, session 27, supplies, return #3). Open shift id 2 is live — reverse any test cash movement. Test admin hash `$2y$10$UaTK6e2Qo1mEuhLHRabvt.ZF4/2EE00MC1NQgWc57rO08grQ5nbzK` (`admin123`); always restore the original hash byte-identically afterward. Delete all scratch `zz_*` files when done.
+- **Runtime (trust this, README is stale):** Docroot `C:\xampp\htdocs\Store-System` → `http://127.0.0.1/Store-System/`. Dev DB `cafe_management` @ 127.0.0.1 root/empty — but **see the red box above: port 3306 may be occupied by C:\StoreSystem's mysqld**; start XAMPP MySQL or remap the port in `config/ports.ini` before testing.
+- **Versions:** `APP_VERSION 1.0.10` (`config/version.php`), `DB_SCHEMA_VERSION 4`, migrations in `database/migrations/` (017 = customer accounts migration, applied on dev DB + seeded in `installer_build/fresh_install.sql`).
+- **Live-data rule:** the dev copy at `C:\xampp\htdocs\Store-System` is the owner's live test env — never touch owner rows. Without an open shift. Owner-real data to preserve: customer 2 "Hossam Eltahan", orders 140/141/144, payments rows 7 (PAY-00001) + 11 (PAY-00002), settlement 5, activity rows 207/208; shift 4 totals after the last clean restore: `total_sales_cash 606.36 / gaming 30.83` (order 144 open 28.50 is real, not a test). Test admin hash (`admin123`) on `admin`: `$2y$10$UaTK6e2Qo1mEuhLHRabvt.ZF4/2EE00MC1NQgWc57rO08grQ5nbzK` — if you ever reset it, restore the exact original hash. Delete all scratch files when done.
 
 ## 2. Architecture (verified in code)
 
@@ -102,13 +110,15 @@ Next: package v1.0.11 update ZIP when the owner asks (files above + 3 unchanged 
 ## 6. Known Bugs / Unresolved
 
 - Browser sound autoplay / Notification permission need real user gesture — can't verify headlessly.
-- `README.md` stale (wrong DB name `store_management`) — trust `config/database.php`.
+- `README.md` stale (wrong DB name `store_management`) — trust `config/database.php`. NOTE: `store_management` is now a REAL database on the machine — it belongs to the `C:\StoreSystem` portable install, not this project.
 - `SESSION_HANDOFF.md` was stale pre-1.0.6 before this rewrite.
 
 ## 7. Next Steps
 
-1. If shipping, confirm version bump then build `StoreSystem_Update_*` ZIP + `StoreSystem_Setup_*.exe` and validate signature as done for 1.0.6.
-2. Still untested in a real browser: pretty dialogs, transfer modals/buttons, unified cards, mods tab, remember-me checkbox, 80mm print output.
+1. **Package v1.0.11** when the owner asks (per §3 "Next"): build via update builder (`action=build_package`, HMAC key `UPDATE_SIGNATURE_KEY`) including `config/customer_accounts.php`, `assets/js/{customer_picker,main}.js`, `config/settings.php`, `modules/customers/*`, modules `{pos,gaming,billiards,tables}/index.php`, `modules/pos/ajax.php`, `modules/payments/{print_customer,pay_customer,pay_supplier}.php`, `modules/reports/index.php`, `modules/{inventory,products,suppliers,expenses,payments,recipes}/index.php`, `modules/invoices/{list,ajax,sale,edit_sale,edit_purchase,purchase}.php`, migration 017 in `migrations[]`; bump `config/version.php` only after the build; verify HMAC + Arabic bytes inside like 1.0.10.
+2. **Fix the 3306 conflict** (see red box) before any further dev-page testing: XAMPP MySQL must serve `cafe_management` again without disturbing the owner's C:\StoreSystem production process.
+3. If shipping, confirm version bump then build `StoreSystem_Update_*` ZIP + `StoreSystem_Setup_*.exe` and validate signature as done for 1.0.6.
+4. Still untested in a real browser: pretty dialogs, transfer modals/buttons, unified cards, mods tab, remember-me checkbox, 80mm print output, v1.0.11 receipt-modal close behavior with a keyboard/Arabic typing on the touch device.
 
 ## 8. Playbook (must-follow)
 
