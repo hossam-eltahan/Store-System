@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Software Updates Page
  * صفحة تحديثات البرنامج

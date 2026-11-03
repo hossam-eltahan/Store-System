@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Store System - Offline Update Engine
  * محرك تحديث البرنامج أوفلاين

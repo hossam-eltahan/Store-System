@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * POS AJAX Handler
  * نقطة البيع - معالجة عمليات الكاشير
@@ -8,6 +8,8 @@
  * صفحة الفواتير.
  */
 
+ob_start();
+
 require_once '../../config/database.php';
 require_once '../../config/settings.php';
 require_once '../../config/auth.php';
@@ -16,6 +18,27 @@ requireLogin();
 requirePermission('pos.view');
 
 header('Content-Type: application/json; charset=utf-8');
+
+// Guarantee the client always gets JSON, even on a fatal error.
+register_shutdown_function(function () {
+    if (!empty($GLOBALS['pos_json_sent'])) {
+        return;
+    }
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode([
+            'success' => false,
+            'error' => 'خطأ داخلي: ' . $err['message'],
+        ], JSON_UNESCAPED_UNICODE);
+    }
+});
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
@@ -59,8 +82,15 @@ switch ($action) {
  * ============================================================ */
 
 function posJson($payload, $status = 200) {
+    $GLOBALS['pos_json_sent'] = true;
+    // Discard anything an include may have printed (BOM, warnings, notices)
+    // so the response body is always pure JSON.
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
     if (!headers_sent()) {
         http_response_code($status);
+        header('Content-Type: application/json; charset=utf-8');
     }
     echo json_encode($payload, JSON_UNESCAPED_UNICODE);
     exit;

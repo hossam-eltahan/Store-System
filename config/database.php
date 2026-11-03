@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Database Configuration
  * Store Management System

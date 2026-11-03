@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Obfuscates config/license.php for client release
  */
