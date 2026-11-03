@@ -69,6 +69,17 @@ function getAllPermissions() {
                 'invoices.sale.delete' => 'حذف فاتورة بيع',
             ]
         ],
+        'pos' => [
+            'label' => 'الكاشير (POS)',
+            'icon' => '🛒',
+            'permissions' => [
+                'pos.view' => 'فتح شاشة الكاشير',
+                'pos.sell' => 'إتمام عمليات البيع',
+                'pos.discount' => 'تطبيق خصم وتعديل الأسعار',
+                'pos.hold' => 'تعليق واسترجاع السلات',
+                'pos.void' => 'إلغاء فواتير الكاشير',
+            ]
+        ],
         'invoices_purchase' => [
             'label' => 'فواتير الشراء',
             'icon' => '📥',

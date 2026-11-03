@@ -259,8 +259,17 @@ $currentUserAvatar = getAvatarUrl($currentUser['avatar'] ?? null);
             </li>
             <?php endif; ?>
             
-            <?php if (hasPermission('invoices.sale.create') || hasPermission('invoices.purchase.create') || hasPermission('invoices.sale.view')): ?>
+            <?php if (hasPermission('invoices.sale.create') || hasPermission('invoices.purchase.create') || hasPermission('invoices.sale.view') || hasPermission('pos.view')): ?>
             <li class="sidebar-divider"></li>
+            <?php endif; ?>
+            
+            <?php if (hasPermission('pos.view')): ?>
+            <li>
+                <a href="<?php echo BASE_URL; ?>modules/pos/index.php" class="sidebar-link <?php echo strpos($_SERVER['PHP_SELF'], '/pos/') !== false ? 'active' : ''; ?>">
+                    <span class="sidebar-icon">🛒</span>
+                    <span class="sidebar-text">الكاشير (POS)</span>
+                </a>
+            </li>
             <?php endif; ?>
             
             <?php if (hasPermission('invoices.sale.create')): ?>
