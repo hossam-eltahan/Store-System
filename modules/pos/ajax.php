@@ -82,7 +82,11 @@ function posColumnExists($table, $column) {
     if (array_key_exists($key, $cache)) {
         return $cache[$key];
     }
-    $row = getRow("SHOW COLUMNS FROM `$table` LIKE ?", [$column]);
+    $row = getRow(
+        "SELECT 1 AS found FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+        [$table, $column]
+    );
     $cache[$key] = (bool)$row;
     return $cache[$key];
 }
@@ -474,17 +478,31 @@ function posCheckout() {
             throw new Exception('تعذر حفظ الفاتورة');
         }
 
+        $hasItemName = posColumnExists('invoice_items', 'item_name');
+
         foreach ($normalized as $line) {
             $product = getRow("SELECT id, stock_quantity FROM products WHERE id = ?", [$line['product_id']]);
             if ($product) {
                 posSeedWarehouseStock($warehouseId, $product);
             }
 
-            insert(
-                "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, unit, quantity, unit_price, total)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [$invoiceId, $line['product_id'], $line['code'], $line['name'], $line['unit'], $line['quantity'], $line['unit_price'], $line['total']]
-            );
+            if ($hasItemName) {
+                $saved = insert(
+                    "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, item_name, unit, quantity, unit_price, total)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [$invoiceId, $line['product_id'], $line['code'], $line['name'], $line['name'], $line['unit'], $line['quantity'], $line['unit_price'], $line['total']]
+                );
+            } else {
+                $saved = insert(
+                    "INSERT INTO invoice_items (invoice_id, product_id, product_code, product_name, unit, quantity, unit_price, total)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [$invoiceId, $line['product_id'], $line['code'], $line['name'], $line['unit'], $line['quantity'], $line['unit_price'], $line['total']]
+                );
+            }
+            if ($saved === false) {
+                throw new Exception('تعذر حفظ أصناف الفاتورة');
+            }
+
             updateWarehouseStock($warehouseId, $line['product_id'], $line['quantity'], 'subtract');
             syncProductTotalStock($line['product_id']);
         }
@@ -614,7 +632,8 @@ function posResumeHold() {
 
 function posDeleteHold() {
     requirePermission('pos.hold');
-    $id = (int)($_POST['id'] ?? $_GET['id'] ?? 0);
+    $data = posBody();
+    $id = (int)($data['id'] ?? $_POST['id'] ?? $_GET['id'] ?? 0);
     execute("DELETE FROM pos_holds WHERE id = ?", [$id]);
     posJson(['success' => true]);
 }
@@ -628,20 +647,78 @@ function posApplyMigration() {
         posFail('تحديث قاعدة البيانات متاح للمدير فقط', 403);
     }
 
-    $file = __DIR__ . '/../../database/migrations/002_pos.sql';
-    if (!file_exists($file)) {
-        posFail('ملف الترحيل غير موجود', 404);
-    }
-
     global $pdo;
-    $sql = preg_replace('/--.*$/m', '', file_get_contents($file));
-    $statements = array_filter(array_map('trim', explode(';', $sql)));
+
+    $columns = [
+        'invoices' => [
+            'source' => "ALTER TABLE `invoices` ADD COLUMN `source` ENUM('manual','pos') NOT NULL DEFAULT 'manual'",
+            'client_key' => "ALTER TABLE `invoices` ADD COLUMN `client_key` VARCHAR(64) DEFAULT NULL",
+            'cash_received' => "ALTER TABLE `invoices` ADD COLUMN `cash_received` DECIMAL(10,2) DEFAULT NULL",
+        ],
+        'products' => [
+            'barcode' => "ALTER TABLE `products` ADD COLUMN `barcode` VARCHAR(50) DEFAULT NULL",
+            'is_service' => "ALTER TABLE `products` ADD COLUMN `is_service` TINYINT(1) NOT NULL DEFAULT 0",
+        ],
+    ];
+
+    $indexes = [
+        ['invoices', 'uq_invoices_client_key', "ALTER TABLE `invoices` ADD UNIQUE KEY `uq_invoices_client_key` (`client_key`)"],
+        ['invoices', 'idx_invoices_source_date', "ALTER TABLE `invoices` ADD INDEX `idx_invoices_source_date` (`source`, `date`)"],
+        ['products', 'idx_products_barcode', "ALTER TABLE `products` ADD INDEX `idx_products_barcode` (`barcode`)"],
+    ];
 
     try {
-        foreach ($statements as $stmt) {
-            if ($stmt === '') continue;
-            $pdo->exec($stmt);
+        foreach ($columns as $table => $defs) {
+            foreach ($defs as $column => $sql) {
+                $exists = getRow(
+                    "SELECT 1 FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+                    [$table, $column]
+                );
+                if (!$exists) {
+                    $pdo->exec($sql);
+                }
+            }
         }
+
+        foreach ($indexes as $def) {
+            list($table, $indexName, $sql) = $def;
+            $exists = getRow(
+                "SELECT 1 FROM information_schema.STATISTICS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?",
+                [$table, $indexName]
+            );
+            if (!$exists) {
+                $pdo->exec($sql);
+            }
+        }
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `pos_holds` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `hold_number` VARCHAR(30) NOT NULL,
+            `warehouse_id` INT DEFAULT NULL,
+            `customer_id` INT DEFAULT NULL,
+            `customer_name` VARCHAR(255) DEFAULT NULL,
+            `customer_phone` VARCHAR(20) DEFAULT NULL,
+            `cart_json` LONGTEXT NOT NULL,
+            `note` VARCHAR(255) DEFAULT NULL,
+            `user_id` INT DEFAULT NULL,
+            `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY `uq_pos_holds_number` (`hold_number`),
+            KEY `idx_pos_holds_user` (`user_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // Record it so the bundled updater does not try to re-run 002_pos.sql.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `schema_migrations` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `migration_number` INT NOT NULL,
+            `migration_file` VARCHAR(255) NOT NULL,
+            `description` VARCHAR(500) DEFAULT NULL,
+            `applied_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY `unique_migration` (`migration_number`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $stmt = $pdo->prepare("INSERT IGNORE INTO schema_migrations (migration_number, migration_file, description) VALUES (2, '002_pos.sql', 'POS module: invoice source/client_key/cash_received, product barcode/is_service, held carts')");
+        $stmt->execute();
     } catch (Exception $e) {
         posFail('تعذر تحديث قاعدة البيانات: ' . $e->getMessage(), 500);
     }
