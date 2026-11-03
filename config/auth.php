@@ -77,7 +77,6 @@ function getAllPermissions() {
                 'pos.sell' => 'إتمام عمليات البيع',
                 'pos.discount' => 'تطبيق خصم وتعديل الأسعار',
                 'pos.hold' => 'تعليق واسترجاع السلات',
-                'pos.void' => 'إلغاء فواتير الكاشير',
             ]
         ],
         'invoices_purchase' => [
