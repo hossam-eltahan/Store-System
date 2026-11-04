@@ -839,6 +839,42 @@
             });
         }
 
+                // Global Barcode Scanner Listener for POS
+        var posBarcodeBuffer = '';
+        var posLastKeyTime = 0;
+        document.addEventListener('keydown', function (e) {
+            if (e.target === searchInput) return;
+            var targetTag = e.target ? e.target.tagName : '';
+            var isOtherInput = targetTag === 'INPUT' || targetTag === 'TEXTAREA' || targetTag === 'SELECT';
+
+            var now = Date.now();
+            var diff = now - posLastKeyTime;
+            posLastKeyTime = now;
+
+            if (diff > 80) {
+                posBarcodeBuffer = '';
+            }
+
+            if (e.key === 'Enter') {
+                if (posBarcodeBuffer.length >= 3) {
+                    e.preventDefault();
+                    var scanned = posBarcodeBuffer;
+                    posBarcodeBuffer = '';
+                    ajax('get_by_barcode', { code: scanned, warehouse_id: warehouseId() }).then(function (data) {
+                        if (data && data.success && data.product) {
+                            addToCart(data.product);
+                        } else {
+                            showToast('لا يوجد صنف بهذا الباركود', 'error');
+                        }
+                    }).catch(function () {});
+                }
+            } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                if (!isOtherInput || diff < 60) {
+                    posBarcodeBuffer += e.key;
+                }
+            }
+        });
+
         var warehouseSelect = $('posWarehouseSelect');
         if (warehouseSelect) {
             warehouseSelect.addEventListener('change', function () {

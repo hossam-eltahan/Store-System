@@ -170,7 +170,7 @@ function addProduct() {
             [$code, $name, $unit, $price, $minStock]
         );
 
-        echo json_encode(['success' => true, 'product_id' => $productId, 'code' => $code]);
+        echo json_encode(['success' => true, 'product_id' => $productId, 'code' => $code, 'barcode' => $barcode]);
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
@@ -285,4 +285,44 @@ function getInvoiceItems() {
         'success' => true,
         'items' => $availableItems
     ]);
+}
+
+
+function searchBarcode() {
+    requireAnyPermission(['products.view', 'invoices.sale.create', 'invoices.purchase.create', 'invoices.sale.edit', 'invoices.purchase.edit']);
+    $barcode = trim($_GET['barcode'] ?? '');
+    $warehouseId = (int)($_GET['warehouse_id'] ?? 0);
+
+    if ($barcode === '') {
+        echo json_encode(['success' => false, 'message' => 'Barcode required']);
+        return;
+    }
+
+    if ($warehouseId > 0) {
+        $product = getRow(
+            "SELECT p.id, p.code, p.barcode, p.name, p.unit, p.price, c.name AS category_name,
+                    COALESCE(ws.quantity, 0) as stock_quantity,
+                    p.stock_quantity as total_stock_quantity
+             FROM products p
+             LEFT JOIN categories c ON c.id = p.category_id
+             LEFT JOIN warehouse_stock ws ON ws.product_id = p.id AND ws.warehouse_id = ?
+             WHERE p.barcode = ? OR p.code = ?
+             LIMIT 1",
+            [$warehouseId, $barcode, $barcode]
+        );
+    } else {
+        $product = getRow(
+            "SELECT p.id, p.code, p.barcode, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name
+             FROM products p LEFT JOIN categories c ON c.id = p.category_id
+             WHERE p.barcode = ? OR p.code = ?
+             LIMIT 1",
+            [$barcode, $barcode]
+        );
+    }
+
+    if ($product) {
+        echo json_encode(['success' => true, 'product' => $product]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'الصنف غير موجود']);
+    }
 }

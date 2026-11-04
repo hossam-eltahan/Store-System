@@ -273,7 +273,7 @@ $zip->close();
 $fileSizeKb = round(filesize($desktopZipPath) / 1024, 1);
 
 // 6. Update local version.php
-$versionContent = "<?php\ndefine(\"APP_VERSION\", \"{$newVersion}\");\ndefine(\"APP_BUILD_DATE\", \"{$buildDate}\");\ndefine(\"DB_SCHEMA_VERSION\", {$newSchemaVersion});\ndefine(\"UPDATE_CHECK_URL\", \"https://drive.google.com/drive/folders/1OB88y045M4uHZxQj6XLZulIYlL5ubTLD\");\ndefine(\"UPDATE_SIGNATURE_KEY\", \"{$sigKey}\");\n";
+$versionContent = "<?php\ndefine(\"APP_VERSION\", \"{$newVersion}\");\ndefine(\"APP_BUILD_DATE\", \"{$buildDate}\");\ndefine(\"DB_SCHEMA_VERSION\", {$newSchemaVersion});\ndefine(\"UPDATE_CHECK_URL\", \"https://drive.google.com/drive/folders/1v5Sg4SsyvHbRSrTruhCBOt9aat8HmqAj?usp=sharing\");\ndefine(\"UPDATE_SIGNATURE_KEY\", \"{$sigKey}\");\n";
 file_put_contents($appRoot . '/config/version.php', $versionContent);
 
 // Also sync to installer build
@@ -291,7 +291,7 @@ echo "File Location: {$desktopZipPath}\n\n";
 echo "[*] Opening Google Drive folder in browser...\n";
 
 // 7. Open Google Drive folder in browser
-$gdriveUrl = "https://drive.google.com/drive/folders/1OB88y045M4uHZxQj6XLZulIYlL5ubTLD";
+$gdriveUrl = "https://drive.google.com/drive/folders/1v5Sg4SsyvHbRSrTruhCBOt9aat8HmqAj?usp=sharing";
 pclose(popen("start \"\" \"{$gdriveUrl}\"", "r"));
 
 echo "\nNEXT STEP:\n";

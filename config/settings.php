@@ -231,6 +231,73 @@ function generateInvoiceNumber($type = 'sale') {
     return $prefix . str_pad($newNumber, 5, '0', STR_PAD_LEFT);
 }
 
+// =============================================
+// Barcode Helper Functions (دوال إدارة الباركود)
+// =============================================
+
+/**
+ * Calculate standard GS1 EAN-13 check digit for 12 digits
+ */
+function calculateEan13CheckDigit($digits12) {
+    $digits12 = (string)$digits12;
+    if (strlen($digits12) !== 12) {
+        $digits12 = str_pad(substr($digits12, 0, 12), 12, '0', STR_PAD_RIGHT);
+    }
+    $sum = 0;
+    for ($i = 0; $i < 12; $i++) {
+        $digit = (int)$digits12[$i];
+        $sum += ($i % 2 === 0) ? ($digit * 1) : ($digit * 3);
+    }
+    $mod = $sum % 10;
+    return ($mod === 0) ? '0' : (string)(10 - $mod);
+}
+
+/**
+ * Generate a unique 13-digit EAN-13 barcode
+ * Format: 200 (in-store prefix) + 9 digits sequence + 1 check digit = 13 digits
+ */
+function generateUniqueBarcode() {
+    $rows = getRows("SELECT barcode FROM products WHERE barcode LIKE '200%' AND LENGTH(barcode) = 13");
+    $maxSeq = 0;
+    foreach ($rows as $r) {
+        $mid = substr($r['barcode'], 3, 9);
+        if (ctype_digit($mid)) {
+            $val = (int)$mid;
+            if ($val > $maxSeq) {
+                $maxSeq = $val;
+            }
+        }
+    }
+
+    $cntRow = getRow("SELECT COUNT(*) as cnt FROM products");
+    $totalCount = $cntRow ? (int)$cntRow['cnt'] : 0;
+    $nextSeq = max($maxSeq + 1, $totalCount + 1, 1);
+
+    do {
+        $base = '200' . str_pad($nextSeq, 9, '0', STR_PAD_LEFT);
+        $check = calculateEan13CheckDigit($base);
+        $candidate = $base . $check;
+        $exists = getRow("SELECT id FROM products WHERE barcode = ?", [$candidate]);
+        $nextSeq++;
+    } while ($exists);
+
+    return $candidate;
+}
+
+/**
+ * Ensure all existing products have a barcode
+ */
+function ensureAllProductsHaveBarcodes() {
+    $missing = getRows("SELECT id, name FROM products WHERE barcode IS NULL OR barcode = '' ORDER BY id ASC");
+    $updatedCount = 0;
+    foreach ($missing as $prod) {
+        $barcode = generateUniqueBarcode();
+        execute("UPDATE products SET barcode = ? WHERE id = ?", [$barcode, $prod['id']]);
+        $updatedCount++;
+    }
+    return $updatedCount;
+}
+
 // Upload image
 function uploadImage($file, $directory = 'products') {
     if (!isset($file) || $file['error'] !== UPLOAD_ERR_OK) {

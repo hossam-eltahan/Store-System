@@ -191,7 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get suppliers and products for autocomplete with balance
 $suppliers = getRows("SELECT id, name, phone, balance FROM suppliers ORDER BY name");
-$products = getRows("SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
+$products = getRows("SELECT p.id, p.code, p.barcode, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
 $warehouses = getAllWarehouses(true);
 $currentInvoiceWarehouseId = (int)($oldInvoice['warehouse_id'] ?? 1);
 
@@ -470,7 +470,7 @@ include '../../includes/navbar.php';
                 <div class="form-group" style="margin-bottom: 15px;">
                     <div class="autocomplete-wrapper">
                         <input type="text" id="productSearch" class="form-control" 
-                               placeholder="🔍 ابحث عن صنف بالاسم أو الكود..." autocomplete="off"
+                               placeholder="🔍 ابحث بالاسم أو الكود أو امسح الباركود بالسكانر..." autocomplete="off"
                                style="font-size: 1.1em; padding: 15px;">
                         <div id="productResults" class="autocomplete-results"></div>
                     </div>
@@ -676,6 +676,73 @@ function selectsupplier(id, name, phone, balance) {
 const productSearch = document.getElementById('productSearch');
 const productResults = document.getElementById('productResults');
 
+function playScanSound(success = true) {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        if (success) {
+            osc.frequency.setValueAtTime(1400, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.09);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.09);
+        } else {
+            osc.frequency.setValueAtTime(320, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.18);
+        }
+    } catch (e) {}
+}
+
+function processBarcodeScan(code) {
+    if (!code) return false;
+    code = code.trim();
+    if (code.length === 0) return false;
+
+    const exact = products.find(p => 
+        (p.barcode && p.barcode.trim() === code) || 
+        (p.code && p.code.toLowerCase().trim() === code.toLowerCase())
+    );
+
+    if (exact) {
+        addProduct(exact);
+        playScanSound(true);
+        productSearch.value = '';
+        productResults.style.display = 'none';
+        productSearch.focus();
+        return true;
+    }
+
+    const whId = document.getElementById('warehouseSelect')?.value || 1;
+    fetch(`ajax.php?action=search_barcode&barcode=${encodeURIComponent(code)}&warehouse_id=${whId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.success && data.product) {
+                const prod = data.product;
+                if (!products.some(p => p.id == prod.id)) {
+                    products.push(prod);
+                }
+                addProduct(prod);
+                playScanSound(true);
+                productSearch.value = '';
+                productResults.style.display = 'none';
+                productSearch.focus();
+            } else {
+                playScanSound(false);
+            }
+        })
+        .catch(() => {
+            playScanSound(false);
+        });
+
+    return false;
+}
+
 productSearch.addEventListener('input', function() {
     const query = this.value.toLowerCase().trim();
     if (query.length < 1) {
@@ -684,7 +751,9 @@ productSearch.addEventListener('input', function() {
     }
     
     const matches = products.filter(p => 
-        p.name.toLowerCase().includes(query) || p.code.toLowerCase().includes(query)
+        p.name.toLowerCase().includes(query) || 
+        p.code.toLowerCase().includes(query) ||
+        (p.barcode && p.barcode.toLowerCase().includes(query))
     ).slice(0, 10);
     
     if (matches.length > 0) {
@@ -871,6 +940,47 @@ document.getElementById('invoiceForm').addEventListener('submit', function(e) {
 // Focus on product search on load
 document.addEventListener('DOMContentLoaded', function() {
     productSearch.focus();
+});
+
+productSearch.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const val = this.value.trim();
+        if (val.length > 0) {
+            processBarcodeScan(val);
+        }
+    }
+});
+
+let globalBarcodeBuffer = '';
+let globalLastKeyTime = 0;
+
+document.addEventListener('keydown', function(e) {
+    if (e.target === productSearch) return;
+
+    const targetTag = e.target ? e.target.tagName : '';
+    const isOtherInput = targetTag === 'INPUT' || targetTag === 'TEXTAREA' || targetTag === 'SELECT';
+
+    const now = Date.now();
+    const diff = now - globalLastKeyTime;
+    globalLastKeyTime = now;
+
+    if (diff > 80) {
+        globalBarcodeBuffer = '';
+    }
+
+    if (e.key === 'Enter') {
+        if (globalBarcodeBuffer.length >= 3) {
+            e.preventDefault();
+            const scanned = globalBarcodeBuffer;
+            globalBarcodeBuffer = '';
+            processBarcodeScan(scanned);
+        }
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (!isOtherInput || diff < 60) {
+            globalBarcodeBuffer += e.key;
+        }
+    }
 });
 </script>
 

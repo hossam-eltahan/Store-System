@@ -2,18 +2,18 @@
 ; Store System - Inno Setup Installer Script
 ; ============================================
 
-#define MyAppName "Store System"
+#define MyAppName "ERP-System"
 #define MyAppNameAr "نظام إدارة المحل"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Store System Inc."
 #define MyAppExeName "StoreSystem.vbs"
 
 [Setup]
-AppId={{C82F1629-45BC-4C2E-8E99-47F6A2209123}
+AppId={{E4D7B5B2-4F39-4B9D-9F2D-1A2026110401}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName=C:\StoreSystem
+DefaultDirName=C:\ERP-System
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=output

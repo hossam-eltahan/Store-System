@@ -150,7 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get customers and products for autocomplete with balance
 $customers = getRows("SELECT id, name, phone, balance FROM customers ORDER BY name");
-$products = getRows("SELECT p.id, p.code, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
+$products = getRows("SELECT p.id, p.code, p.barcode, p.name, p.unit, p.price, p.stock_quantity, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name");
 
 // Warehouses and stock maps
 $warehouses = getAllWarehouses(true);
@@ -433,13 +433,19 @@ include '../../includes/navbar.php';
             <!-- Products Section -->
             <div class="products-section">
                 <div class="section-title">📦 الأصناف</div>
-                <div class="form-group" style="margin-bottom: 15px;">
-                    <div class="autocomplete-wrapper">
-                        <input type="text" id="productSearch" class="form-control" 
-                               placeholder="🔍 ابحث عن صنف بالاسم أو الكود..." autocomplete="off"
-                               style="font-size: 1.1em; padding: 15px;">
-                        <div id="productResults" class="autocomplete-results"></div>
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <div class="autocomplete-wrapper" style="display: flex; gap: 8px; align-items: stretch;">
+                        <div style="flex: 1; position: relative;">
+                            <input type="text" id="productSearch" class="form-control" 
+                                   placeholder="🔍 ابحث بالاسم أو الكود أو امسح الباركود بالسكانر..." autocomplete="off"
+                                   style="font-size: 1.05em; padding: 12px 14px; border: 2px solid #3b82f6;">
+                            <div id="productResults" class="autocomplete-results"></div>
+                        </div>
+                        <span class="badge" id="scannerStatusBadge" style="background: #10b981; color: white; padding: 0 14px; border-radius: 6px; font-size: 0.85em; font-weight: 700; display: flex; align-items: center; gap: 6px; white-space: nowrap; user-select: none;" title="السكانر جاهز للاستخدام المباشر">
+                            📷 السكانر جاهز
+                        </span>
                     </div>
+                    <div id="scanFeedback" style="display: none; margin-top: 6px; padding: 6px 12px; border-radius: 6px; font-weight: 700; font-size: 0.85em; transition: all 0.2s ease;"></div>
                 </div>
                 
                 <table class="items-table" id="itemsTable">
@@ -626,6 +632,113 @@ function selectCustomer(id, name, phone, balance) {
 const productSearch = document.getElementById('productSearch');
 const productResults = document.getElementById('productResults');
 
+// Sound notification for barcode scanning (Web Audio API - offline, zero latency)
+function playScanSound(success = true) {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        if (success) {
+            osc.frequency.setValueAtTime(1400, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.09);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.09);
+        } else {
+            osc.frequency.setValueAtTime(320, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.18);
+        }
+    } catch (e) {}
+}
+
+function showScanFeedback(message, type = 'success') {
+    const fb = document.getElementById('scanFeedback');
+    if (!fb) return;
+    fb.textContent = message;
+    fb.style.display = 'block';
+    if (type === 'success') {
+        fb.style.background = '#dcfce7';
+        fb.style.color = '#15803d';
+        fb.style.border = '1px solid #86efac';
+    } else {
+        fb.style.background = '#fee2e2';
+        fb.style.color = '#b91c1c';
+        fb.style.border = '1px solid #fca5a5';
+    }
+    clearTimeout(window.scanFbTimer);
+    window.scanFbTimer = setTimeout(() => {
+        fb.style.display = 'none';
+    }, 2800);
+}
+
+function highlightItemRow(itemId) {
+    const row = document.getElementById(`item-row-${itemId}`);
+    if (row) {
+        row.style.transition = 'background-color 0.4s ease';
+        row.style.backgroundColor = '#bbf7d0';
+        setTimeout(() => {
+            row.style.backgroundColor = '';
+        }, 500);
+    }
+}
+
+// Process scanned or entered barcode
+function processBarcodeScan(code) {
+    if (!code) return false;
+    code = code.trim();
+    if (code.length === 0) return false;
+
+    // 1. Check exact match in pre-loaded products array
+    const exact = products.find(p => 
+        (p.barcode && p.barcode.trim() === code) || 
+        (p.code && p.code.toLowerCase().trim() === code.toLowerCase())
+    );
+
+    if (exact) {
+        addProduct(exact);
+        playScanSound(true);
+        showScanFeedback(`✅ تم إضافة: ${exact.name} (${exact.barcode || exact.code})`, 'success');
+        productSearch.value = '';
+        productResults.style.display = 'none';
+        productSearch.focus();
+        return true;
+    }
+
+    // 2. Fallback to server search by barcode
+    const whId = document.getElementById('invoiceWarehouseSelect')?.value || 1;
+    fetch(`ajax.php?action=search_barcode&barcode=${encodeURIComponent(code)}&warehouse_id=${whId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.success && data.product) {
+                const prod = data.product;
+                if (!products.some(p => p.id == prod.id)) {
+                    products.push(prod);
+                }
+                addProduct(prod);
+                playScanSound(true);
+                showScanFeedback(`✅ تم إضافة: ${prod.name} (${prod.barcode || prod.code})`, 'success');
+                productSearch.value = '';
+                productResults.style.display = 'none';
+                productSearch.focus();
+            } else {
+                playScanSound(false);
+                showScanFeedback(`⚠️ لم يتم العثور على صنف بالباركود: ${code}`, 'error');
+            }
+        })
+        .catch(() => {
+            playScanSound(false);
+            showScanFeedback(`⚠️ لم يتم العثور على صنف بالباركود: ${code}`, 'error');
+        });
+
+    return false;
+}
+
+// Product Autocomplete input listener
 productSearch.addEventListener('input', function() {
     const query = this.value.toLowerCase().trim();
     if (query.length < 1) {
@@ -634,18 +747,21 @@ productSearch.addEventListener('input', function() {
     }
     
     const matches = products.filter(p => 
-        p.name.toLowerCase().includes(query) || p.code.toLowerCase().includes(query)
+        p.name.toLowerCase().includes(query) || 
+        p.code.toLowerCase().includes(query) ||
+        (p.barcode && p.barcode.toLowerCase().includes(query))
     ).slice(0, 10);
     
     if (matches.length > 0) {
         productResults.innerHTML = matches.map(p => {
             const whStock = getCurrentWarehouseStock(p.id);
+            const barcodeBadge = p.barcode ? `<span style="font-family: monospace; color: #475569; font-size: 0.88em; margin-right: 6px;">📊 ${p.barcode}</span>` : '';
             return `
                 <div class="autocomplete-item" onclick='addProduct(${JSON.stringify(p)})' style="${whStock <= 0 ? 'background: #fef2f2;' : ''}">
-                    <strong>${p.name}</strong> (${p.code})
+                    <strong>${p.name}</strong> (${p.code}) ${barcodeBadge}
                     ${whStock <= 0 ? '<span style="color: #dc2626; font-weight: bold; margin-right: 8px;">⚠️ نفذ بالمخزن</span>' : ''}
                     <br>
-                    <small style="color: #6b7280;">السعر: ${p.price} جنيه - رصيد المخزن المختار: ${whStock <= 0 ? '<span style="color: #dc2626;">0</span>' : whStock} (إجمالي الفروع: ${p.stock_quantity})</small>
+                    <small style="color: #6b7280;">السعر: ${p.price} جنيه - رصيد المخزن: ${whStock <= 0 ? '<span style="color: #dc2626;">0</span>' : whStock} (إجمالي: ${p.stock_quantity})</small>
                 </div>
             `;
         }).join('');
@@ -656,22 +772,71 @@ productSearch.addEventListener('input', function() {
     }
 });
 
+// Barcode scanner sends Enter key on completion
+productSearch.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const val = this.value.trim();
+        if (val.length > 0) {
+            processBarcodeScan(val);
+        }
+    }
+});
+
+// Global Barcode Scanner Listener:
+// Catches hardware barcode scans even if cursor is outside the search input
+let globalBarcodeBuffer = '';
+let globalLastKeyTime = 0;
+
+document.addEventListener('keydown', function(e) {
+    if (e.target === productSearch) return;
+
+    const targetTag = e.target ? e.target.tagName : '';
+    const isOtherInput = targetTag === 'INPUT' || targetTag === 'TEXTAREA' || targetTag === 'SELECT';
+
+    const now = Date.now();
+    const diff = now - globalLastKeyTime;
+    globalLastKeyTime = now;
+
+    // Hardware barcode scanners type characters in < 60ms intervals
+    if (diff > 80) {
+        globalBarcodeBuffer = '';
+    }
+
+    if (e.key === 'Enter') {
+        if (globalBarcodeBuffer.length >= 3) {
+            e.preventDefault();
+            const scanned = globalBarcodeBuffer;
+            globalBarcodeBuffer = '';
+            processBarcodeScan(scanned);
+        }
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (!isOtherInput || diff < 60) {
+            globalBarcodeBuffer += e.key;
+        }
+    }
+});
+
 function addProduct(product) {
     // Check if already added
     const existing = items.find(i => i.product_id == product.id);
     if (existing) {
         existing.quantity++;
         renderItems();
+        highlightItemRow(existing.id);
         productSearch.value = '';
         productResults.style.display = 'none';
+        productSearch.focus();
         return;
     }
     
     const whStock = getCurrentWarehouseStock(product.id);
+    const newItemId = itemCounter++;
     items.push({
-        id: itemCounter++,
+        id: newItemId,
         product_id: product.id,
         code: product.code,
+        barcode: product.barcode || '',
         name: product.name,
         unit: product.unit,
         quantity: 1,
@@ -680,6 +845,7 @@ function addProduct(product) {
     });
     
     renderItems();
+    highlightItemRow(newItemId);
     productSearch.value = '';
     productResults.style.display = 'none';
     productSearch.focus();
@@ -695,9 +861,9 @@ function renderItems() {
     }
     
     tbody.innerHTML = items.map((item, index) => `
-        <tr>
+        <tr id="item-row-${item.id}">
             <td>${index + 1}</td>
-            <td style="font-size: 0.9em;">${item.code}</td>
+            <td style="font-size: 0.88em;">${item.code}</td>
             <td style="text-align: center;"><strong>${item.name}</strong></td>
             <td>${item.unit}</td>
             <td>

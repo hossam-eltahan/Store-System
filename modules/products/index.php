@@ -39,21 +39,27 @@ $filterWarehouse = (int)($_GET['warehouse_id'] ?? 0);
 $filterCategory = (int)($_GET['category_id'] ?? 0);
 
 $warehouses = getAllWarehouses(false);
-$categories = getCategoriesForSelect(false);
+$hasCategoriesTable = (bool)getRow("SHOW TABLES LIKE 'categories'");
+$hasCategoryColumn = (bool)getRow("SHOW COLUMNS FROM products LIKE 'category_id'");
+$categories = ($hasCategoriesTable && $hasCategoryColumn) ? getCategoriesForSelect(false) : [];
 $suppliers = getRows("SELECT id, name FROM suppliers ORDER BY name ASC");
+
+$categorySelect = ($hasCategoriesTable && $hasCategoryColumn) ? 'c.name as category_name' : 'NULL as category_name';
+$categoryJoin = ($hasCategoriesTable && $hasCategoryColumn) ? 'LEFT JOIN categories c ON c.id = p.category_id' : '';
 
 $where = [];
 $params = [];
 
 if ($search) {
-    $where[] = "(" . search_like_expr('p.code') . " LIKE ? OR " . search_like_expr('p.name') . " LIKE ? OR " . search_like_expr('p.description') . " LIKE ?)";
+    $where[] = "(" . search_like_expr('p.code') . " LIKE ? OR " . search_like_expr('p.barcode') . " LIKE ? OR " . search_like_expr('p.name') . " LIKE ? OR " . search_like_expr('p.description') . " LIKE ?)";
     $searchTerm = search_like_term($search);
+    $params[] = $searchTerm;
     $params[] = $searchTerm;
     $params[] = $searchTerm;
     $params[] = $searchTerm;
 }
 
-if ($filterCategory > 0) {
+if ($filterCategory > 0 && $hasCategoryColumn) {
     $where[] = "p.category_id = ?";
     $params[] = $filterCategory;
 }
@@ -73,32 +79,33 @@ if ($filter === 'low_stock') {
 $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 // Pagination
-$perPage = 10; // Items per page to fit screen
+$perPage = 200; // Keep the catalog consistent with the POS product limit
 $page = max(1, intval($_GET['page'] ?? 1));
 $offset = ($page - 1) * $perPage;
 
 // Get total count
 if ($filterWarehouse > 0) {
-    $countSql = "SELECT COUNT(*) as count FROM products p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN warehouse_stock ws ON ws.product_id = p.id $whereClause";
-    $totalProducts = getRow($countSql, $params)['count'];
+    $countSql = "SELECT COUNT(*) as count FROM products p $categoryJoin LEFT JOIN warehouse_stock ws ON ws.product_id = p.id $whereClause";
+    $countRow = getRow($countSql, $params);
 } else {
-    $totalProducts = getRow("SELECT COUNT(*) as count FROM products p LEFT JOIN categories c ON c.id = p.category_id $whereClause", $params)['count'];
+    $countRow = getRow("SELECT COUNT(*) as count FROM products p $categoryJoin $whereClause", $params);
 }
+$totalProducts = (int)($countRow['count'] ?? 0);
 $totalPages = ceil($totalProducts / $perPage);
 
 // Get paginated products
 if ($filterWarehouse > 0) {
     $products = getRows(
-        "SELECT p.*, c.name as category_name, COALESCE(ws.quantity, 0) as filtered_wh_stock
+        "SELECT p.*, $categorySelect, COALESCE(ws.quantity, 0) as filtered_wh_stock
          FROM products p
-         LEFT JOIN categories c ON c.id = p.category_id
+         $categoryJoin
          LEFT JOIN warehouse_stock ws ON ws.product_id = p.id AND ws.warehouse_id = $filterWarehouse
          $whereClause ORDER BY p.name LIMIT $perPage OFFSET $offset",
         $params
     );
 } else {
     $products = getRows(
-        "SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id $whereClause ORDER BY p.name LIMIT $perPage OFFSET $offset",
+        "SELECT p.*, $categorySelect FROM products p $categoryJoin $whereClause ORDER BY p.name LIMIT $perPage OFFSET $offset",
         $params
     );
 }
@@ -123,6 +130,7 @@ include '../../includes/navbar.php';
                     <span>🚚</span> سجل التوريدات
                 </a>
                 <?php endif; ?>
+                <a href="barcode_print.php" class="btn btn-secondary" style="font-weight: 600;">🏷️ طباعة الباركود</a>
                 <?php if (hasPermission('products.add')): ?>
                 <a href="add.php" class="btn btn-primary">+ إضافة صنف جديد</a>
                 <?php endif; ?>
@@ -134,7 +142,7 @@ include '../../includes/navbar.php';
             <form method="GET" class="mb-2" id="productFilterForm">
                 <div class="form-row">
                     <div class="form-group" style="flex: 2;">
-                        <input type="text" name="search" id="productSearch" class="form-control" placeholder="🔍 بحث بالكود أو الاسم..." value="<?php echo htmlspecialchars($search); ?>">
+                        <input type="text" name="search" id="productSearch" class="form-control" placeholder="🔍 بحث بالكود، الباركود، أو الاسم..." value="<?php echo htmlspecialchars($search); ?>">
                     </div>
 
                     <div class="form-group">
@@ -212,7 +220,14 @@ include '../../includes/navbar.php';
                         <?php else: ?>
                         <?php foreach ($products as $product): ?>
                         <tr>
-                            <td><strong><?php echo $product['code']; ?></strong></td>
+                            <td>
+                                <strong><?php echo $product['code']; ?></strong>
+                                <?php if (!empty($product['barcode'])): ?>
+                                    <div style="font-family: monospace; font-size: 0.82em; color: #475569; margin-top: 3px;" title="الباركود">
+                                        📊 <?php echo htmlspecialchars($product['barcode']); ?>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <?php if ($product['image']): ?>
                                     <img src="../../assets/uploads/<?php echo $product['image']; ?>"
@@ -271,6 +286,7 @@ include '../../includes/navbar.php';
                                 <?php if (hasPermission('products.edit')): ?>
                                 <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-primary">✏️ تعديل</a>
                                 <?php endif; ?>
+                                <a href="barcode_print.php?id=<?php echo $product['id']; ?>" class="btn btn-secondary" title="طباعة ملصق الباركود" style="padding: 4px 8px; font-size: 0.85em;">🏷️ باركود</a>
                                 <?php if (hasPermission('products.delete')): ?>
                                 <button type="button" class="btn btn-danger btn-delete"
                                         data-name="<?php echo htmlspecialchars($product['name']); ?>"

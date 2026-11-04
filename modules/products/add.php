@@ -25,6 +25,7 @@ function generateProductCode() {
 }
 
 $autoCode = generateProductCode();
+$autoBarcode = generateUniqueBarcode();
 
 // Get existing units for datalist
 $existingUnits = getRows("SELECT DISTINCT unit FROM products ORDER BY unit");
@@ -33,6 +34,10 @@ $categories = getCategoriesForSelect();
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $code = sanitize($_POST['code']);
+    $barcode = sanitize($_POST['barcode'] ?? '');
+    if (empty($barcode)) {
+        $barcode = generateUniqueBarcode();
+    }
     $name = sanitize($_POST['name']);
     $unit = sanitize($_POST['unit']);
     $price = floatval($_POST['price']);
@@ -46,6 +51,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Check if code exists
     $existing = getRow("SELECT id FROM products WHERE code = ?", [$code]);
+    if (!empty($barcode)) {
+        $existingBarcode = getRow("SELECT id, name FROM products WHERE barcode = ?", [$barcode]);
+        if ($existingBarcode) {
+            setError('الباركود مستخدم مسبقاً للصنف: ' . $existingBarcode['name']);
+        }
+    }
     if ($existing) {
         setError('كود الصنف موجود مسبقاً');
     }
@@ -70,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $id = insert(
                 "INSERT INTO products (category_id, code, name, unit, price, wholesale_price, cost_price, stock_quantity, min_stock_level, description, image)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [$categoryId, $code, $name, $unit, $price, $wholesalePrice, $costPrice, $stockQuantity, $minStockLevel, $description, $imagePath]
+                [$categoryId, $code, $barcode, $name, $unit, $price, $wholesalePrice, $costPrice, $stockQuantity, $minStockLevel, $description, $imagePath]
             );
 
             if ($id) {
@@ -113,6 +124,15 @@ include '../../includes/navbar.php';
                         <label class="form-label required">كود الصنف</label>
                         <input type="text" name="code" class="form-control" value="<?php echo $autoCode; ?>" required readonly style="background-color: #f0f0f0;">
                         <small>كود تلقائي فريد للصنف</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label required">الباركود</label>
+                        <div style="display: flex; gap: 6px;">
+                            <input type="text" name="barcode" id="productBarcode" class="form-control" value="<?php echo $autoBarcode; ?>" placeholder="امسح بالسكانر أو اكتب الباركود" required style="font-family: monospace; font-weight: bold; letter-spacing: 1px;">
+                            <button type="button" class="btn btn-secondary" onclick="generateNewBarcode()" title="توليد باركود تلقائي جديد" style="white-space: nowrap; padding: 0 10px;">⚡ جديد</button>
+                        </div>
+                        <small>تم توليد باركود تلقائي (يمكنك تغييره أو مسحه بالسكانر)</small>
                     </div>
 
                     <div class="form-group">
@@ -212,4 +232,16 @@ include '../../includes/navbar.php';
     </div>
 </div>
 
+<script>
+function generateNewBarcode() {
+    fetch('../../modules/invoices/ajax.php?action=generate_barcode')
+        .then(r => r.json())
+        .then(d => {
+            if (d && d.barcode) {
+                document.getElementById('productBarcode').value = d.barcode;
+            }
+        })
+        .catch(() => {});
+}
+</script>
 <?php include '../../includes/footer.php'; ?>

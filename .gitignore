@@ -26,3 +26,9 @@ data/updates/*.zip
 data/updates/backups/
 data/updates/temp/
 
+
+# Generated update-builder packages
+tools/update_builder/packages/
+
+config/.dev_license
+

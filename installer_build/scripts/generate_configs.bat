@@ -4,8 +4,8 @@ chcp 65001 >nul 2>&1
 
 set "APACHE_PORT=%1"
 set "MYSQL_PORT=%2"
-if "%APACHE_PORT%"=="" set "APACHE_PORT=8080"
-if "%MYSQL_PORT%"=="" set "MYSQL_PORT=3307"
+if "%APACHE_PORT%"=="" set "APACHE_PORT=8091"
+if "%MYSQL_PORT%"=="" set "MYSQL_PORT=3311"
 
 set "ROOT_DIR=%~dp0.."
 pushd "%ROOT_DIR%"

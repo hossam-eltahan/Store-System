@@ -27,6 +27,10 @@ $categories = getCategoriesForSelect();
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $code = sanitize($_POST['code']);
+    $barcode = sanitize($_POST['barcode'] ?? '');
+    if (empty($barcode)) {
+        $barcode = generateUniqueBarcode();
+    }
     $name = sanitize($_POST['name']);
     $unit = sanitize($_POST['unit']);
     $price = floatval($_POST['price']);
@@ -39,8 +43,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Check if code exists for other products
     $existing = getRow("SELECT id FROM products WHERE code = ? AND id != ?", [$code, $id]);
+    $existingBarcode = !empty($barcode) ? getRow("SELECT id, name FROM products WHERE barcode = ? AND id != ?", [$barcode, $id]) : null;
     if ($existing) {
         setError('كود الصنف مستخدم لمنتج آخر');
+    } elseif ($existingBarcode) {
+        setError('الباركود مستخدم مسبقاً للصنف: ' . $existingBarcode['name']);
     } else {
         // Handle image removal
         $imagePath = $product['image'];
@@ -62,10 +69,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!isset($_SESSION['error'])) {
             execute(
                 "UPDATE products SET
-                 category_id = ?, code = ?, name = ?, unit = ?, price = ?, wholesale_price = ?, cost_price = ?,
+                 category_id = ?, code = ?, barcode = ?, name = ?, unit = ?, price = ?, wholesale_price = ?, cost_price = ?,
                  min_stock_level = ?, description = ?, image = ?
                  WHERE id = ?",
-                [$categoryId, $code, $name, $unit, $price, $wholesalePrice, $costPrice, $minStockLevel, $description, $imagePath, $id]
+                [$categoryId, $code, $barcode, $name, $unit, $price, $wholesalePrice, $costPrice, $minStockLevel, $description, $imagePath, $id]
             );
 
             // Update per-warehouse stock if provided
@@ -107,6 +114,15 @@ include '../../includes/navbar.php';
                     <div class="form-group">
                         <label class="form-label required">كود الصنف</label>
                         <input type="text" name="code" class="form-control" value="<?php echo $product['code']; ?>" required readonly style="background-color: #f0f0f0;">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label required">الباركود</label>
+                        <div style="display: flex; gap: 6px;">
+                            <input type="text" name="barcode" id="productBarcode" class="form-control" value="<?php echo htmlspecialchars($product['barcode'] ?? ''); ?>" placeholder="امسح بالسكانر أو اكتب الباركود" required style="font-family: monospace; font-weight: bold; letter-spacing: 1px;">
+                            <button type="button" class="btn btn-secondary" onclick="generateNewBarcode()" title="توليد باركود تلقائي جديد" style="white-space: nowrap; padding: 0 10px;">⚡ جديد</button>
+                        </div>
+                        <small>باركود الصنف (يمكنك تغييره أو مسحه بالسكانر)</small>
                     </div>
 
                     <div class="form-group">
@@ -244,6 +260,7 @@ include '../../includes/navbar.php';
 
                 <div class="d-flex gap-2 mt-2">
                     <button type="submit" class="btn btn-primary btn-lg">💾 حفظ التعديلات</button>
+                    <a href="barcode_print.php?id=<?php echo $product['id']; ?>" class="btn btn-info btn-lg">🏷️ طباعة الباركود</a>
                     <a href="index.php" class="btn btn-secondary btn-lg">❌ إلغاء</a>
                 </div>
             </form>
@@ -251,4 +268,16 @@ include '../../includes/navbar.php';
     </div>
 </div>
 
+<script>
+function generateNewBarcode() {
+    fetch('../../modules/invoices/ajax.php?action=generate_barcode')
+        .then(r => r.json())
+        .then(d => {
+            if (d && d.barcode) {
+                document.getElementById('productBarcode').value = d.barcode;
+            }
+        })
+        .catch(() => {});
+}
+</script>
 <?php include '../../includes/footer.php'; ?>

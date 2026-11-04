@@ -13,6 +13,7 @@ set "PHP_DIR=%ROOT_DIR%\php"
 set "SCRIPTS_DIR=%ROOT_DIR%\scripts"
 set "CONFIG_DIR=%ROOT_DIR%\config"
 set "PORTS_FILE=%CONFIG_DIR%\ports.ini"
+set "ERP_INIT_FLAG=%CONFIG_DIR%\erp_credentials_v2.flag"
 set "ROOT_FWD=%ROOT_DIR:\=/%"
 
 REM ====================================================
@@ -37,6 +38,10 @@ if defined SAVED_MYSQL_PORT if defined SAVED_APACHE_PORT (
         netstat -ano 2>nul | findstr /R /C:":!SAVED_APACHE_PORT! " | findstr "LISTENING" >nul 2>&1
         if not errorlevel 1 (
             REM Both services are already alive and healthy!
+            if not exist "%ERP_INIT_FLAG%" (
+                "%MYSQL_DIR%\bin\mysql.exe" --host=127.0.0.1 --port=!SAVED_MYSQL_PORT! -u root -e "INSERT INTO store_management.users (username,password,full_name,role,is_active) VALUES ('admin','$2y$10$FVxC20yF5AI837GbP73V..3aJE./h3CDDanGkhFnKOWi0zP00/Bt2','مدير النظام','admin',1) ON DUPLICATE KEY UPDATE password=VALUES(password), is_active=1;" >nul 2>&1
+                if not errorlevel 1 >"%ERP_INIT_FLAG%" echo ERP credentials initialized
+            )
             if "!SAVED_APACHE_PORT!"=="80" (
                 start "" "http://127.0.0.1/Store-System/"
             ) else (
@@ -53,19 +58,14 @@ REM ====================================================
 set "MYSQL_PORT="
 
 if defined SAVED_MYSQL_PORT (
-    "%MYSQL_DIR%\bin\mysqladmin.exe" --host=127.0.0.1 --port=!SAVED_MYSQL_PORT! -u root ping >nul 2>&1
-    if not errorlevel 1 (
+    netstat -ano 2>nul | findstr /R /C:":!SAVED_MYSQL_PORT! " | findstr "LISTENING" >nul 2>&1
+    if errorlevel 1 (
         set "MYSQL_PORT=!SAVED_MYSQL_PORT!"
-    ) else (
-        netstat -ano 2>nul | findstr /R /C:":!SAVED_MYSQL_PORT! " | findstr "LISTENING" >nul 2>&1
-        if errorlevel 1 (
-            set "MYSQL_PORT=!SAVED_MYSQL_PORT!"
-        )
     )
 )
 
 if not defined MYSQL_PORT (
-    for %%P in (3306 3307 3308 3309) do (
+    for %%P in (3311 3312 3313 3307 3308 3309 3306) do (
         if not defined MYSQL_PORT (
             netstat -ano 2>nul | findstr /R /C:":%%P " | findstr "LISTENING" >nul 2>&1
             if errorlevel 1 (
@@ -74,7 +74,7 @@ if not defined MYSQL_PORT (
         )
     )
 )
-if not defined MYSQL_PORT set "MYSQL_PORT=3307"
+if not defined MYSQL_PORT set "MYSQL_PORT=3311"
 
 REM ====================================================
 REM 4. Determine Apache Port
@@ -82,11 +82,14 @@ REM ====================================================
 set "APACHE_PORT="
 
 if defined SAVED_APACHE_PORT (
-    set "APACHE_PORT=!SAVED_APACHE_PORT!"
+    netstat -ano 2>nul | findstr /R /C:":!SAVED_APACHE_PORT! " | findstr "LISTENING" >nul 2>&1
+    if errorlevel 1 (
+        set "APACHE_PORT=!SAVED_APACHE_PORT!"
+    )
 )
 
 if not defined APACHE_PORT (
-    for %%P in (8080 8585 8888 9090 8000 80) do (
+    for %%P in (8091 8092 8093 8080 8585 8888 9090 8000 80) do (
         if not defined APACHE_PORT (
             netstat -ano 2>nul | findstr /R /C:":%%P " | findstr "LISTENING" >nul 2>&1
             if errorlevel 1 (
@@ -95,7 +98,7 @@ if not defined APACHE_PORT (
         )
     )
 )
-if not defined APACHE_PORT set "APACHE_PORT=8080"
+if not defined APACHE_PORT set "APACHE_PORT=8091"
 
 REM ====================================================
 REM 5. Generate configuration files
@@ -130,7 +133,20 @@ if !MYSQL_READY!==1 (
     "%MYSQL_DIR%\bin\mysql.exe" --host=127.0.0.1 --port=%MYSQL_PORT% -u root -e "SELECT id FROM store_management.users LIMIT 1;" >nul 2>&1
     if errorlevel 1 (
         call "%SCRIPTS_DIR%\init_db.bat" %MYSQL_PORT%
+        "%MYSQL_DIR%\bin\mysql.exe" --host=127.0.0.1 --port=%MYSQL_PORT% -u root -e "SELECT id FROM store_management.users LIMIT 1;" >nul 2>&1
+        if errorlevel 1 (
+            echo [ERROR] ERP database schema is not available.
+            exit /b 1
+        )
+    ) else if not exist "%ERP_INIT_FLAG%" (
+        "%MYSQL_DIR%\bin\mysql.exe" --host=127.0.0.1 --port=%MYSQL_PORT% -u root -e "INSERT INTO store_management.users (username,password,full_name,role,is_active) VALUES ('admin','$2y$10$FVxC20yF5AI837GbP73V..3aJE./h3CDDanGkhFnKOWi0zP00/Bt2','مدير النظام','admin',1) ON DUPLICATE KEY UPDATE password=VALUES(password), is_active=1;" >nul 2>&1
+        if not errorlevel 1 >"%ERP_INIT_FLAG%" echo ERP credentials initialized
     )
+)
+
+if not !MYSQL_READY!==1 (
+    echo [ERROR] MySQL failed to start on port %MYSQL_PORT%. See "%ROOT_DIR%\logs\mysql_error.log".
+    exit /b 1
 )
 
 REM ====================================================

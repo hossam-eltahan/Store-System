@@ -8,7 +8,7 @@ REM  Called automatically on first run
 REM ============================================
 
 set "MYSQL_PORT=%1"
-if "%MYSQL_PORT%"=="" set "MYSQL_PORT=3306"
+if "%MYSQL_PORT%"=="" set "MYSQL_PORT=3311"
 
 set "ROOT_DIR=%~dp0.."
 pushd "%ROOT_DIR%"
@@ -44,6 +44,10 @@ echo [OK] Database created
 
 echo [....] Importing tables and data...
 "%MYSQL_DIR%\bin\mysql.exe" --host=127.0.0.1 --port=%MYSQL_PORT% -u root --default-character-set=utf8mb4 store_management < "%SQL_FILE%"
+if errorlevel 1 (
+    echo [ERROR] Failed to import ERP database schema.
+    exit /b 1
+)
 
 if errorlevel 1 (
     echo [ERROR] Failed to import data!
