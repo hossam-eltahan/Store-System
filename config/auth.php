@@ -150,6 +150,7 @@ function getAllPermissions() {
                 'warehouses.view' => 'عرض المخازن والأرصدة',
                 'warehouses.manage' => 'إدارة المخازن (إضافة/تعديل)',
                 'warehouses.transfer' => 'تحويل مخزون بين المخازن',
+                'warehouses.supply' => 'توريد سريع (زيادة المخزون بدون فاتورة)',
             ]
         ],
         'users' => [

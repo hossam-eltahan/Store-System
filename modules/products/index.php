@@ -40,6 +40,7 @@ $filterCategory = (int)($_GET['category_id'] ?? 0);
 
 $warehouses = getAllWarehouses(false);
 $categories = getCategoriesForSelect(false);
+$suppliers = getRows("SELECT id, name FROM suppliers ORDER BY name ASC");
 
 $where = [];
 $params = [];
@@ -116,9 +117,16 @@ include '../../includes/navbar.php';
     <div class="card">
         <div class="card-header d-flex justify-between align-center">
             <span>📦 إدارة الأصناف</span>
-            <?php if (hasPermission('products.add')): ?>
-            <a href="add.php" class="btn btn-primary">+ إضافة صنف جديد</a>
-            <?php endif; ?>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <?php if (hasPermission('warehouses.supply')): ?>
+                <a href="../warehouses/supplies.php" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 5px;">
+                    <span>🚚</span> سجل التوريدات
+                </a>
+                <?php endif; ?>
+                <?php if (hasPermission('products.add')): ?>
+                <a href="add.php" class="btn btn-primary">+ إضافة صنف جديد</a>
+                <?php endif; ?>
+            </div>
         </div>
 
         <div class="card-body">
@@ -248,6 +256,18 @@ include '../../includes/navbar.php';
                                 <?php endif; ?>
                             </td>
                             <td>
+                                <?php if (hasPermission('warehouses.supply') && empty($product['is_service'])): ?>
+                                <button type="button" class="btn btn-success" style="display: inline-flex; align-items: center; gap: 4px;"
+                                        title="توريد سريع بدون فاتورة"
+                                        onclick='openQuickSupplyModal(<?php echo htmlspecialchars(json_encode([
+                                            'id' => (int)$product['id'],
+                                            'name' => $product['name'],
+                                            'unit' => $product['unit'],
+                                            'warehouseId' => $filterWarehouse > 0 ? (int)$filterWarehouse : 0,
+                                        ], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>)'>
+                                    🚚 توريد سريع
+                                </button>
+                                <?php endif; ?>
                                 <?php if (hasPermission('products.edit')): ?>
                                 <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-primary">✏️ تعديل</a>
                                 <?php endif; ?>
@@ -454,5 +474,18 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 });
 </script>
+
+<?php if (hasPermission('warehouses.supply')): ?>
+<?php
+$supplyAction = 'supply.php';
+$supplyReturnTo = 'products';
+$supplyWarehouses = array_values(array_filter($warehouses, function ($wh) {
+    return (int)$wh['is_active'] === 1;
+}));
+$supplySuppliers = $suppliers;
+$supplyDefaultWarehouseId = $filterWarehouse > 0 ? $filterWarehouse : getCurrentWarehouseId();
+include '../../includes/quick_supply_modal.php';
+?>
+<?php endif; ?>
 
 <?php include '../../includes/footer.php'; ?>

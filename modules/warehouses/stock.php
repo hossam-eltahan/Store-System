@@ -27,6 +27,7 @@ $pageTitle = 'رصيد مخزن: ' . $warehouse['name'];
 
 // All active warehouses for selector
 $allWarehouses = getAllWarehouses(false);
+$suppliers = getRows("SELECT id, name FROM suppliers ORDER BY name ASC");
 
 // Filters
 $search = trim($_GET['search'] ?? '');
@@ -108,6 +109,12 @@ include '../../includes/navbar.php';
                     <?php endforeach; ?>
                 </select>
             </form>
+
+            <?php if (hasPermission('warehouses.supply')): ?>
+            <a href="supplies.php?warehouse_id=<?php echo $warehouseId; ?>" class="btn btn-success" style="display: inline-flex; align-items: center; gap: 6px;">
+                <span>🚚</span> سجل التوريدات
+            </a>
+            <?php endif; ?>
 
             <?php if (hasPermission('warehouses.transfer')): ?>
             <a href="transfer.php?from_warehouse_id=<?php echo $warehouseId; ?>" class="btn btn-warning" style="display: inline-flex; align-items: center; gap: 6px;">
@@ -250,6 +257,19 @@ include '../../includes/navbar.php';
                                 <small style="color: var(--text-secondary);">قطعة</small>
                             </td>
                             <td style="text-align: center;">
+                                <?php if (hasPermission('warehouses.supply') && empty($p['is_service'])): ?>
+                                <button type="button" class="btn btn-sm btn-success"
+                                        title="توريد سريع بدون فاتورة"
+                                        style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px;"
+                                        onclick='openQuickSupplyModal(<?php echo htmlspecialchars(json_encode([
+                                            'id' => (int)$p['id'],
+                                            'name' => $p['name'],
+                                            'unit' => $p['unit'],
+                                            'warehouseId' => (int)$warehouseId,
+                                        ], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>)'>
+                                    <span>🚚</span> توريد سريع
+                                </button>
+                                <?php endif; ?>
                                 <?php if (hasPermission('warehouses.transfer')): ?>
                                 <a href="transfer.php?from_warehouse_id=<?php echo $warehouseId; ?>&product_id=<?php echo $p['id']; ?>" 
                                    class="btn btn-sm btn-outline-warning" title="تحويل هذا الصنف إلى مخزن آخر"
@@ -266,5 +286,18 @@ include '../../includes/navbar.php';
         </div>
     </div>
 </div>
+
+<?php if (hasPermission('warehouses.supply')): ?>
+<?php
+$supplyAction = '../products/supply.php';
+$supplyReturnTo = 'stock';
+$supplyWarehouses = array_values(array_filter($allWarehouses, function ($wh) {
+    return (int)$wh['is_active'] === 1;
+}));
+$supplySuppliers = $suppliers;
+$supplyDefaultWarehouseId = $warehouseId;
+include '../../includes/quick_supply_modal.php';
+?>
+<?php endif; ?>
 
 <?php include '../../includes/footer.php'; ?>

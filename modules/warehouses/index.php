@@ -88,6 +88,11 @@ include '../../includes/navbar.php';
             <p style="color: var(--text-secondary); margin: 5px 0 0 0; font-size: 14px;">إدارة مخازن البضائع، ومتابعة الأرصدة والتحويلات بين المخازن</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <?php if (hasPermission('warehouses.supply')): ?>
+            <a href="supplies.php" class="btn btn-success" style="display: inline-flex; align-items: center; gap: 6px;">
+                <span>🚚</span> سجل التوريدات
+            </a>
+            <?php endif; ?>
             <?php if (hasPermission('warehouses.transfer')): ?>
             <a href="transfer.php" class="btn btn-warning" style="display: inline-flex; align-items: center; gap: 6px;">
                 <span>🔄</span> تحويل مخزون
